@@ -14,8 +14,8 @@ func TestSharedJCSNumberVectors(t *testing.T) {
 	}
 	var fixture struct {
 		SchemaVersion string `json:"schema_version"`
-		Vectors []struct {
-			Input string `json:"input"`
+		Vectors       []struct {
+			Input     string `json:"input"`
 			Canonical string `json:"canonical"`
 		} `json:"vectors"`
 	}
@@ -47,10 +47,10 @@ func TestSharedResolvedActionHashVector(t *testing.T) {
 	var fixture struct {
 		SchemaVersion string `json:"schema_version"`
 		ActionHash struct {
-			DomainSeparator string `json:"domain_separator"`
-			ActionRequest ActionRequest `json:"action_request"`
-			CanonicalJSON string `json:"canonical_json"`
-			ExpectedSHA256 string `json:"expected_sha256"`
+			DomainSeparator string        `json:"domain_separator"`
+			ActionRequest   ActionRequest `json:"action_request"`
+			CanonicalJSON   string        `json:"canonical_json"`
+			ExpectedSHA256  string        `json:"expected_sha256"`
 		} `json:"action_hash"`
 	}
 	if err := json.Unmarshal(data, &fixture); err != nil {
@@ -79,7 +79,6 @@ func TestSharedResolvedActionHashVector(t *testing.T) {
 		t.Fatalf("ActionHash mismatch: got %s want %s", got, fixture.ActionHash.ExpectedSHA256)
 	}
 }
-
 
 func TestJCSUnicodeEscapingAndSurrogateValidation(t *testing.T) {
 	validPair, err := canonicalJSONObject([]byte(`{"x":"\uD83D\uDE00"}`))
