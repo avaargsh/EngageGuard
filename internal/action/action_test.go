@@ -29,7 +29,7 @@ func TestHashStableAndApproved(t *testing.T) {
 
 func TestCanonicalJSONUsesJCSPropertyOrderAndStringEscaping(t *testing.T) {
 	a := sample()
-	a.WorkspaceID = "ws<>&/\\"line\\break\n" + "\u2028" + "tail"
+\ta.WorkspaceID = "ws<>&/\"line\\break\n" + "\u2028" + "tail"
 	got := string(canonicalJSON(a))
 	wantFragment := `"workspace_id":"ws<>&/\\\"line\\\\break\\n` + "\u2028" + `tail"`
 	if !strings.Contains(got, wantFragment) {
@@ -128,7 +128,7 @@ func TestHashMatchesV01GoldenVector(t *testing.T) {
 
 func TestHashMatchesUnicodeJCSVectors(t *testing.T) {
 	a := sample()
-	a.WorkspaceID = "ws<>&/\\\"line\\break\n" + "\u2028" + "tail"
+\ta.WorkspaceID = "ws<>&/\"line\\break\n" + "\u2028" + "tail"
 	got, err := Hash(a)
 	if err != nil {
 		t.Fatal(err)
