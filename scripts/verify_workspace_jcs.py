@@ -10,7 +10,7 @@ FIELDS = frozenset({
     "policy_version", "audience", "workspace_id",
     "relative_path", "content_digest",
 })
-DOMAIN = b"engageguard/action-hash/v1\\x00"
+DOMAIN = b"engageguard/action-hash/v1\x00"
 
 
 def reject_duplicates(pairs):
@@ -26,7 +26,7 @@ def main():
     fixture_path = Path(__file__).resolve().parent.parent / "testdata" / "workspace-actionhash-v01.json"
     fixture = json.loads(fixture_path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicates)
     assert fixture["schema_version"] == "workspace-actionhash-fixtures.v0.1"
-    assert fixture["domain_separator"] == r"engageguard/action-hash/v1\\u0000"
+    assert fixture["domain_separator"] == r"engageguard/action-hash/v1\u0000"
     assert len(fixture["vectors"]) == 4
     for vector in fixture["vectors"]:
         action = vector["action"]
