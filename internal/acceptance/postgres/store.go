@@ -88,7 +88,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	}
 	migrations := []struct {
 		version int64
-		source string
+		source  string
 	}{
 		{initialMigrationVersion, initialSchema},
 		{2, permitSchema},
