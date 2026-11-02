@@ -185,7 +185,7 @@ func TestRejectMalformedSubmissionBeforeStore(t *testing.T) {
 		{"bad key", goodBody()},
 		{"key-1", `{"operation_id":"caller-forged"}`},
 		{"key-1", strings.Replace(goodBody(), `"run_id":`, `"tenant_id":"forged","run_id":`, 1)},
-		{"key-1", strings.Replace(goodBody(), `"version":"1.0.0"`, `"version":"1.0.0","contract_sha256":"`+strings.Repeat("b",64)+`"`, 1)},
+		{"key-1", strings.Replace(goodBody(), `"version":"1.0.0"`, `"version":"1.0.0","contract_sha256":"`+strings.Repeat("b", 64)+`"`, 1)},
 		{"key-1", goodBody() + "{}"},
 		{"key-1", goodBody() + strings.Repeat(" ", 65537)},
 	} {
