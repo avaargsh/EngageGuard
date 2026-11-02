@@ -2,21 +2,85 @@
   "schema_version": "jcs-number-vectors.v1",
   "standard": "RFC 8785 Appendix B / ECMAScript IEEE-754 serialization",
   "vectors": [
-    {"input": "0", "canonical": "0"},
-    {"input": "-0", "canonical": "0"},
-    {"input": "-0.0", "canonical": "0"},
-    {"input": "4.50", "canonical": "4.5"},
-    {"input": "2e-3", "canonical": "0.002"},
-    {"input": "1e-6", "canonical": "0.000001"},
-    {"input": "1e-7", "canonical": "1e-7"},
-    {"input": "1e20", "canonical": "100000000000000000000"},
-    {"input": "1e21", "canonical": "1e+21"},
-    {"input": "1e30", "canonical": "1e+30"},
-    {"input": "1e-27", "canonical": "1e-27"},
-    {"input": "333333333.33333329", "canonical": "333333333.3333333"},
-    {"input": "1e-324", "canonical": "0"},
-    {"input": "5e-324", "canonical": "5e-324"},
-    {"input": "2.2250738585072014e-308", "canonical": "2.2250738585072014e-308"},
-    {"input": "1.7976931348623157e+308", "canonical": "1.7976931348623157e+308"}
+    {
+      "input": "0",
+      "canonical": "0"
+    },
+    {
+      "input": "-0",
+      "canonical": "0"
+    },
+    {
+      "input": "-0.0",
+      "canonical": "0"
+    },
+    {
+      "input": "4.50",
+      "canonical": "4.5"
+    },
+    {
+      "input": "2e-3",
+      "canonical": "0.002"
+    },
+    {
+      "input": "1e-6",
+      "canonical": "0.000001"
+    },
+    {
+      "input": "1e-7",
+      "canonical": "1e-7"
+    },
+    {
+      "input": "1e20",
+      "canonical": "100000000000000000000"
+    },
+    {
+      "input": "1e21",
+      "canonical": "1e+21"
+    },
+    {
+      "input": "1e30",
+      "canonical": "1e+30"
+    },
+    {
+      "input": "1e-27",
+      "canonical": "1e-27"
+    },
+    {
+      "input": "333333333.33333329",
+      "canonical": "333333333.3333333"
+    },
+    {
+      "input": "1e-324",
+      "canonical": "0"
+    },
+    {
+      "input": "5e-324",
+      "canonical": "5e-324"
+    },
+    {
+      "input": "2.2250738585072014e-308",
+      "canonical": "2.2250738585072014e-308"
+    },
+    {
+      "input": "1.7976931348623157e+308",
+      "canonical": "1.7976931348623157e+308"
+    },
+    {
+      "input": "9007199254740992",
+      "canonical": "9007199254740992"
+    },
+    {
+      "input": "1e+23",
+      "canonical": "1e+23"
+    },
+    {
+      "input": "1.0000000000000001e+23",
+      "canonical": "1.0000000000000001e+23"
+    },
+    {
+      "input": "1424953923781206.25",
+      "canonical": "1424953923781206.2"
+    }
   ]
 }
