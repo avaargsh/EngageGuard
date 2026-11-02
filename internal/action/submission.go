@@ -44,7 +44,7 @@ func (s ActionSubmission) Validate() error {
 	if len(s.Arguments) == 0 || len(s.Arguments) > maxArgumentsBytes {
 		return errors.New("invalid submission arguments size")
 	}
-	if _, err := canonicalArguments(s.Arguments); err != nil {
+	if _, err := canonicalJSONObject(s.Arguments); err != nil {
 		return fmt.Errorf("invalid submission arguments: %w", err)
 	}
 	return nil
@@ -63,7 +63,7 @@ func ParseActionSubmission(raw []byte) (ActionSubmission, error) {
 	if err := checkSubmissionDepth(raw); err != nil {
 		return result, err
 	}
-	if _, err := canonicalArguments(raw); err != nil {
+	if _, err := canonicalJSONObject(raw); err != nil {
 		return result, fmt.Errorf("invalid submission JSON: %w", err)
 	}
 	// encoding/json accepts case-insensitive field aliases even with
@@ -94,7 +94,7 @@ func checkSubmissionDepth(raw []byte) error {
 	for {
 		token, err := decoder.Token()
 		if errors.Is(err, io.EOF) {
-			return nil // canonicalArguments checks full syntax and trailing data
+			return nil // canonicalJSONObject checks full syntax and trailing data
 		}
 		if err != nil {
 			return fmt.Errorf("invalid submission JSON: %w", err)

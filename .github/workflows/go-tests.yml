@@ -3,7 +3,7 @@ name: Go EngageGuard action tests
 on:
   pull_request:
   push:
-    branches: ['feature/**']
+    branches: ['feature/**', 'fix/**']
 
 permissions:
   contents: read
@@ -39,12 +39,20 @@ jobs:
       - run: go mod verify
       - run: go test -race -count=1 ./...
       - run: go vet ./...
-      - name: Verify Go formatting with actionable diff
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.16.0'
+      - name: Verify Python and TypeScript JCS interoperability
+        run: |
+          python3 scripts/verify_resolved_action_hash.py
+          node --experimental-strip-types scripts/verify_resolved_action_hash.ts
+      - name: Check gofmt
         shell: bash
         run: |
           files="$(gofmt -l internal)"
           if [[ -n "$files" ]]; then
-            printf 'Unformatted files:\\n%s\\n' "$files"
+            echo "The following Go files need gofmt:"
+            printf '%s\\n' "$files"
             gofmt -d $files
             exit 1
           fi
