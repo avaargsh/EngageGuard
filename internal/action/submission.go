@@ -27,15 +27,15 @@ type ActionCapabilitySelector struct {
 // Guard must resolve all those values from authenticated authoritative state.
 // This is not a permit, an executable action or an authorization decision.
 type ActionSubmission struct {
-	SchemaVersion string              `json:"schema_version"`
-	RunID         string              `json:"run_id"`
-	DecisionID    string              `json:"decision_id"`
-	PlanID        string              `json:"plan_id"`
-	PlanHash      string              `json:"plan_hash"`
-	StepID        string              `json:"step_id"`
+	SchemaVersion string                   `json:"schema_version"`
+	RunID         string                   `json:"run_id"`
+	DecisionID    string                   `json:"decision_id"`
+	PlanID        string                   `json:"plan_id"`
+	PlanHash      string                   `json:"plan_hash"`
+	StepID        string                   `json:"step_id"`
 	Capability    ActionCapabilitySelector `json:"capability"`
-	ResourceRef   string              `json:"resource_ref"`
-	Arguments     json.RawMessage     `json:"arguments"`
+	ResourceRef   string                   `json:"resource_ref"`
+	Arguments     json.RawMessage          `json:"arguments"`
 }
 
 func (s ActionSubmission) Validate() error {
