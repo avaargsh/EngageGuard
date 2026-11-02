@@ -21,18 +21,18 @@ func seededWorkspacePermit(t *testing.T) (*Store, action.WorkspaceWrite, string)
 		t.Fatalf("accept: %v, created=%v", err, created)
 	}
 	resolved := action.WorkspaceWrite{
-		SchemaVersion: "v0.1",
-		TenantID: "tenant-a",
-		SubjectID: "verified-runtime-subject",
-		AgentID: "verified-agent",
-		OperationID: op.OperationID,
-		CapabilityID: "workspace.write",
+		SchemaVersion:     "v0.1",
+		TenantID:          "tenant-a",
+		SubjectID:         "verified-runtime-subject",
+		AgentID:           "verified-agent",
+		OperationID:       op.OperationID,
+		CapabilityID:      "workspace.write",
 		ToolBindingDigest: strings.Repeat("a", 64),
-		PolicyVersion: "signed-policy-7",
-		Audience: "trusted-workspace-executor",
-		WorkspaceID: "workspace-1",
-		RelativePath: "docs/output.md",
-		ContentDigest: strings.Repeat("b", 64),
+		PolicyVersion:     "signed-policy-7",
+		Audience:          "trusted-workspace-executor",
+		WorkspaceID:       "workspace-1",
+		RelativePath:      "docs/output.md",
+		ContentDigest:     strings.Repeat("b", 64),
 	}
 	hash, err := action.Hash(resolved)
 	if err != nil {
@@ -59,7 +59,7 @@ func TestClaimPermitAndIntentAreAtomicAndOneTimeUnderConcurrency(t *testing.T) {
 	const clients = 16
 	type result struct {
 		intent DispatchIntent
-		err error
+		err    error
 	}
 	results := make(chan result, clients)
 	var wg sync.WaitGroup
@@ -96,75 +96,103 @@ func TestClaimPermitAndIntentAreAtomicAndOneTimeUnderConcurrency(t *testing.T) {
 	}
 	var claimed, intents, audits int
 	err := store.db.QueryRow(`SELECT count(*) FROM guard_permits
-		WHERE permit_id=$1::uuid AND state='CLAIMED'`,permitID).Scan(&claimed)
-	if err != nil { t.Fatal(err) }
-	err = store.db.QueryRow(`SELECT count(*) FROM guard_operation_intents WHERE permit_id=$1::uuid`,permitID).Scan(&intents)
-	if err != nil { t.Fatal(err) }
-	err = store.db.QueryRow(`SELECT count(*) FROM guard_execution_audit WHERE permit_id=$1::uuid AND event_type='guard.operation.dispatching.v1'`,permitID).Scan(&audits)
-	if err != nil { t.Fatal(err) }
-	if claimed!=1 || intents!=1 || audits!=1 {
-		t.Fatalf("atomic claim/intents/audit = %d/%d/%d; want 1/1/1",claimed,intents,audits)
+		WHERE permit_id=$1::uuid AND state='CLAIMED'`, permitID).Scan(&claimed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = store.db.QueryRow(`SELECT count(*) FROM guard_operation_intents WHERE permit_id=$1::uuid`, permitID).Scan(&intents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = store.db.QueryRow(`SELECT count(*) FROM guard_execution_audit WHERE permit_id=$1::uuid AND event_type='guard.operation.dispatching.v1'`, permitID).Scan(&audits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed != 1 || intents != 1 || audits != 1 {
+		t.Fatalf("atomic claim/intents/audit = %d/%d/%d; want 1/1/1", claimed, intents, audits)
 	}
 }
 
 func TestClaimRejectsActionDriftAndWrongTenantBeforeAnyWrite(t *testing.T) {
-	for _, tc := range []struct{
-		name string
+	for _, tc := range []struct {
+		name   string
 		change func(*action.WorkspaceWrite)
 	}{
-		{"modified content",func(a *action.WorkspaceWrite){a.ContentDigest=strings.Repeat("c",64)}},
-		{"modified binding",func(a *action.WorkspaceWrite){a.ToolBindingDigest=strings.Repeat("c",64)}},
-		{"modified target path",func(a *action.WorkspaceWrite){a.RelativePath="docs/other.md"}},
-		{"wrong audience",func(a *action.WorkspaceWrite){a.Audience="unknown-executor"}},
-		{"cross tenant",func(a *action.WorkspaceWrite){a.TenantID="tenant-b"}},
-		{"wrong operation",func(a *action.WorkspaceWrite){a.OperationID="6a9ff43e-366e-451b-8c7f-37f5870b0ef3"}},
-	}{
-		t.Run(tc.name,func(t *testing.T){
-			store,resolved,permitID:=seededWorkspacePermit(t)
+		{"modified content", func(a *action.WorkspaceWrite) { a.ContentDigest = strings.Repeat("c", 64) }},
+		{"modified binding", func(a *action.WorkspaceWrite) { a.ToolBindingDigest = strings.Repeat("c", 64) }},
+		{"modified target path", func(a *action.WorkspaceWrite) { a.RelativePath = "docs/other.md" }},
+		{"wrong audience", func(a *action.WorkspaceWrite) { a.Audience = "unknown-executor" }},
+		{"cross tenant", func(a *action.WorkspaceWrite) { a.TenantID = "tenant-b" }},
+		{"wrong operation", func(a *action.WorkspaceWrite) { a.OperationID = "6a9ff43e-366e-451b-8c7f-37f5870b0ef3" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, resolved, permitID := seededWorkspacePermit(t)
 			tc.change(&resolved)
-			if _,err:=store.ClaimAuthorizedIntent(context.Background(),permitID,resolved);err==nil{
+			if _, err := store.ClaimAuthorizedIntent(context.Background(), permitID, resolved); err == nil {
 				t.Fatal("changed action was able to claim original permit")
 			}
 			var state string
-			if err:=store.db.QueryRow("SELECT state FROM guard_permits WHERE permit_id=$1::uuid",permitID).Scan(&state);err!=nil{t.Fatal(err)}
-			if state!="ISSUED"{t.Fatalf("incorrectly claimed permit: %s",state)}
+			if err := store.db.QueryRow("SELECT state FROM guard_permits WHERE permit_id=$1::uuid", permitID).Scan(&state); err != nil {
+				t.Fatal(err)
+			}
+			if state != "ISSUED" {
+				t.Fatalf("incorrectly claimed permit: %s", state)
+			}
 			var count int
-			if err:=store.db.QueryRow("SELECT count(*) FROM guard_operation_intents").Scan(&count);err!=nil{t.Fatal(err)}
-			if count!=0{t.Fatalf("invalid claim created %d intents",count)}
+			if err := store.db.QueryRow("SELECT count(*) FROM guard_operation_intents").Scan(&count); err != nil {
+				t.Fatal(err)
+			}
+			if count != 0 {
+				t.Fatalf("invalid claim created %d intents", count)
+			}
 		})
 	}
 }
 
 func TestClaimRejectsExpiredOrRevokedPermit(t *testing.T) {
-	for _, tc:=range []struct{name,update string}{
-		{"expired","UPDATE guard_permits SET expires_at=now()-interval '1 second' WHERE permit_id=$1::uuid"},
-		{"revoked","UPDATE guard_permits SET revoked_at=now() WHERE permit_id=$1::uuid"},
-	}{
-		t.Run(tc.name,func(t *testing.T){
-			store,resolved,permitID:=seededWorkspacePermit(t)
-			if _,err:=store.db.Exec(tc.update,permitID);err!=nil{t.Fatal(err)}
-			if _,err:=store.ClaimAuthorizedIntent(context.Background(),permitID,resolved);!errors.Is(err,ErrPermitUnavailable){
-				t.Fatalf("expired or revoked permit claim error=%v, want ErrPermitUnavailable",err)
+	for _, tc := range []struct{ name, update string }{
+		{"expired", "UPDATE guard_permits SET expires_at=now()-interval '1 second' WHERE permit_id=$1::uuid"},
+		{"revoked", "UPDATE guard_permits SET revoked_at=now() WHERE permit_id=$1::uuid"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, resolved, permitID := seededWorkspacePermit(t)
+			if _, err := store.db.Exec(tc.update, permitID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.ClaimAuthorizedIntent(context.Background(), permitID, resolved); !errors.Is(err, ErrPermitUnavailable) {
+				t.Fatalf("expired or revoked permit claim error=%v, want ErrPermitUnavailable", err)
 			}
 		})
 	}
 }
 
 func TestClaimAuditFailureRollsBackPermitAndIntent(t *testing.T) {
-	store,resolved,permitID:=seededWorkspacePermit(t)
-	_,err:=store.db.Exec(`CREATE FUNCTION reject_dispatch_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected audit failure'; END; $$`)
-	if err!=nil{t.Fatal(err)}
-	_,err=store.db.Exec(`CREATE TRIGGER reject_dispatch_audit BEFORE INSERT ON guard_execution_audit FOR EACH ROW EXECUTE FUNCTION reject_dispatch_audit()`)
-	if err!=nil{t.Fatal(err)}
-	if _,err:=store.ClaimAuthorizedIntent(context.Background(),permitID,resolved);err==nil{
+	store, resolved, permitID := seededWorkspacePermit(t)
+	_, err := store.db.Exec(`CREATE FUNCTION reject_dispatch_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected audit failure'; END; $$`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.db.Exec(`CREATE TRIGGER reject_dispatch_audit BEFORE INSERT ON guard_execution_audit FOR EACH ROW EXECUTE FUNCTION reject_dispatch_audit()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ClaimAuthorizedIntent(context.Background(), permitID, resolved); err == nil {
 		t.Fatal("claim committed despite audit failure")
 	}
 	var state string
-	if err:=store.db.QueryRow("SELECT state FROM guard_permits WHERE permit_id=$1::uuid",permitID).Scan(&state);err!=nil{t.Fatal(err)}
-	if state!="ISSUED"{t.Fatalf("partially committed claim: %s",state)}
-	for _,table:=range []string{"guard_operation_intents","guard_execution_audit"}{
+	if err := store.db.QueryRow("SELECT state FROM guard_permits WHERE permit_id=$1::uuid", permitID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "ISSUED" {
+		t.Fatalf("partially committed claim: %s", state)
+	}
+	for _, table := range []string{"guard_operation_intents", "guard_execution_audit"} {
 		var count int
-		if err:=store.db.QueryRow("SELECT count(*) FROM "+table).Scan(&count);err!=nil{t.Fatal(err)}
-		if count!=0{t.Fatalf("partial write left %d rows in %s",count,table)}
+		if err := store.db.QueryRow("SELECT count(*) FROM " + table).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("partial write left %d rows in %s", count, table)
+		}
 	}
 }
