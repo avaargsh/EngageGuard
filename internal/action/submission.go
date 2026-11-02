@@ -58,11 +58,18 @@ func ParseActionSubmission(raw []byte) (ActionSubmission, error) {
 	if len(raw) == 0 || len(raw) > maxSubmissionBytes {
 		return result, errors.New("invalid submission body size")
 	}
-	// The existing strict parser rejects ambiguous JSON and duplicates.
-	// Its output is deliberately discarded: submission replay uses raw bytes,
-	// not the current non-JCS json.Marshal serialization.
+	// Check nesting before recursive parsing to bound attacker-controlled
+	// stack growth; replay still hashes exact bytes, not canonicalized JSON.
+	if err := checkSubmissionDepth(raw); err != nil {
+		return result, err
+	}
 	if _, err := canonicalArguments(raw); err != nil {
 		return result, fmt.Errorf("invalid submission JSON: %w", err)
+	}
+	// encoding/json accepts case-insensitive field aliases even with
+	// DisallowUnknownFields; check protocol keys with exact spelling.
+	if err := checkSubmissionFields(raw); err != nil {
+		return result, err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
@@ -77,6 +84,61 @@ func ParseActionSubmission(raw []byte) (ActionSubmission, error) {
 		return ActionSubmission{}, err
 	}
 	return result, nil
+}
+
+
+const maxSubmissionDepth = 128
+
+func checkSubmissionDepth(raw []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	depth := 0
+	for {
+		token, err := decoder.Token()
+		if errors.Is(err, io.EOF) {
+			return nil // canonicalArguments checks full syntax and trailing data
+		}
+		if err != nil {
+			return fmt.Errorf("invalid submission JSON: %w", err)
+		}
+		if delimiter, ok := token.(json.Delim); ok {
+			switch delimiter {
+			case '{', '[':
+				depth++
+				if depth > maxSubmissionDepth {
+					return errors.New("submission JSON nesting exceeds limit")
+				}
+			case '}', ']':
+				depth--
+			}
+		}
+	}
+}
+
+func checkSubmissionFields(raw []byte) error {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return err
+	}
+	allowed := map[string]bool{
+		"schema_version": true, "run_id": true, "decision_id": true,
+		"plan_id": true, "plan_hash": true, "step_id": true,
+		"capability": true, "resource_ref": true, "arguments": true,
+	}
+	for key := range root {
+		if !allowed[key] {
+			return fmt.Errorf("unknown or noncanonical submission field %q", key)
+		}
+	}
+	var capability map[string]json.RawMessage
+	if err := json.Unmarshal(root["capability"], &capability); err != nil || capability == nil {
+		return errors.New("invalid submission capability")
+	}
+	for key := range capability {
+		if key != "id" && key != "version" && key != "contract_sha256" {
+			return fmt.Errorf("unknown or noncanonical capability field %q", key)
+		}
+	}
+	return nil
 }
 
 // ValidateSubmissionKey validates the caller-generated Idempotency-Key header.
