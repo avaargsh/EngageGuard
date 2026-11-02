@@ -112,7 +112,7 @@ func (s *Store) Accept(ctx context.Context, tenantID, submissionKey string, raw 
 	// operation intent; an outbox failure rolls the operation back.
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO guard_outbox_events (tenant_id, operation_id, event_type)
-		VALUES ($1, $2, 'guard.operation.accepted.v1')
+		VALUES ($1, $2, 'guard.submission.recorded.v1')
 	`, tenantID, op.OperationID)
 	if err != nil {
 		return Operation{}, false, fmt.Errorf("append Guard accepted outbox: %w", err)
