@@ -9,7 +9,7 @@ func validActionRequest() ActionRequest {
 	return ActionRequest{
 		SchemaVersion: "action-request.v1", TenantID: "tenant-a", SubjectID: "user-1",
 		AgentID: "agent-1", RunID: "run-1", DecisionID: "dec_aaaaaaaa",
-		PlanID: "plan-1", PlanHash: strings.Repeat("f", 64), StepID: "step-1", OperationID: "op-1",
+		PlanID: "plan-1", PlanHash: strings.Repeat("f", 64), StepID: "step-1",
 		Capability:  ActionCapabilityRef{ID: "workspace.write", Version: "1.0.0", ContractSHA256: strings.Repeat("a", 64)},
 		ResourceRef: "workspace-1", Arguments: []byte(`{"path":"reports/out.txt","content_sha256":"bbbb"}`),
 		ToolBindingDigest: strings.Repeat("c", 64), PolicyVersion: "policy-v1", Audience: "workspace-executor",
@@ -50,7 +50,6 @@ func TestActionHashBindsEveryAuthorizationDimension(t *testing.T) {
 		"plan":                func(a *ActionRequest) { a.PlanID = "plan-2" },
 		"plan-hash":           func(a *ActionRequest) { a.PlanHash = strings.Repeat("9", 64) },
 		"step":                func(a *ActionRequest) { a.StepID = "step-2" },
-		"operation":           func(a *ActionRequest) { a.OperationID = "op-2" },
 		"capability-version":  func(a *ActionRequest) { a.Capability.Version = "2.0.0" },
 		"capability-contract": func(a *ActionRequest) { a.Capability.ContractSHA256 = strings.Repeat("d", 64) },
 		"resource":            func(a *ActionRequest) { a.ResourceRef = "workspace-2" },
