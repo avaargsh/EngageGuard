@@ -15,6 +15,13 @@ const (
 	submissionDigestDomain = "engageguard/submission-bytes/v1\x00"
 )
 
+// ActionCapabilitySelector is an untrusted capability name/version selector.
+// Guard resolves the immutable contract digest from its trusted registry.
+type ActionCapabilitySelector struct {
+	ID      string `json:"id"`
+	Version string `json:"version"`
+}
+
 // ActionSubmission is *untrusted intent* supplied by a caller. Deliberately
 // absent: tenant, subject, agent, operation ID, policy, executor and binding.
 // Guard must resolve all those values from authenticated authoritative state.
@@ -26,7 +33,7 @@ type ActionSubmission struct {
 	PlanID        string              `json:"plan_id"`
 	PlanHash      string              `json:"plan_hash"`
 	StepID        string              `json:"step_id"`
-	Capability    ActionCapabilityRef `json:"capability"`
+	Capability    ActionCapabilitySelector `json:"capability"`
 	ResourceRef   string              `json:"resource_ref"`
 	Arguments     json.RawMessage     `json:"arguments"`
 }
@@ -37,7 +44,6 @@ func (s ActionSubmission) Validate() error {
 		!validActionField(s.PlanID) || !validSHA256(s.PlanHash) ||
 		!validActionField(s.StepID) || !validActionField(s.Capability.ID) ||
 		!validActionField(s.Capability.Version) ||
-		!validSHA256(s.Capability.ContractSHA256) ||
 		!validActionField(s.ResourceRef) {
 		return errors.New("invalid submission identity or capability reference")
 	}
@@ -133,7 +139,7 @@ func checkSubmissionFields(raw []byte) error {
 		return errors.New("invalid submission capability")
 	}
 	for key := range capability {
-		if key != "id" && key != "version" && key != "contract_sha256" {
+		if key != "id" && key != "version" {
 			return fmt.Errorf("unknown or noncanonical capability field %q", key)
 		}
 	}
