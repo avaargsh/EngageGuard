@@ -10,8 +10,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/avaargsh/EngageGuard/internal/action"
 	"github.com/avaargsh/EngageGuard/internal/acceptance/postgres"
+	"github.com/avaargsh/EngageGuard/internal/action"
 )
 
 type fakeResolver struct {
@@ -118,7 +118,7 @@ func TestFailClosedWhenResolverOrVerifierMissing(t *testing.T) {
 	for name, h := range map[string]http.Handler{
 		"no resolver": NewHandler(nil, &fakeVerifier{}, &fakeStore{}),
 		"no verifier": NewHandler(realResolver, nil, &fakeStore{}),
-		"no store": NewHandler(realResolver, &fakeVerifier{}, nil),
+		"no store":    NewHandler(realResolver, &fakeVerifier{}, nil),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := exercise(h, "key-1", goodBody()).Code; got != http.StatusServiceUnavailable {
@@ -145,11 +145,11 @@ func TestCallerCannotForgeTenantOrServiceIdentityInHeaders(t *testing.T) {
 }
 
 func TestRejectUnauthenticatedWrongCallerAndUnverifiedPlanBeforeStore(t *testing.T) {
-	cases := []struct{
+	cases := []struct {
 		name        string
 		principal   Principal
 		resolverErr error
-		verifyErr  error
+		verifyErr   error
 		want        int
 	}{
 		{"anonymous", Principal{}, ErrUnauthenticated, nil, http.StatusUnauthorized},
@@ -180,8 +180,8 @@ func TestRejectMalformedSubmissionBeforeStore(t *testing.T) {
 		{"bad key", goodBody()},
 		{"key-1", `{"operation_id":"caller-forged"}`},
 		{"key-1", strings.Replace(goodBody(), `"run_id":`, `"tenant_id":"forged","run_id":`, 1)},
-		{"key-1", goodBody()+"{}"},
-		{"key-1", goodBody()+strings.Repeat(" ", 65537)},
+		{"key-1", goodBody() + "{}"},
+		{"key-1", goodBody() + strings.Repeat(" ", 65537)},
 	} {
 		if got := exercise(h, tc.key, tc.body).Code; got != http.StatusBadRequest {
 			t.Fatalf("bad submission accepted with status %d", got)
