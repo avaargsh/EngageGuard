@@ -16,30 +16,30 @@ import (
 const maxArgumentsBytes = 64 * 1024
 
 type ActionCapabilityRef struct {
-	ID string `json:"id"`
-	Version string `json:"version"`
+	ID             string `json:"id"`
+	Version        string `json:"version"`
 	ContractSHA256 string `json:"contract_sha256"`
 }
 
 // ActionRequest is one concrete proposed side effect. The PEP must derive
 // identity and tool-binding values from authenticated control-plane context.
 type ActionRequest struct {
-	SchemaVersion string `json:"schema_version"`
-	TenantID string `json:"tenant_id"`
-	SubjectID string `json:"subject_id"`
-	AgentID string `json:"agent_id"`
-	RunID string `json:"run_id"`
-	DecisionID string `json:"decision_id"`
-	PlanID string `json:"plan_id"`
-	PlanHash string `json:"plan_hash"`
-	StepID string `json:"step_id"`
-	OperationID string `json:"operation_id"`
-	Capability ActionCapabilityRef `json:"capability"`
-	ResourceRef string `json:"resource_ref"`
-	Arguments json.RawMessage `json:"arguments"`
-	ToolBindingDigest string `json:"tool_binding_digest"`
-	PolicyVersion string `json:"policy_version"`
-	Audience string `json:"audience"`
+	SchemaVersion     string              `json:"schema_version"`
+	TenantID          string              `json:"tenant_id"`
+	SubjectID         string              `json:"subject_id"`
+	AgentID           string              `json:"agent_id"`
+	RunID             string              `json:"run_id"`
+	DecisionID        string              `json:"decision_id"`
+	PlanID            string              `json:"plan_id"`
+	PlanHash          string              `json:"plan_hash"`
+	StepID            string              `json:"step_id"`
+	OperationID       string              `json:"operation_id"`
+	Capability        ActionCapabilityRef `json:"capability"`
+	ResourceRef       string              `json:"resource_ref"`
+	Arguments         json.RawMessage     `json:"arguments"`
+	ToolBindingDigest string              `json:"tool_binding_digest"`
+	PolicyVersion     string              `json:"policy_version"`
+	Audience          string              `json:"audience"`
 }
 
 func validActionField(value string) bool {
@@ -70,7 +70,9 @@ func (a ActionRequest) Validate() error {
 		!validSHA256(a.ToolBindingDigest) {
 		return errors.New("invalid ActionRequest schema or capability binding")
 	}
-	if !validSHA256(a.PlanHash) { return errors.New("invalid plan hash") }
+	if !validSHA256(a.PlanHash) {
+		return errors.New("invalid plan hash")
+	}
 	if len(a.Arguments) == 0 || len(a.Arguments) > maxArgumentsBytes {
 		return errors.New("ActionRequest arguments missing or oversized")
 	}
@@ -110,7 +112,7 @@ func ApprovalMatchesActionHash(approvedHash string, action ActionRequest) bool {
 	return subtle.ConstantTimeCompare(expected, actual) == 1
 }
 
-// canonicalArguments rejects duplicate object keys at any depth. Object keys
+// canonicalArguments rejects duplicate object keys at every depth. Object keys
 // are sorted by encoding/json during re-encoding; numbers retain json.Number
 // lexical form so the hash is deterministic and never passes through float64.
 func canonicalArguments(raw []byte) ([]byte, error) {
