@@ -29,5 +29,6 @@ jobs:
           if [[ -n "$files" ]]; then
             echo "The following Go files need gofmt:"
             printf '%s\n' "$files"
+            gofmt -d $files
             exit 1
           fi
