@@ -8,6 +8,8 @@
     "schema_version",
     "tenant_id",
     "subject_id",
+    "workload_id",
+    "actor_id",
     "agent_id",
     "run_id",
     "decision_id",
@@ -92,6 +94,16 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 512
+    },
+    "actor_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "workload_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
     }
   },
   "$defs": {
@@ -124,5 +136,5 @@
       }
     }
   },
-  "description": "Guard-resolved internal action with Guard-allocated operation_id and verified identity/policy bindings. Runtime callers MUST use action-submission.v1; this schema does not authorize execution."
+  "description": "Guard-resolved internal action with server-generated operation_id, authenticated tenant/subject/actor/workload, trusted capability and ToolBinding, and current policy/audience. Runtime callers MUST use action-submission.v1. Approval and Permit bind the RFC 8785 ActionHash of this exact object; this schema does not authorize execution."
 }
