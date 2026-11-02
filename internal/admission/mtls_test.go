@@ -169,7 +169,7 @@ func verifiedClientTLSWithIntermediate(t *testing.T, identity string) *tls.Conne
 	return &tls.ConnectionState{
 		HandshakeComplete: true, Version: tls.VersionTLS13,
 		PeerCertificates: []*x509.Certificate{leaf, intermediate},
-		VerifiedChains: chains,
+		VerifiedChains:   chains,
 	}
 }
 
