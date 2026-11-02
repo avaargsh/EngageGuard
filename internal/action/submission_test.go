@@ -8,7 +8,7 @@ import (
 )
 
 func exampleSubmission() []byte {
-	return []byte(`{"schema_version":"action-submission.v1","run_id":"run-1","decision_id":"dec-1","plan_id":"plan-1","plan_hash":"` + strings.Repeat("a", 64) + `","step_id":"step-1","capability":{"id":"workspace.write","version":"1.0.0","contract_sha256":"` + strings.Repeat("b", 64) + `"},"resource_ref":"workspace-1","arguments":{"path":"docs/a.txt","content":"hi","metadata":{"revision":2}}}`)
+	return []byte(`{"schema_version":"action-submission.v1","run_id":"run-1","decision_id":"dec-1","plan_id":"plan-1","plan_hash":"` + strings.Repeat("a", 64) + `","step_id":"step-1","capability":{"id":"workspace.write","version":"1.0.0"},"resource_ref":"workspace-1","arguments":{"path":"docs/a.txt","content":"hi","metadata":{"revision":2}}}`)
 }
 
 func TestSubmissionAcceptsOnlyUntrustedIntent(t *testing.T) {
