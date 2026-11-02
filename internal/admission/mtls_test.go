@@ -255,7 +255,9 @@ func TestMTLSResolverConfigRejectsAuthorityAmbiguity(t *testing.T) {
 		{"platform.example", map[string]Principal{}},
 		{"platform.example", map[string]Principal{"not-a-spiffe-id": boundRuntime()}},
 		{"platform.example", map[string]Principal{runtimeSPIFFE: {TenantID: "tenant-a", SubjectID: "subject-a", ActorID: "agent-runtime", WorkloadID: "runtime-a", ServiceID: "another-service"}}},
-		{"platform.example", map[string]Principal{runtimeSPIFFE: {TenantID: "tenant a", SubjectID: "subject-a", ServiceID: "agent-runtime"}}},
+		{"platform.example", map[string]Principal{runtimeSPIFFE: {TenantID: "tenant a", SubjectID: "subject-a", ActorID: "agent-runtime", WorkloadID: "runtime-a", ServiceID: "agent-runtime"}}},
+		{"platform.example", map[string]Principal{runtimeSPIFFE: {TenantID: "tenant-a", SubjectID: "subject-a", WorkloadID: "runtime-a", ServiceID: "agent-runtime"}}},
+		{"platform.example", map[string]Principal{runtimeSPIFFE: {TenantID: "tenant-a", SubjectID: "subject-a", ActorID: "agent-runtime", ServiceID: "agent-runtime"}}},
 	} {
 		if _, err := NewSPIFFEMTLSResolver(tc.domain, tc.bindings); err == nil {
 			t.Fatalf("invalid SPIFFE configuration accepted: domain=%q bindings=%v", tc.domain, tc.bindings)
