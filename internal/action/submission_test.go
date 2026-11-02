@@ -83,7 +83,7 @@ func TestSubmissionKeyValidation(t *testing.T) {
 }
 
 func TestSubmissionRejectsCallerCapabilityContractDigest(t *testing.T) {
-	forged := bytes.Replace(exampleSubmission(), []byte(`"version":"1.0.0"`), []byte(`"version":"1.0.0","contract_sha256":"`+strings.Repeat("b",64)+`"`), 1)
+	forged := bytes.Replace(exampleSubmission(), []byte(`"version":"1.0.0"`), []byte(`"version":"1.0.0","contract_sha256":"`+strings.Repeat("b", 64)+`"`), 1)
 	if _, err := ParseActionSubmission(forged); err == nil {
 		t.Fatal("accepted caller-provided capability contract digest")
 	}
