@@ -1,43 +1,55 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://avaargsh.github.io/EngageGuard/contracts/action-request.v1.schema.json",
-  "title": "ActionRequest v1",
+  "title": "EngageGuard ActionRequest v1",
+  "description": "Untrusted caller intent only. Authentication, operation identity, trusted bindings, policy and executor audience are derived by EngageGuard.",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version", "tenant_id", "subject_id", "agent_id", "run_id",
-    "decision_id", "plan_id", "plan_hash", "step_id", "operation_id",
-    "capability", "resource_ref", "arguments", "tool_binding_digest",
-    "policy_version", "audience"
+    "schema_version",
+    "agent_id",
+    "run_id",
+    "decision_id",
+    "plan_id",
+    "plan_hash",
+    "step_id",
+    "capability",
+    "resource_ref",
+    "arguments"
   ],
   "properties": {
     "schema_version": { "const": "action-request.v1" },
-    "tenant_id": { "type": "string", "minLength": 1, "maxLength": 512 },
-    "subject_id": { "type": "string", "minLength": 1, "maxLength": 512 },
-    "agent_id": { "type": "string", "minLength": 1, "maxLength": 512 },
-    "run_id": { "type": "string", "minLength": 1, "maxLength": 512 },
-    "decision_id": { "type": "string", "minLength": 1, "maxLength": 512 },
-    "plan_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "agent_id": { "$ref": "#/$defs/identifier" },
+    "run_id": { "$ref": "#/$defs/identifier" },
+    "decision_id": { "$ref": "#/$defs/identifier" },
+    "plan_id": { "$ref": "#/$defs/identifier" },
     "plan_hash": { "$ref": "#/$defs/sha256" },
-    "step_id": { "type": "string", "minLength": 1, "maxLength": 512 },
-    "operation_id": { "type": "string", "minLength": 1, "maxLength": 512 },
-    "capability": { "$ref": "#/$defs/capability" },
-    "resource_ref": { "type": "string", "minLength": 1, "maxLength": 512 },
-    "arguments": { "type": "object" },
-    "tool_binding_digest": { "$ref": "#/$defs/sha256" },
-    "policy_version": { "type": "string", "minLength": 1, "maxLength": 512 },
-    "audience": { "type": "string", "minLength": 1, "maxLength": 512 }
+    "step_id": { "$ref": "#/$defs/identifier" },
+    "capability": { "$ref": "#/$defs/capabilityRequest" },
+    "resource_ref": { "$ref": "#/$defs/identifier" },
+    "arguments": {
+      "type": "object",
+      "description": "Capability-specific input. Maximum encoded size is 65536 bytes; duplicate keys are rejected."
+    }
   },
   "$defs": {
-    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-    "capability": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[^\\u0000\\r\\n\\t ]+$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "capabilityRequest": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "version", "contract_sha256"],
+      "required": ["id", "version"],
       "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 512 },
-        "version": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "contract_sha256": { "$ref": "#/$defs/sha256" }
+        "id": { "$ref": "#/$defs/identifier" },
+        "version": { "$ref": "#/$defs/identifier" }
       }
     }
   }
