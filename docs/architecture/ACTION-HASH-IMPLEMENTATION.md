@@ -1,29 +1,64 @@
-# Workspace ActionHash v0.1 — Implementation Evidence
+# RequestHash and ActionHash v1 — implementation evidence
 
-This slice implements a deterministic SHA-256 ActionHash for a **trusted, resolved** WorkspaceWrite action. The canonical representation is RFC 8785 JSON Canonicalization Scheme (JCS), restricted in v0.1 to a fixed all-string object with ASCII property names in UTF-16 lexical order.
+Status: protocol primitives implemented; authorization and execution are not implemented.
 
-The hash preimage is:
+## Distinct hash purposes
+
+RequestHash identifies one logical caller submission:
 
 ```text
-"engageguard/action-hash/v1\0" || JCS(WorkspaceWrite)
+"engageguard/request-hash/v1\\0" || JCS({
+  "authenticated_context": { tenant_id, subject_id, actor_id, workload_id },
+  "request": ActionRequest
+})
 ```
 
-The resulting digest is 64 lowercase hexadecimal characters. The field set and order are explicit in `canonicalJSON`; any new field or changed field meaning requires a versioned contract update and matching Go/Python/TypeScript test vectors. Strings are UTF-8 validated and are not Unicode-normalized. HTML characters and slash are not escaped; quote, backslash and JSON control characters follow JCS escaping.
+It excludes the caller's `Idempotency-Key` (the unique index key) and server-generated `operation_id`.
 
-Hashing does **not** provide authorization. A trusted PEP must derive subject/tenant/workload identity from authenticated context, resolve the current ToolBinding and policy, and enforce approval, revocation, expiry and one-time Permit claims separately. A plugin-supplied ActionHash is never trusted.
+ActionHash identifies the exact trusted resolved action:
 
-The file path validation rejects noncanonical relative paths, traversal components, backslashes and NUL. It is not a filesystem confinement primitive. A real Trusted Executor must enforce root-relative open, symlink and TOCTOU protection at the final syscall boundary.
+```text
+"engageguard/action-hash/v1\\0" || JCS(CanonicalAction)
+```
+
+CanonicalAction is built only after authentication, Run/Plan reference validation, capability and ToolBinding resolution, and current-policy evaluation. It binds the generated operation ID and all authorization/effect-relevant values. Approval and Permit must reference this digest.
+
+## JCS implementation
+
+The standard-library implementation in `internal/action/request.go`:
+
+- rejects duplicate object keys at every depth;
+- validates UTF-8 and rejects unpaired surrogate escapes;
+- limits nesting to 64, total canonical JSON to 128 KiB and arguments to 64 KiB;
+- sorts property names by UTF-16 code units;
+- serializes IEEE-754 binary64 numbers using ECMAScript/JCS formatting thresholds;
+- uses JCS string escaping without HTML-specific escaping or Unicode normalization.
+
+Shared plain-JSON fixtures are in `docs/contracts/jcs-number-vectors.v1.json` and `docs/contracts/action-hash-vectors.v1.json`. Go tests load both fixtures directly. Python and TypeScript parity tests remain required before protocol ratification.
+
+## Workspace write constraints
+
+Resolved `workspace.write` v1 arguments contain exactly `path` and `content_sha256`. Hash validation rejects absolute, noncanonical, traversal, empty-segment, backslash, NUL and Windows drive-prefixed paths. This is lexical validation only, not filesystem isolation.
+
+The historical `WorkspaceWrite` v0.1 helper and fixed all-string golden vector remain as a narrow regression reference. They are not the production CanonicalAction interface and do not authorize a write.
 
 ## Local verification
 
-A standard-library-only isolated module with Go 1.23.2 previously passed `go test -race -count=1 ./...` and `go vet ./...`. This JCS implementation and its new canonicalization regression test require the current PR's Go 1.26 CI run; do not claim it is green until that run is inspected.
+On Go 1.23.2 in a standard-library-only isolated module:
+
+- `go test -race -count=1 ./...` passed;
+- `go vet ./...` passed;
+- `test -z "$(gofmt -l internal)"` passed;
+- the three JSON contract/fixture files parsed successfully with Python's JSON parser.
+
+The repository Actions workflow targets Go 1.26.0. Remote CI for the updated PR commit must be inspected separately; local verification does not establish that remote CI passed.
 
 ## Pending
 
-- ActionEnvelope AuthN / PEP and trusted binding resolution
-- Authorization policy and action-bound approval
-- Signed/one-time Permit and durable claim
-- PostgreSQL Approval/OperationJournal
-- Trusted Executor and root-constrained filesystem
-- UNKNOWN recovery and crash-window tests
-- Shared Go/Python/TypeScript ActionHash vectors against the canonical platform contract
+- durable unique `(tenant_id, idempotency_key)` index and atomic replay/conflict semantics;
+- Operation Journal, outbox and restart-safe delivery;
+- policy evaluation and action-bound human approval;
+- signed short-lived audience-bound Permit and atomic one-time claim;
+- trusted filesystem executor with symlink/TOCTOU protection;
+- UNKNOWN reconciliation and crash-window integration tests;
+- Python and TypeScript implementations passing the shared golden fixtures.
