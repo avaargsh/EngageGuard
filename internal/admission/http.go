@@ -19,13 +19,13 @@ const maxHTTPSubmissionBytes = 64 * 1024
 
 var (
 	ErrUnauthenticated = errors.New("trusted runtime principal unavailable")
-	ErrForbidden = errors.New("runtime is not authorized for this run/plan")
+	ErrForbidden       = errors.New("runtime is not authorized for this run/plan")
 )
 
 // Principal must come from an authenticated deployment-resolved identity.
 // Never construct this value from request headers or submission JSON.
 type Principal struct {
-	TenantID string
+	TenantID  string
 	SubjectID string
 	ServiceID string
 }
@@ -52,7 +52,7 @@ type AcceptanceStore interface {
 type handler struct {
 	resolver PrincipalResolver
 	verifier RunVerifier
-	store AcceptanceStore
+	store    AcceptanceStore
 }
 
 func NewHandler(resolver PrincipalResolver, verifier RunVerifier, store AcceptanceStore) http.Handler {
@@ -150,10 +150,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewEncoder(w).Encode(struct{
 		OperationID string `json:"operation_id"`
-		Status string `json:"status"`
+		Status      string `json:"status"`
 	}{
 		OperationID: operation.OperationID,
-		Status: "ACCEPTED",
+		Status:      "ACCEPTED",
 	})
 }
 
