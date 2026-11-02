@@ -38,6 +38,7 @@ func TestActionHashBindsEveryAuthorizationDimension(t *testing.T) {
 		"run":func(a *ActionRequest){a.RunID="run-2"},
 		"decision":func(a *ActionRequest){a.DecisionID="dec_bbbbbbbb"},
 		"plan":func(a *ActionRequest){a.PlanID="plan-2"},
+		"plan-hash":func(a *ActionRequest){a.PlanHash=strings.Repeat("9",64)},
 		"step":func(a *ActionRequest){a.StepID="step-2"},
 		"operation":func(a *ActionRequest){a.OperationID="op-2"},
 		"capability-version":func(a *ActionRequest){a.Capability.Version="2.0.0"},
