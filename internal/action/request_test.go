@@ -150,8 +150,8 @@ func TestActionHashBindsEveryResolvedAuthorizationDimension(t *testing.T) {
 			a.Arguments = []byte(`{"path":"reports/other.txt","content_sha256":"` + strings.Repeat("b", 64) + `"}`)
 		},
 		"tool-binding": func(a *CanonicalAction) { a.ToolBindingDigest = strings.Repeat("e", 64) },
-		"policy": func(a *CanonicalAction) { a.PolicyVersion = "policy-v2" },
-		"audience": func(a *CanonicalAction) { a.Audience = "other-executor" },
+		"policy":       func(a *CanonicalAction) { a.PolicyVersion = "policy-v2" },
+		"audience":     func(a *CanonicalAction) { a.Audience = "other-executor" },
 	}
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {
