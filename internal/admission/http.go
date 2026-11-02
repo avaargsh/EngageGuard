@@ -11,8 +11,8 @@ import (
 	"mime"
 	"net/http"
 
-	"github.com/avaargsh/EngageGuard/internal/action"
 	"github.com/avaargsh/EngageGuard/internal/acceptance/postgres"
+	"github.com/avaargsh/EngageGuard/internal/action"
 )
 
 const maxHTTPSubmissionBytes = 64 * 1024
@@ -148,7 +148,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else {
 		w.WriteHeader(http.StatusOK)
 	}
-	_ = json.NewEncoder(w).Encode(struct{
+	_ = json.NewEncoder(w).Encode(struct {
 		OperationID string `json:"operation_id"`
 		Status      string `json:"status"`
 	}{
