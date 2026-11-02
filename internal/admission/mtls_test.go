@@ -88,6 +88,91 @@ func verifiedClientTLS(t *testing.T, identities ...string) *tls.ConnectionState 
 	return &tls.ConnectionState{HandshakeComplete: true, Version: tls.VersionTLS13, PeerCertificates: []*x509.Certificate{leaf}, VerifiedChains: chains}
 }
 
+// verifiedClientTLSWithIntermediate builds and verifies a normal client chain
+// containing a leaf SVID and an intermediate CA certificate.
+func verifiedClientTLSWithIntermediate(t *testing.T, identity string) *tls.ConnectionState {
+	t.Helper()
+	now := time.Now()
+
+	rootKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(10), Subject: pkix.Name{CommonName: "test-root"},
+		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
+		BasicConstraintsValid: true, IsCA: true, KeyUsage: x509.KeyUsageCertSign,
+	}
+	rootDER, err := x509.CreateCertificate(rand.Reader, rootTemplate, rootTemplate, &rootKey.PublicKey, rootKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := x509.ParseCertificate(rootDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	intermediateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intermediateTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(11), Subject: pkix.Name{CommonName: "test-intermediate"},
+		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
+		BasicConstraintsValid: true, IsCA: true,
+		KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+	}
+	intermediateDER, err := x509.CreateCertificate(rand.Reader, intermediateTemplate, root, &intermediateKey.PublicKey, rootKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intermediate, err := x509.ParseCertificate(intermediateDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uri, err := url.Parse(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leafTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(12), Subject: pkix.Name{CommonName: "runtime-svid"},
+		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		URIs: []*url.URL{uri},
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, intermediate, &leafKey.PublicKey, intermediateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf, err := x509.ParseCertificate(leafDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	roots := x509.NewCertPool()
+	roots.AddCert(root)
+	intermediates := x509.NewCertPool()
+	intermediates.AddCert(intermediate)
+	chains, err := leaf.Verify(x509.VerifyOptions{
+		Roots: roots, Intermediates: intermediates,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &tls.ConnectionState{
+		HandshakeComplete: true, Version: tls.VersionTLS13,
+		PeerCertificates: []*x509.Certificate{leaf, intermediate},
+		VerifiedChains: chains,
+	}
+}
+
 func configuredResolver(t *testing.T, bindings map[string]Principal) PrincipalResolver {
 	t.Helper()
 	resolver, err := NewSPIFFEMTLSResolver("platform.example", bindings)
@@ -108,6 +193,24 @@ func TestVerifiedMTLSSPIFFEMapsToImmutableTenant(t *testing.T) {
 	principal, err := resolver.ResolvePrincipal(context.Background(), req)
 	if err != nil || principal != boundRuntime() {
 		t.Fatalf("verified SPIFFE mapping was spoofed or lost: %+v, %v", principal, err)
+	}
+}
+
+func TestVerifiedMTLSSPIFFEAcceptsIntermediateCertificateChain(t *testing.T) {
+	resolver := configuredResolver(t, map[string]Principal{runtimeSPIFFE: boundRuntime()})
+	req := httptest.NewRequest(http.MethodPost, "/v1/action-submissions", nil)
+	req.TLS = verifiedClientTLSWithIntermediate(t, runtimeSPIFFE)
+	principal, err := resolver.ResolvePrincipal(context.Background(), req)
+	if err != nil || principal != boundRuntime() {
+		t.Fatalf("verified intermediate chain rejected: principal=%+v err=%v", principal, err)
+	}
+}
+
+func TestSPIFFEResolverRejectsEmptyQueryMarker(t *testing.T) {
+	if _, err := NewSPIFFEMTLSResolver("platform.example", map[string]Principal{
+		runtimeSPIFFE + "?": boundRuntime(),
+	}); err == nil {
+		t.Fatal("SPIFFE identity with empty query marker was accepted")
 	}
 }
 
