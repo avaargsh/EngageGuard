@@ -82,7 +82,7 @@ type CanonicalAction struct {
 }
 
 func validActionField(value string) bool {
-	return value != "" && len(value) <= 512 && strings.TrimSpace(value) == value &&
+	return value != "" && len(value) <= 512 && utf8.ValidString(value) && strings.TrimSpace(value) == value &&
 		!strings.ContainsAny(value, "\x00\r\n\t ")
 }
 
