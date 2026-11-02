@@ -154,7 +154,7 @@ func TestCanonicalJSONRejectsAmbiguousOrExcessiveArguments(t *testing.T) {
 }
 
 func TestJCSAcceptsValidSurrogatePair(t *testing.T) {
-	got, err := canonicalJSONObject([]byte(`{"x":"\\uD83D\\uDE00"}`))
+	got, err := canonicalJSONObject([]byte(`{"x":"\uD83D\uDE00"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
