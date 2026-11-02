@@ -64,8 +64,7 @@
       "additionalProperties": false,
       "required": [
         "id",
-        "version",
-        "contract_sha256"
+        "version"
       ],
       "properties": {
         "id": {
@@ -77,11 +76,9 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128
-        },
-        "contract_sha256": {
-          "$ref": "#/$defs/sha256"
         }
       }
     }
-  }
+  },
+  "description": "Caller-supplied untrusted intent only. Capability contract digests, identity, operation IDs, ToolBinding, policy and executor audience are resolved by EngageGuard from trusted sources."
 }
