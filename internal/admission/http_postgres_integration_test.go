@@ -3,11 +3,11 @@ package admission
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
-	"encoding/json"
-	"strings"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,7 +69,7 @@ func TestHTTPAdmissionUsesPostgresOperationReplayAndConflict(t *testing.T) {
 	}
 	var firstResult, replayResult struct {
 		OperationID string `json:"operation_id"`
-		Status string `json:"status"`
+		Status      string `json:"status"`
 	}
 	if err := json.Unmarshal(first.Body.Bytes(), &firstResult); err != nil {
 		t.Fatal(err)
