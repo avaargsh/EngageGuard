@@ -29,7 +29,7 @@ func TestHashStableAndApproved(t *testing.T) {
 
 func TestCanonicalJSONUsesJCSPropertyOrderAndStringEscaping(t *testing.T) {
 	a := sample()
-\ta.WorkspaceID = "ws<>&/\"line\\break\n" + "\u2028" + "tail"
+	a.WorkspaceID = "ws<>&/\"line\\break\n" + "\u2028" + "tail"
 	got := string(canonicalJSON(a))
 	wantFragment := `"workspace_id":"ws<>&/\\\"line\\\\break\\n` + "\u2028" + `tail"`
 	if !strings.Contains(got, wantFragment) {
