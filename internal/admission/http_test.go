@@ -69,8 +69,7 @@ func (f *fakeStore) Accept(_ context.Context, tenantID, key string, raw []byte) 
 
 func goodBody() string {
 	return `{"schema_version":"action-submission.v1","run_id":"run-1","decision_id":"dec-1","plan_id":"plan-1","plan_hash":"` +
-		strings.Repeat("a", 64) + `","step_id":"step-1","capability":{"id":"workspace.write","version":"1.0.0","contract_sha256":"` +
-		strings.Repeat("b", 64) + `"},"resource_ref":"workspace-1","arguments":{"path":"docs/a.txt"}}`
+		strings.Repeat("a", 64) + `","step_id":"step-1","capability":{"id":"workspace.write","version":"1.0.0"},"resource_ref":"workspace-1","arguments":{"path":"docs/a.txt"}}`
 }
 
 func exercise(h http.Handler, key, body string) *httptest.ResponseRecorder {
@@ -83,7 +82,7 @@ func exercise(h http.Handler, key, body string) *httptest.ResponseRecorder {
 }
 
 func TestAuthenticatedAdmissionAndStableReplay(t *testing.T) {
-	resolver := &fakeResolver{principal: Principal{TenantID: "tenant-a", SubjectID: "runtime-service", ServiceID: "agent-runtime"}}
+	resolver := &fakeResolver{principal: Principal{TenantID: "tenant-a", SubjectID: "runtime-service", ActorID: "agent-runtime", WorkloadID: "runtime-workload", ServiceID: "agent-runtime"}}
 	verifier := &fakeVerifier{}
 	store := &fakeStore{}
 	h := NewHandler(resolver, verifier, store)
@@ -114,7 +113,7 @@ func TestAuthenticatedAdmissionAndStableReplay(t *testing.T) {
 }
 
 func TestFailClosedWhenResolverOrVerifierMissing(t *testing.T) {
-	realResolver := &fakeResolver{principal: Principal{TenantID: "tenant-a", SubjectID: "runtime-service", ServiceID: "agent-runtime"}}
+	realResolver := &fakeResolver{principal: Principal{TenantID: "tenant-a", SubjectID: "runtime-service", ActorID: "agent-runtime", WorkloadID: "runtime-workload", ServiceID: "agent-runtime"}}
 	for name, h := range map[string]http.Handler{
 		"no resolver": NewHandler(nil, &fakeVerifier{}, &fakeStore{}),
 		"no verifier": NewHandler(realResolver, nil, &fakeStore{}),
@@ -129,7 +128,7 @@ func TestFailClosedWhenResolverOrVerifierMissing(t *testing.T) {
 }
 
 func TestCallerCannotForgeTenantOrServiceIdentityInHeaders(t *testing.T) {
-	resolver := &fakeResolver{principal: Principal{TenantID: "tenant-real", SubjectID: "runtime-service", ServiceID: "agent-runtime"}}
+	resolver := &fakeResolver{principal: Principal{TenantID: "tenant-real", SubjectID: "runtime-service", ActorID: "agent-runtime", WorkloadID: "runtime-workload", ServiceID: "agent-runtime"}}
 	store := &fakeStore{}
 	h := NewHandler(resolver, &fakeVerifier{}, store)
 	req := httptest.NewRequest(http.MethodPost, "/v1/action-submissions", strings.NewReader(goodBody()))
@@ -153,10 +152,12 @@ func TestRejectUnauthenticatedWrongCallerAndUnverifiedPlanBeforeStore(t *testing
 		want        int
 	}{
 		{"anonymous", Principal{}, ErrUnauthenticated, nil, http.StatusUnauthorized},
-		{"wrong service", Principal{TenantID: "tenant-a", SubjectID: "attacker", ServiceID: "other-service"}, nil, nil, http.StatusForbidden},
-		{"missing subject", Principal{TenantID: "tenant-a", ServiceID: "agent-runtime"}, nil, nil, http.StatusUnauthorized},
-		{"run denied", Principal{TenantID: "tenant-a", SubjectID: "runtime-service", ServiceID: "agent-runtime"}, nil, ErrForbidden, http.StatusForbidden},
-		{"authority down", Principal{TenantID: "tenant-a", SubjectID: "runtime-service", ServiceID: "agent-runtime"}, nil, errors.New("authority backend unavailable"), http.StatusServiceUnavailable},
+		{"wrong service", Principal{TenantID: "tenant-a", SubjectID: "attacker", ActorID: "attacker", WorkloadID: "runtime-workload", ServiceID: "other-service"}, nil, nil, http.StatusForbidden},
+		{"missing subject", Principal{TenantID: "tenant-a", ActorID: "agent-runtime", WorkloadID: "runtime-workload", ServiceID: "agent-runtime"}, nil, nil, http.StatusUnauthorized},
+		{"missing actor", Principal{TenantID: "tenant-a", SubjectID: "runtime-service", WorkloadID: "runtime-workload", ServiceID: "agent-runtime"}, nil, nil, http.StatusUnauthorized},
+		{"missing workload", Principal{TenantID: "tenant-a", SubjectID: "runtime-service", ActorID: "agent-runtime", ServiceID: "agent-runtime"}, nil, nil, http.StatusUnauthorized},
+		{"run denied", Principal{TenantID: "tenant-a", SubjectID: "runtime-service", ActorID: "agent-runtime", WorkloadID: "runtime-workload", ServiceID: "agent-runtime"}, nil, ErrForbidden, http.StatusForbidden},
+		{"authority down", Principal{TenantID: "tenant-a", SubjectID: "runtime-service", ActorID: "agent-runtime", WorkloadID: "runtime-workload", ServiceID: "agent-runtime"}, nil, errors.New("authority backend unavailable"), http.StatusServiceUnavailable},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -172,7 +173,7 @@ func TestRejectUnauthenticatedWrongCallerAndUnverifiedPlanBeforeStore(t *testing
 }
 
 func TestRejectMalformedSubmissionBeforeStore(t *testing.T) {
-	resolver := &fakeResolver{principal: Principal{TenantID: "tenant-a", SubjectID: "runtime-service", ServiceID: "agent-runtime"}}
+	resolver := &fakeResolver{principal: Principal{TenantID: "tenant-a", SubjectID: "runtime-service", ActorID: "agent-runtime", WorkloadID: "runtime-workload", ServiceID: "agent-runtime"}}
 	verifier := &fakeVerifier{}
 	store := &fakeStore{}
 	h := NewHandler(resolver, verifier, store)
@@ -193,7 +194,7 @@ func TestRejectMalformedSubmissionBeforeStore(t *testing.T) {
 }
 
 func TestConflictingBodyAndStoreOutage(t *testing.T) {
-	resolver := &fakeResolver{principal: Principal{TenantID: "tenant-a", SubjectID: "runtime-service", ServiceID: "agent-runtime"}}
+	resolver := &fakeResolver{principal: Principal{TenantID: "tenant-a", SubjectID: "runtime-service", ActorID: "agent-runtime", WorkloadID: "runtime-workload", ServiceID: "agent-runtime"}}
 	verifier := &fakeVerifier{}
 	store := &fakeStore{}
 	h := NewHandler(resolver, verifier, store)
@@ -211,7 +212,7 @@ func TestConflictingBodyAndStoreOutage(t *testing.T) {
 }
 
 func TestContentTypeAndMethodAreRestricted(t *testing.T) {
-	resolver := &fakeResolver{principal: Principal{TenantID: "tenant-a", SubjectID: "runtime-service", ServiceID: "agent-runtime"}}
+	resolver := &fakeResolver{principal: Principal{TenantID: "tenant-a", SubjectID: "runtime-service", ActorID: "agent-runtime", WorkloadID: "runtime-workload", ServiceID: "agent-runtime"}}
 	store := &fakeStore{}
 	h := NewHandler(resolver, &fakeVerifier{}, store)
 	get := httptest.NewRequest(http.MethodGet, "/v1/action-submissions", nil)
