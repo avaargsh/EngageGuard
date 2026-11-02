@@ -1,0 +1,35 @@
+{
+  "schema_version": "resolved-action-v1-vectors",
+  "action_hash": {
+    "domain_separator": "engageguard/action-hash/v1\u0000",
+    "action_request": {
+      "schema_version": "action-request.v1",
+      "tenant_id": "tenant-1",
+      "subject_id": "user-1",
+      "actor_id": "actor-1",
+      "workload_id": "runtime-1",
+      "agent_id": "agent-1",
+      "run_id": "run-1",
+      "decision_id": "decision-1",
+      "plan_id": "plan-1",
+      "plan_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "step_id": "step-1",
+      "operation_id": "operation-server-1",
+      "capability": {
+        "id": "workspace.write",
+        "version": "1.0.0",
+        "contract_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "resource_ref": "workspace-1",
+      "arguments": {
+        "path": "reports/out.txt",
+        "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "tool_binding_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "policy_version": "policy-v1",
+      "audience": "workspace-executor"
+    },
+    "canonical_json": "{\"actor_id\":\"actor-1\",\"agent_id\":\"agent-1\",\"arguments\":{\"content_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"path\":\"reports/out.txt\"},\"audience\":\"workspace-executor\",\"capability\":{\"contract_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"id\":\"workspace.write\",\"version\":\"1.0.0\"},\"decision_id\":\"decision-1\",\"operation_id\":\"operation-server-1\",\"plan_hash\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"plan_id\":\"plan-1\",\"policy_version\":\"policy-v1\",\"resource_ref\":\"workspace-1\",\"run_id\":\"run-1\",\"schema_version\":\"action-request.v1\",\"step_id\":\"step-1\",\"subject_id\":\"user-1\",\"tenant_id\":\"tenant-1\",\"tool_binding_digest\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"workload_id\":\"runtime-1\"}",
+    "expected_sha256": "28945383c733a9e23d0009f60a59a519fcd090e07ddaa1e95273d94107ad65e1"
+  }
+}
