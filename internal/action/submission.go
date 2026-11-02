@@ -86,7 +86,6 @@ func ParseActionSubmission(raw []byte) (ActionSubmission, error) {
 	return result, nil
 }
 
-
 const maxSubmissionDepth = 128
 
 func checkSubmissionDepth(raw []byte) error {
