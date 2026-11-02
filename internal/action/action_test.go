@@ -109,3 +109,19 @@ func TestRejectForgedApprovedDigest(t *testing.T) {
 		t.Fatal("invalid approval matched")
 	}
 }
+
+func TestHashMatchesV01GoldenVector(t *testing.T) {
+	a := sample()
+	wantCanonical := `{"agent_id":"agent-1","audience":"workspace-executor","capability_id":"workspace.write","content_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","operation_id":"op-1","policy_version":"policy-v1","relative_path":"docs/report.txt","schema_version":"v0.1","subject_id":"user-1","tenant_id":"tenant-1","tool_binding_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","workspace_id":"workspace-1"}`
+	if got := string(canonicalJSON(a)); got != wantCanonical {
+		t.Fatalf("canonical JSON mismatch:\n got: %s\nwant: %s", got, wantCanonical)
+	}
+	got, err := Hash(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const wantHash = "5dbeace589dcd3578e124aa8a90959e394822872bd973f41a36f88226681fa8f"
+	if got != wantHash {
+		t.Fatalf("ActionHash mismatch: got %s want %s", got, wantHash)
+	}
+}
