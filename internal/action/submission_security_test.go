@@ -13,7 +13,7 @@ func TestSubmissionRejectsCaseInsensitiveIdentityAliases(t *testing.T) {
 		replacement string
 	}{
 		{"top-level alias", `"run_id"`, `"RUN_ID"`},
-		{"nested capability alias", `"contract_sha256"`, `"CONTRACT_SHA256"`},
+		{"nested capability version alias", `"version":"1.0.0"`, `"VERSION":"1.0.0"`},
 		{"nested capability id alias", `"id":"workspace.write"`, `"ID":"workspace.write"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
