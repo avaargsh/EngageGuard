@@ -93,6 +93,9 @@ func TestConcurrentSameKeyCreatesOneDurableOperationAndOutbox(t *testing.T) {
 	if err := db.QueryRow("SELECT count(*) FROM guard_action_operations").Scan(&ops); err != nil { t.Fatal(err) }
 	if err := db.QueryRow("SELECT count(*) FROM guard_outbox_events").Scan(&events); err != nil { t.Fatal(err) }
 	if ops != 1 || events != 1 { t.Fatalf("operations=%d outbox=%d, want one each", ops, events) }
+	var eventType string
+	if err := db.QueryRow("SELECT event_type FROM guard_outbox_events").Scan(&eventType); err != nil { t.Fatal(err) }
+	if eventType != "guard.submission.recorded.v1" { t.Fatalf("unsafe dispatchable event type: %s", eventType) }
 }
 
 func TestReplayConflictAndTenantScopeAcrossStoreRecreation(t *testing.T) {
