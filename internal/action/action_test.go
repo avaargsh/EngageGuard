@@ -31,7 +31,7 @@ func TestCanonicalJSONUsesJCSPropertyOrderAndStringEscaping(t *testing.T) {
 	a := sample()
 a.WorkspaceID = "ws<>&/\"line\\break\n" + "\u2028" + "tail"
 	got := string(canonicalJSON(a))
-	wantFragment := `"workspace_id":"ws<>&/\\\"line\\\\break\\n` + "\u2028" + `tail"`
+	wantFragment := `"workspace_id":"ws<>&/\"line\\break\n` + "\u2028" + `tail"`
 	if !strings.Contains(got, wantFragment) {
 		t.Fatalf("JCS string escaping mismatch: %q", got)
 	}
