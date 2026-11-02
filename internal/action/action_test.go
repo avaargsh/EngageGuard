@@ -27,6 +27,29 @@ func TestHashStableAndApproved(t *testing.T) {
 	}
 }
 
+func TestCanonicalJSONUsesJCSPropertyOrderAndStringEscaping(t *testing.T) {
+	a := sample()
+	a.WorkspaceID = "ws<>&/\\"line\\break\n" + "\u2028" + "tail"
+	got := string(canonicalJSON(a))
+	wantFragment := `"workspace_id":"ws<>&/\\\"line\\\\break\\n` + "\u2028" + `tail"`
+	if !strings.Contains(got, wantFragment) {
+		t.Fatalf("JCS string escaping mismatch: %q", got)
+	}
+	keys := []string{
+		`"agent_id":`, `"audience":`, `"capability_id":`, `"content_digest":`,
+		`"operation_id":`, `"policy_version":`, `"relative_path":`, `"schema_version":`,
+		`"subject_id":`, `"tenant_id":`, `"tool_binding_digest":`, `"workspace_id":`,
+	}
+	last := -1
+	for _, key := range keys {
+		position := strings.Index(got, key)
+		if position <= last {
+			t.Fatalf("property %q is not in canonical order: %q", key, got)
+		}
+		last = position
+	}
+}
+
 func TestApprovalInvalidatedByAnyBindingChange(t *testing.T) {
 	orig := sample()
 	approved, _ := Hash(orig)
