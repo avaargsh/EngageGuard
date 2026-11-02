@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -70,5 +71,25 @@ func TestSubmissionRejectsUnstableKeyAndTrailingData(t *testing.T) {
 	}
 	if _, err := DecodeSubmission("runtime-key", append(body, []byte(` {}`)...)); err == nil {
 		t.Fatal("accepted trailing JSON")
+	}
+}
+
+func TestSubmissionRejectsCaseVariantFieldAliases(t *testing.T) {
+	body := submissionBody(t)
+	for _, replacement := range [][2]string{
+		{"tenant_id", "TENANT_ID"},
+		{"contract_sha256", "CONTRACT_SHA256"},
+	} {
+		forged := bytes.Replace(body, []byte(replacement[0]), []byte(replacement[1]), 1)
+		if _, err := DecodeSubmission("runtime-key", forged); err == nil {
+			t.Fatalf("accepted noncanonical field alias %q", replacement[1])
+		}
+	}
+}
+
+func TestSubmissionRejectsExcessiveJSONDepth(t *testing.T) {
+	body := []byte("{\"schema_version\":\"action-request.v1\",\"tenant_id\":\"tenant\",\"subject_id\":\"subject\",\"agent_id\":\"agent\",\"run_id\":\"run\",\"decision_id\":\"decision\",\"plan_id\":\"plan\",\"plan_hash\":\"" + strings.Repeat("a", 64) + "\",\"step_id\":\"step\",\"capability\":{\"id\":\"workspace.write\",\"version\":\"1\",\"contract_sha256\":\"" + strings.Repeat("b", 64) + "\"},\"resource_ref\":\"resource\",\"arguments\":{\"x\":" + strings.Repeat("[", maxJSONDepth+1) + "0" + strings.Repeat("]", maxJSONDepth+1) + "},\"tool_binding_digest\":\"" + strings.Repeat("c", 64) + "\",\"policy_version\":\"p1\",\"audience\":\"executor\"}")
+	if _, err := DecodeSubmission("runtime-key", body); err == nil {
+		t.Fatal("accepted excessive JSON nesting")
 	}
 }
