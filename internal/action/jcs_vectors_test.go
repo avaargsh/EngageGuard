@@ -13,9 +13,9 @@ func TestWorkspaceActionHashCrossLanguageGoldenVectors(t *testing.T) {
 		t.Fatal(err)
 	}
 	var fixture struct {
-		SchemaVersion    string `json:"schema_version"`
-		DomainSeparator  string `json:"domain_separator"`
-		Vectors []struct {
+		SchemaVersion   string `json:"schema_version"`
+		DomainSeparator string `json:"domain_separator"`
+		Vectors         []struct {
 			Name      string         `json:"name"`
 			Action    WorkspaceWrite `json:"action"`
 			Canonical string         `json:"canonical"`
