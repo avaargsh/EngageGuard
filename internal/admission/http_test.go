@@ -146,11 +146,11 @@ func TestCallerCannotForgeTenantOrServiceIdentityInHeaders(t *testing.T) {
 
 func TestRejectUnauthenticatedWrongCallerAndUnverifiedPlanBeforeStore(t *testing.T) {
 	cases := []struct{
-		name string
-		principal Principal
+		name        string
+		principal   Principal
 		resolverErr error
-		verifyErr error
-		want int
+		verifyErr  error
+		want        int
 	}{
 		{"anonymous", Principal{}, ErrUnauthenticated, nil, http.StatusUnauthorized},
 		{"wrong service", Principal{TenantID: "tenant-a", SubjectID: "attacker", ServiceID: "other-service"}, nil, nil, http.StatusForbidden},
@@ -176,7 +176,7 @@ func TestRejectMalformedSubmissionBeforeStore(t *testing.T) {
 	verifier := &fakeVerifier{}
 	store := &fakeStore{}
 	h := NewHandler(resolver, verifier, store)
-	for _, tc := range []struct{key, body string}{
+	for _, tc := range []struct{ key, body string }{
 		{"bad key", goodBody()},
 		{"key-1", `{"operation_id":"caller-forged"}`},
 		{"key-1", strings.Replace(goodBody(), `"run_id":`, `"tenant_id":"forged","run_id":`, 1)},
