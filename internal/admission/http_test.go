@@ -93,8 +93,12 @@ func TestAuthenticatedAdmissionAndStableReplay(t *testing.T) {
 		t.Fatalf("expected 201 then 200; got %d then %d: %s / %s", first.Code, second.Code, first.Body.String(), second.Body.String())
 	}
 	var a, b map[string]any
-	if err := json.Unmarshal(first.Body.Bytes(), &a); err != nil { t.Fatal(err) }
-	if err := json.Unmarshal(second.Body.Bytes(), &b); err != nil { t.Fatal(err) }
+	if err := json.Unmarshal(first.Body.Bytes(), &a); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(second.Body.Bytes(), &b); err != nil {
+		t.Fatal(err)
+	}
 	if a["operation_id"] != "guard-created-operation" || a["operation_id"] != b["operation_id"] {
 		t.Fatalf("unexpected operation replay: %+v %+v", a, b)
 	}
@@ -193,11 +197,17 @@ func TestConflictingBodyAndStoreOutage(t *testing.T) {
 	verifier := &fakeVerifier{}
 	store := &fakeStore{}
 	h := NewHandler(resolver, verifier, store)
-	if got := exercise(h, "key-1", goodBody()).Code; got != http.StatusCreated { t.Fatal(got) }
+	if got := exercise(h, "key-1", goodBody()).Code; got != http.StatusCreated {
+		t.Fatal(got)
+	}
 	changed := strings.Replace(goodBody(), "docs/a.txt", "docs/b.txt", 1)
-	if got := exercise(h, "key-1", changed).Code; got != http.StatusConflict { t.Fatalf("changed payload status=%d", got) }
+	if got := exercise(h, "key-1", changed).Code; got != http.StatusConflict {
+		t.Fatalf("changed payload status=%d", got)
+	}
 	store.err = errors.New("database failure")
-	if got := exercise(h, "key-2", goodBody()).Code; got != http.StatusServiceUnavailable { t.Fatalf("DB failure status=%d", got) }
+	if got := exercise(h, "key-2", goodBody()).Code; got != http.StatusServiceUnavailable {
+		t.Fatalf("DB failure status=%d", got)
+	}
 }
 
 func TestContentTypeAndMethodAreRestricted(t *testing.T) {
@@ -207,11 +217,15 @@ func TestContentTypeAndMethodAreRestricted(t *testing.T) {
 	get := httptest.NewRequest(http.MethodGet, "/v1/action-submissions", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, get)
-	if rec.Code != http.StatusMethodNotAllowed { t.Fatalf("GET status=%d", rec.Code) }
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET status=%d", rec.Code)
+	}
 	bad := httptest.NewRequest(http.MethodPost, "/v1/action-submissions", strings.NewReader(goodBody()))
 	bad.Header.Set("Content-Type", "text/plain")
 	bad.Header.Set("Idempotency-Key", "key-1")
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, bad)
-	if rec.Code != http.StatusUnsupportedMediaType || store.calls != 0 { t.Fatalf("media mismatch accepted: %d", rec.Code) }
+	if rec.Code != http.StatusUnsupportedMediaType || store.calls != 0 {
+		t.Fatalf("media mismatch accepted: %d", rec.Code)
+	}
 }
