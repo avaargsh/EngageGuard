@@ -14,8 +14,8 @@ func TestSharedJCSNumberVectors(t *testing.T) {
 	}
 	var fixture struct {
 		SchemaVersion string `json:"schema_version"`
-		Vectors []struct {
-			Input string `json:"input"`
+		Vectors       []struct {
+			Input     string `json:"input"`
 			Canonical string `json:"canonical"`
 		} `json:"vectors"`
 	}
