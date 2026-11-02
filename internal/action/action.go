@@ -4,12 +4,13 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"path"
 	"strings"
 	"unicode/utf8"
 )
+
+const actionHashDomain = "engageguard/action-hash/v1\x00"
 
 // WorkspaceWrite is a *trusted, resolved* action. The PEP must derive identity
 // and binding attributes from authenticated context, not model-provided JSON.
@@ -55,17 +56,87 @@ func (a WorkspaceWrite) Validate() error {
 	return nil
 }
 
+// canonicalJSON emits RFC 8785 JCS for this fixed all-string object.
+// All property names are ASCII and are listed in UTF-16 lexical order.
+// The schema intentionally has no numeric fields, avoiding cross-runtime
+// IEEE-754 number serialization differences in this ActionHash version.
+func canonicalJSON(a WorkspaceWrite) []byte {
+	fields := [...]struct {
+		key   string
+		value string
+	}{
+		{"agent_id", a.AgentID},
+		{"audience", a.Audience},
+		{"capability_id", a.CapabilityID},
+		{"content_digest", a.ContentDigest},
+		{"operation_id", a.OperationID},
+		{"policy_version", a.PolicyVersion},
+		{"relative_path", a.RelativePath},
+		{"schema_version", a.SchemaVersion},
+		{"subject_id", a.SubjectID},
+		{"tenant_id", a.TenantID},
+		{"tool_binding_digest", a.ToolBindingDigest},
+		{"workspace_id", a.WorkspaceID},
+	}
+
+	out := make([]byte, 0, 512)
+	out = append(out, '{')
+	for i, field := range fields {
+		if i > 0 {
+			out = append(out, ',')
+		}
+		out = appendJSONString(out, field.key)
+		out = append(out, ':')
+		out = appendJSONString(out, field.value)
+	}
+	return append(out, '}')
+}
+
+// appendJSONString follows the ECMAScript JSON string escaping used by JCS:
+// quote/backslash and controls are escaped; HTML characters, slash and
+// non-control Unicode are emitted as UTF-8 without normalization.
+func appendJSONString(dst []byte, value string) []byte {
+	const hexDigits = "0123456789abcdef"
+	dst = append(dst, '"')
+	for _, r := range value {
+		switch r {
+		case '"':
+			dst = append(dst, '\\', '"')
+		case '\\':
+			dst = append(dst, '\\', '\\')
+		case '\b':
+			dst = append(dst, '\\', 'b')
+		case '\t':
+			dst = append(dst, '\\', 't')
+		case '\n':
+			dst = append(dst, '\\', 'n')
+		case '\f':
+			dst = append(dst, '\\', 'f')
+		case '\r':
+			dst = append(dst, '\\', 'r')
+		default:
+			if r < 0x20 {
+				dst = append(dst, '\\', 'u', '0', '0', hexDigits[byte(r)>>4], hexDigits[byte(r)&0x0f])
+			} else {
+				dst = utf8.AppendRune(dst, r)
+			}
+		}
+	}
+	return append(dst, '"')
+}
+
 // Hash binds the exact normalized action to its identity and policy context.
+// It uses a versioned domain separator and RFC 8785 JCS before SHA-256.
 // A digest is not a Permit or authorization decision.
 func Hash(a WorkspaceWrite) (string, error) {
 	if err := a.Validate(); err != nil {
 		return "", err
 	}
-	canonical, err := json.Marshal(a)
-	if err != nil {
-		return "", err
-	}
-	digest := sha256.Sum256(canonical)
+	canonical := canonicalJSON(a)
+	preimage := make([]byte, 0, len(actionHashDomain)+len(canonical))
+	preimage = append(preimage, actionHashDomain...)
+	preimage = append(preimage, canonical...)
+	digest := sha256.Sum256(preimage)
 	return hex.EncodeToString(digest[:]), nil
 }
 
