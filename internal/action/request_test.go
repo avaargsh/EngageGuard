@@ -83,6 +83,19 @@ func TestRequestHashCanonicalAndBoundToAuthenticatedContext(t *testing.T) {
 	if fourth == first { t.Fatal("RequestHash must bind authenticated actor identity") }
 }
 
+func TestRequestHashRejectsInvalidUTF8Identity(t *testing.T) {
+	request := validActionRequest()
+	request.AgentID = string([]byte{0xff})
+	if _, err := RequestHash(request, validAuthenticatedContext()); err == nil {
+		t.Fatal("accepted invalid UTF-8 request identity")
+	}
+	context := validAuthenticatedContext()
+	context.SubjectID = string([]byte{0xff})
+	if _, err := RequestHash(validActionRequest(), context); err == nil {
+		t.Fatal("accepted invalid UTF-8 authenticated identity")
+	}
+}
+
 func TestIdempotencyKeyValidation(t *testing.T) {
 	for _, key := range []string{"key-1", "01JDGZ3F0J4Z7D2A3VQ2P2M8XZ", strings.Repeat("a", 128)} {
 		if err := ValidateIdempotencyKey(key); err != nil { t.Errorf("rejected valid key %q: %v", key, err) }
@@ -138,6 +151,16 @@ func TestCanonicalJSONRejectsAmbiguousOrExcessiveArguments(t *testing.T) {
 	}
 	deep := `{"x":` + strings.Repeat("[", maxJSONDepth+2) + `0` + strings.Repeat("]", maxJSONDepth+2) + `}`
 	if _, err := canonicalJSONObject([]byte(deep)); err == nil { t.Fatal("accepted over-deep JSON") }
+}
+
+func TestJCSAcceptsValidSurrogatePair(t *testing.T) {
+	got, err := canonicalJSONObject([]byte(`{"x":"\\uD83D\\uDE00"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != `{"x":"😀"}` {
+		t.Fatalf("unexpected canonical Unicode: %q", got)
+	}
 }
 
 func TestWorkspaceWriteRejectsUnknownArgumentFields(t *testing.T) {
