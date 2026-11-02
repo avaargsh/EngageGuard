@@ -12,8 +12,8 @@ Status: **Draft / not ratified**. This branch contains pure validation helpers, 
 
 ## Caller wire contract
 
-- `docs/contracts/action-submission.v1.schema.json` has `additionalProperties: false`; deliberately excludes `operation_id`, tenant, subject, agent identity, policy, ToolBinding digest, audience and executor endpoint.
-- `ParseActionSubmission` rejects duplicate JSON keys at any depth, invalid/oversized JSON, unknown fields and invalid typed references. The request body limit is 64 KiB; the shared JCS parser also enforces maximum nesting depth 64.
+- `docs/contracts/action-submission.v1.schema.json` has `additionalProperties: false`; capability is only an untrusted `id/version` selector. It deliberately excludes capability contract digests, `operation_id`, tenant, subject, actor, workload, policy, ToolBinding digest, audience, executor endpoint and supplied ActionHash.
+- `ParseActionSubmission` rejects duplicate JSON keys at any depth, invalid/oversized JSON, unknown fields and invalid typed references. The request body limit is 64 KiB; the shared JCS parser also enforces maximum nesting depth 64. Capability `contract_sha256` is rejected at this boundary and resolved by Guard from the authoritative capability registry.
 - `ValidateSubmissionKey` validates a bounded ASCII idempotency key; enforcement and authenticated tenant binding must happen in the future server handler.
 - `SubmissionDigest` hashes **the exact accepted request bytes** with `engageguard/submission-bytes/v1\\0` domain separation. This digest is only an idempotency replay fingerprint. Byte-different submissions using the same key must conflict, even when semantically equal JSON, until a separately reviewed canonical replay format is accepted.
 - **Never use SubmissionDigest for approval, Permit or ActionHash.** It has different domain, purpose, and trust assumptions.
