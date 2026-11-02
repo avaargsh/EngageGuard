@@ -191,40 +191,40 @@ func readJSONValue(decoder *json.Decoder) (any, error) {
 // HTTP Idempotency-Key header and must be persisted by Runtime across retries.
 // Guard, not Runtime, creates the operation_id only after a durable claim.
 type Submission struct {
-    IdempotencyKey string
-    Action         ActionRequest
+	IdempotencyKey string
+	Action         ActionRequest
 }
 
 // DecodeSubmission enforces the draft ingress boundary. This function does
 // not claim, persist, authorize or execute an operation. The HTTP handler must
 // derive and cross-check all identity fields from a trusted principal.
 func DecodeSubmission(idempotencyKey string, raw []byte) (Submission, error) {
-    if !validActionField(idempotencyKey) || len(idempotencyKey) > 128 {
-        return Submission{}, errors.New("invalid Guard Idempotency-Key")
-    }
-    if len(raw) == 0 || len(raw) > maxArgumentsBytes+16*1024 || !utf8.Valid(raw) {
-        return Submission{}, errors.New("invalid submission body")
-    }
+	if !validActionField(idempotencyKey) || len(idempotencyKey) > 128 {
+		return Submission{}, errors.New("invalid Guard Idempotency-Key")
+	}
+	if len(raw) == 0 || len(raw) > maxArgumentsBytes+16*1024 || !utf8.Valid(raw) {
+		return Submission{}, errors.New("invalid submission body")
+	}
 
-    // Detect ambiguous duplicate fields even when JSON decoding into a Go
-    // struct would silently keep the last occurrence.
-    first := json.NewDecoder(bytes.NewReader(raw))
-    first.UseNumber()
-    if _, err := readJSONValue(first); err != nil {
-        return Submission{}, fmt.Errorf("invalid submission JSON: %w", err)
-    }
-    if _, err := first.Token(); !errors.Is(err, io.EOF) {
-        return Submission{}, errors.New("trailing submission JSON")
-    }
+	// Detect ambiguous duplicate fields even when JSON decoding into a Go
+	// struct would silently keep the last occurrence.
+	first := json.NewDecoder(bytes.NewReader(raw))
+	first.UseNumber()
+	if _, err := readJSONValue(first); err != nil {
+		return Submission{}, fmt.Errorf("invalid submission JSON: %w", err)
+	}
+	if _, err := first.Token(); !errors.Is(err, io.EOF) {
+		return Submission{}, errors.New("trailing submission JSON")
+	}
 
-    decoder := json.NewDecoder(bytes.NewReader(raw))
-    decoder.DisallowUnknownFields()
-    var action ActionRequest
-    if err := decoder.Decode(&action); err != nil {
-        return Submission{}, fmt.Errorf("invalid submission fields: %w", err)
-    }
-    if err := action.Validate(); err != nil {
-        return Submission{}, err
-    }
-    return Submission{IdempotencyKey: idempotencyKey, Action: action}, nil
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var action ActionRequest
+	if err := decoder.Decode(&action); err != nil {
+		return Submission{}, fmt.Errorf("invalid submission fields: %w", err)
+	}
+	if err := action.Validate(); err != nil {
+		return Submission{}, err
+	}
+	return Submission{IdempotencyKey: idempotencyKey, Action: action}, nil
 }
