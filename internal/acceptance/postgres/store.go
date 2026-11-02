@@ -22,6 +22,9 @@ var tenantIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 //go:embed schema.sql
 var initialSchema string
 
+//go:embed schema_v2.sql
+var permitSchema string
+
 // Migration versions and bytes are immutable after release. A journal's
 // durability guarantees depend on a known PostgreSQL schema at every boot.
 const initialMigrationVersion int64 = 1
@@ -36,10 +39,9 @@ var (
 	ErrUnversionedSchema = errors.New("Guard schema exists without migration history")
 )
 
-// Migrate atomically installs and checks the admission-only schema. This
-// serializes concurrent boot migrations within the PostgreSQL database;
-// installation, version marker and checksum commit (or roll back) together.
-// A schema migration is not authorization to dispatch any external action.
+// Migrate serializes schema installation in one transaction. Version 1
+// bytes are unchanged; version 2 introduces only the internal pre-dispatch
+// Permit/Intent/Audit ledger. Versions and checksums are fail-closed.
 func Migrate(ctx context.Context, db *sql.DB) error {
 	if db == nil {
 		return errors.New("database unavailable")
@@ -61,65 +63,91 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	`); err != nil {
 		return fmt.Errorf("create Guard schema ledger: %w", err)
 	}
-
-	var currentVersionCount int
-	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM guard_schema_migrations").Scan(&currentVersionCount); err != nil {
-		return fmt.Errorf("inspect Guard migration history: %w", err)
+	rows, err := tx.QueryContext(ctx, "SELECT version, checksum FROM guard_schema_migrations")
+	if err != nil {
+		return fmt.Errorf("read Guard migration history: %w", err)
 	}
-	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(initialSchema)))
-	if currentVersionCount > 0 {
-		var existing string
-		if currentVersionCount != 1 {
+	applied := make(map[int64]string)
+	for rows.Next() {
+		var version int64
+		var digest string
+		if err := rows.Scan(&version, &digest); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan Guard migration history: %w", err)
+		}
+		applied[version] = digest
+	}
+	readErr := rows.Err()
+	closeErr := rows.Close()
+	if err := errors.Join(readErr, closeErr); err != nil {
+		return fmt.Errorf("finish Guard migration history: %w", err)
+	}
+	migrations := []struct {
+		version int64
+		source string
+	}{
+		{initialMigrationVersion, initialSchema},
+		{2, permitSchema},
+	}
+	if len(applied) > len(migrations) {
+		return ErrSchemaDrift
+	}
+	for _, item := range migrations {
+		digest := fmt.Sprintf("%x", sha256.Sum256([]byte(item.source)))
+		if existing, ok := applied[item.version]; ok && existing != digest {
 			return ErrSchemaDrift
 		}
-		if err := tx.QueryRowContext(ctx,
-			"SELECT checksum FROM guard_schema_migrations WHERE version=$1",
-			initialMigrationVersion,
-		).Scan(&existing); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+	}
+	// Never run a future binary against an unknown or non-prefix history.
+	for version := range applied {
+		if version < initialMigrationVersion || version > int64(len(migrations)) {
+			return ErrSchemaDrift
+		}
+		if version > 1 {
+			if _, ok := applied[version-1]; !ok {
 				return ErrSchemaDrift
 			}
-			return fmt.Errorf("read Guard schema checksum: %w", err)
 		}
-		if existing != digest {
-			return ErrSchemaDrift
+	}
+	if len(applied) == 0 {
+		var existing bool
+		if err := tx.QueryRowContext(ctx, `
+			SELECT to_regclass('guard_action_operations') IS NOT NULL
+			    OR to_regclass('guard_outbox_events') IS NOT NULL
+			    OR to_regclass('guard_permits') IS NOT NULL
+			    OR to_regclass('guard_operation_intents') IS NOT NULL
+			    OR to_regclass('guard_execution_audit') IS NOT NULL
+		`).Scan(&existing); err != nil {
+			return fmt.Errorf("inspect unversioned Guard relations: %w", err)
 		}
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit Guard schema verification: %w", err)
+		if existing {
+			return ErrUnversionedSchema
 		}
-		return nil
 	}
-
-	// Never silently assign canonical status to an existing unmanaged
-	// installation. An operator must inspect/upgrade it explicitly.
-	var hasUnversionedRelations bool
-	if err := tx.QueryRowContext(ctx, `
-		SELECT to_regclass('guard_action_operations') IS NOT NULL
-		    OR to_regclass('guard_outbox_events') IS NOT NULL
-	`).Scan(&hasUnversionedRelations); err != nil {
-		return fmt.Errorf("inspect unversioned Guard relations: %w", err)
-	}
-	if hasUnversionedRelations {
-		return ErrUnversionedSchema
-	}
-	// This initial SQL consists only of fixed DDL statements; future
-	// migrations must be separate immutable, checksummed versions.
-	for _, statement := range strings.Split(initialSchema, ";") {
-		if strings.TrimSpace(statement) == "" {
+	for _, item := range migrations {
+		if _, ok := applied[item.version]; ok {
 			continue
 		}
-		if _, err := tx.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("install Guard admission schema: %w", err)
+		// Only fixed, semicolon-separated DDL is allowed in these versions.
+		// A future migration with PL/pgSQL must use a different runner.
+		for _, stmt := range strings.Split(item.source, ";") {
+			if strings.TrimSpace(stmt) == "" {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("install Guard migration %d: %w", item.version, err)
+			}
+		}
+		digest := fmt.Sprintf("%x", sha256.Sum256([]byte(item.source)))
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO guard_schema_migrations (version, checksum) VALUES ($1,$2)",
+			item.version, digest,
+		); err != nil {
+			return fmt.Errorf("record Guard migration %d checksum: %w", item.version, err)
 		}
 	}
-	if _, err := tx.ExecContext(ctx,
-		"INSERT INTO guard_schema_migrations (version, checksum) VALUES ($1, $2)",
-		initialMigrationVersion, digest,
-	); err != nil {
-		return fmt.Errorf("record Guard schema checksum: %w", err)
-	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit Guard schema migration: %w", err)
+		return fmt.Errorf("commit Guard schema migrations: %w", err)
 	}
 	return nil
 }
