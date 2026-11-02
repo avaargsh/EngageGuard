@@ -33,7 +33,6 @@ type ActionRequest struct {
 	PlanID            string              `json:"plan_id"`
 	PlanHash          string              `json:"plan_hash"`
 	StepID            string              `json:"step_id"`
-	OperationID       string              `json:"operation_id"`
 	Capability        ActionCapabilityRef `json:"capability"`
 	ResourceRef       string              `json:"resource_ref"`
 	Arguments         json.RawMessage     `json:"arguments"`
@@ -58,7 +57,7 @@ func validSHA256(value string) bool {
 func (a ActionRequest) Validate() error {
 	for _, value := range []string{
 		a.SchemaVersion, a.TenantID, a.SubjectID, a.AgentID, a.RunID,
-		a.DecisionID, a.PlanID, a.PlanHash, a.StepID, a.OperationID, a.ResourceRef,
+		a.DecisionID, a.PlanID, a.PlanHash, a.StepID, a.ResourceRef,
 		a.PolicyVersion, a.Audience,
 	} {
 		if !validActionField(value) {
@@ -83,7 +82,7 @@ func (a ActionRequest) Validate() error {
 }
 
 // ActionHash canonicalizes the argument object, then binds it to the exact
-// tenant, subject, agent, Run, Decision, Plan, Step, operation, capability,
+// tenant, subject, agent, Run, Decision, Plan, Step, capability,
 // resource, tool binding, policy version and executor audience.
 func ActionHash(a ActionRequest) (string, error) {
 	if err := a.Validate(); err != nil {
@@ -186,4 +185,46 @@ func readJSONValue(decoder *json.Decoder) (any, error) {
 	default:
 		return nil, errors.New("unexpected JSON delimiter")
 	}
+}
+
+// Submission is a proposed Runtime-to-Guard input. The key belongs to the
+// HTTP Idempotency-Key header and must be persisted by Runtime across retries.
+// Guard, not Runtime, creates the operation_id only after a durable claim.
+type Submission struct {
+    IdempotencyKey string
+    Action         ActionRequest
+}
+
+// DecodeSubmission enforces the draft ingress boundary. This function does
+// not claim, persist, authorize or execute an operation. The HTTP handler must
+// derive and cross-check all identity fields from a trusted principal.
+func DecodeSubmission(idempotencyKey string, raw []byte) (Submission, error) {
+    if !validActionField(idempotencyKey) || len(idempotencyKey) > 128 {
+        return Submission{}, errors.New("invalid Guard Idempotency-Key")
+    }
+    if len(raw) == 0 || len(raw) > maxArgumentsBytes+16*1024 || !utf8.Valid(raw) {
+        return Submission{}, errors.New("invalid submission body")
+    }
+
+    // Detect ambiguous duplicate fields even when JSON decoding into a Go
+    // struct would silently keep the last occurrence.
+    first := json.NewDecoder(bytes.NewReader(raw))
+    first.UseNumber()
+    if _, err := readJSONValue(first); err != nil {
+        return Submission{}, fmt.Errorf("invalid submission JSON: %w", err)
+    }
+    if _, err := first.Token(); !errors.Is(err, io.EOF) {
+        return Submission{}, errors.New("trailing submission JSON")
+    }
+
+    decoder := json.NewDecoder(bytes.NewReader(raw))
+    decoder.DisallowUnknownFields()
+    var action ActionRequest
+    if err := decoder.Decode(&action); err != nil {
+        return Submission{}, fmt.Errorf("invalid submission fields: %w", err)
+    }
+    if err := action.Validate(); err != nil {
+        return Submission{}, err
+    }
+    return Submission{IdempotencyKey: idempotencyKey, Action: action}, nil
 }
