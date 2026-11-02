@@ -64,8 +64,8 @@ func (a ActionRequest) Validate() error {
 			return errors.New("invalid ActionRequest identity or binding field")
 		}
 	}
-	if a.SchemaVersion != "action-request.v1" || a.Capability.ID == "" ||
-		a.Capability.Version == "" || !validSHA256(a.Capability.ContractSHA256) ||
+	if a.SchemaVersion != "action-request.v1" || !validActionField(a.Capability.ID) ||
+		!validActionField(a.Capability.Version) || !validSHA256(a.Capability.ContractSHA256) ||
 		!validSHA256(a.ToolBindingDigest) {
 		return errors.New("invalid ActionRequest schema or capability binding")
 	}
