@@ -91,13 +91,15 @@ func TestMigrateConcurrentFirstInstallAndChecksumReplay(t *testing.T) {
 
 func TestMigrateFailedDDLDoesNotLeavePartialSchema(t *testing.T) {
 	db := unmigratedDatabase(t)
-	// The second table's name is pre-occupied by an incompatible relation;
-	// a non-atomic migrator leaves the first table behind.
-	if _, err := db.Exec("CREATE VIEW guard_outbox_events AS SELECT 1 AS marker"); err != nil {
+	// A pre-existing type (not a table/view) conflicts with the composite
+	// type PostgreSQL creates for the second table. This fails after the
+	// operation table was created inside the transaction; rollback must
+	// remove that partial installation as well as the migration ledger.
+	if _, err := db.Exec("CREATE TYPE guard_outbox_events AS (marker integer)"); err != nil {
 		t.Fatal(err)
 	}
 	if err := Migrate(context.Background(), db); err == nil {
-		t.Fatal("expected migration to fail on incompatible existing view")
+		t.Fatal("expected migration to fail on conflicting composite type")
 	}
 	for _, relation := range []string{"guard_action_operations", "guard_schema_migrations"} {
 		var exists bool
