@@ -18,7 +18,7 @@ No endpoint, provider secret, bearer token or executable code is accepted in the
 ## Canonicalization
 
 - Arguments must be a JSON object, no larger than 64 KiB.
-- Duplicate object keys are rejected at every nesting depth.
+- Duplicate object keys are rejected at every nesting depth; Guard ingress also requires exact schema key spelling (case aliases are rejected) and caps JSON nesting at 128 levels.
 - The current generic `ActionRequest` hashing uses Go JSON re-encoding, **not** full RFC 8785/JCS (notably JSON numbers and Unicode property order). It must not be used as an approved cross-language authorization hash until shared JCS fixtures pass.
 - The hash covers all identity and authorization binding fields plus the canonical arguments.
 - A change to any bound field produces a different ActionHash. A Permit must reference the exact hash, audience, tenant, subject, expiry and nonce.
