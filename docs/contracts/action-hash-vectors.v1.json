@@ -1,0 +1,60 @@
+{
+  "schema_version": "engageguard-hash-vectors.v1",
+  "request_hash": {
+    "domain_separator": "engageguard/request-hash/v1\u0000",
+    "idempotency_key_not_hashed": "client-stable-key-001",
+    "authenticated_context": {
+      "tenant_id": "tenant-1",
+      "subject_id": "user-1",
+      "actor_id": "actor-1",
+      "workload_id": "runtime-1"
+    },
+    "request": {
+      "schema_version": "action-request.v1",
+      "agent_id": "agent-1",
+      "run_id": "run-1",
+      "decision_id": "decision-1",
+      "plan_id": "plan-1",
+      "plan_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "step_id": "step-1",
+      "capability": {"id": "workspace.write", "version": "1.0.0"},
+      "resource_ref": "workspace-1",
+      "arguments": {
+        "path": "reports/out.txt",
+        "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    },
+    "expected_sha256": "74e4e214679d77bed3a74d4857e0e695ab293000e987baa84e8c3e43ca03d60a"
+  },
+  "action_hash": {
+    "domain_separator": "engageguard/action-hash/v1\u0000",
+    "canonical_action": {
+      "schema_version": "canonical-action.v1",
+      "tenant_id": "tenant-1",
+      "subject_id": "user-1",
+      "actor_id": "actor-1",
+      "workload_id": "runtime-1",
+      "agent_id": "agent-1",
+      "run_id": "run-1",
+      "decision_id": "decision-1",
+      "plan_id": "plan-1",
+      "plan_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "step_id": "step-1",
+      "operation_id": "operation-server-1",
+      "capability": {
+        "id": "workspace.write",
+        "version": "1.0.0",
+        "contract_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "resource_ref": "workspace-1",
+      "arguments": {
+        "path": "reports/out.txt",
+        "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "tool_binding_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "policy_version": "policy-v1",
+      "audience": "workspace-executor"
+    },
+    "expected_sha256": "0d717fed2aa3da8872ae037097dab83582d09aaa59f19712310d794b0fdb3aff"
+  }
+}
