@@ -13,16 +13,16 @@ func TestSharedActionHashVectors(t *testing.T) {
 	}
 	var fixture struct {
 		SchemaVersion string `json:"schema_version"`
-		RequestHash struct {
-			DomainSeparator string `json:"domain_separator"`
+		RequestHash   struct {
+			DomainSeparator      string               `json:"domain_separator"`
 			AuthenticatedContext AuthenticatedContext `json:"authenticated_context"`
-			Request ActionRequest `json:"request"`
-			ExpectedSHA256 string `json:"expected_sha256"`
+			Request              ActionRequest        `json:"request"`
+			ExpectedSHA256       string               `json:"expected_sha256"`
 		} `json:"request_hash"`
 		ActionHash struct {
-			DomainSeparator string `json:"domain_separator"`
+			DomainSeparator string          `json:"domain_separator"`
 			CanonicalAction CanonicalAction `json:"canonical_action"`
-			ExpectedSHA256 string `json:"expected_sha256"`
+			ExpectedSHA256  string          `json:"expected_sha256"`
 		} `json:"action_hash"`
 	}
 	if err := json.Unmarshal(data, &fixture); err != nil {
