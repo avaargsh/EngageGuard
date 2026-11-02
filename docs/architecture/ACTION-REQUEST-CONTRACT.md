@@ -1,39 +1,35 @@
-# ActionRequest v1 — Guard-owned authorization contract
+# Guard Submission v1 and Resolved Action — Contract Gate
 
-Status: contract and canonical ActionHash reference implementation; no Permit issuance or Trusted Executor implementation is claimed.
+Status: **Draft / not ratified**. This branch contains pure validation helpers, not a running PEP, PostgreSQL journal, Permit service, or trusted executor.
 
-## Ownership
+## Authority split
 
-- Decision emits an immutable PlanCandidate and PlanHash. It does not construct an executable request or authorize a side effect.
-- Runtime validates the plan against the active Run and AgentRelease, resolves one PlanStep and its inputs, and creates one ActionRequest with a stable OperationID.
-- EngageGuard is the authority for validating the ActionRequest, re-resolving the current Capability and ToolBinding, evaluating policy/risk/approval, computing ActionHash and issuing or denying a Permit.
-- Trusted Executor revalidates and consumes a one-time, action-bound Permit immediately before the side effect. OperationJournal owns operation state and UNKNOWN reconciliation.
+1. **Runtime** validates the active Run/AgentRelease and sends an *untrusted* `ActionSubmission` (`action-submission.v1`) with a caller-generated, persisted `Idempotency-Key` HTTP header. Runtime **does not supply** `operation_id`.
+2. **EngageGuard** authenticates Runtime, verifies Run ownership against the authoritative control-plane/runtime state, resolves tenant/subject/agent/delegation and current Capability/ToolBinding/policy/executor audience; rejects stale, revoked, or mismatched references.
+3. **EngageGuard** is the **only authority to allocate `operation_id`** on the first accepted submission. A future PostgreSQL transaction must uniquely bind `(authenticated_tenant, submission_key)` to `(submission_digest, operation_id)`. Same key + exact digest returns the same operation, different digest conflicts; race/concurrent request and restart behavior need integration tests.
+4. After allocation and trusted resolution, **EngageGuard** builds its internal `ActionRequest` containing `operation_id` and all trusted binding fields. The existing `action-request.v1.schema.json` and Go `ActionRequest` are **internal resolved-action drafts, NOT the Runtime request wire contract**.
+5. Guard performs policy/risk/approval and issues an action-bound Permit only after required checks. Trusted Executor validates and atomically claims it before the side effect. OperationJournal persists Intent **before** dispatch, and owns UNKNOWN reconciliation after uncertain outcomes. Runtime owns Run/Step progress, not Guard's external-effect retry.
 
-## Required binding
+## Caller wire contract
 
-ActionRequest v1 binds tenant, subject, agent, Run, Decision, Plan, PlanHash, Step, Operation, exact Capability ID/version/contract digest, resource target, canonical arguments, trusted ToolBinding digest, policy version and executor audience.
+- `docs/contracts/action-submission.v1.schema.json` has `additionalProperties: false`; deliberately excludes `operation_id`, tenant, subject, agent identity, policy, ToolBinding digest, audience and executor endpoint.
+- `ParseActionSubmission` rejects duplicate JSON keys at any depth, invalid/oversized JSON, unknown fields and invalid typed references. The request body limit is 64 KiB.
+- `ValidateSubmissionKey` validates a bounded ASCII idempotency key; enforcement and authenticated tenant binding must happen in the future server handler.
+- `SubmissionDigest` hashes **the exact accepted request bytes** with `engageguard/submission-bytes/v1\\0` domain separation. This digest is only an idempotency replay fingerprint. Byte-different submissions using the same key must conflict, even when semantically equal JSON, until a separately reviewed canonical replay format is accepted.
+- **Never use SubmissionDigest for approval, Permit or ActionHash.** It has different domain, purpose, and trust assumptions.
 
-No endpoint, provider secret, bearer token or executable code is accepted in the ActionRequest contract. The tenant and identity fields are assertions to compare against the authenticated caller and authoritative Run; they are not trusted merely because they appear in JSON.
+## ActionHash conformance blocker
 
-## Canonicalization
+The current general-purpose `ActionRequest.ActionHash` uses Go `json.Marshal` with lexical number preservation. It **does not implement RFC 8785 JCS** for arbitrary JSON numbers/Unicode and **must not be treated as a normative cross-language Permit binding**. The narrower `WorkspaceWrite` helper already uses a versioned all-string JCS subset, but those two hash contracts are not interchangeable.
 
-- Arguments must be a JSON object, no larger than 64 KiB.
-- Duplicate object keys are rejected at every nesting depth.
-- Object keys are sorted by canonical re-encoding; numeric values preserve their JSON number lexeme (no float64 conversion).
-- The hash covers all identity and authorization binding fields plus the canonical arguments.
-- A change to any bound field produces a different ActionHash. A Permit must reference the exact hash, audience, tenant, subject, expiry and nonce.
+Before Permit integration or PR #2 promotion, ratify a *single* domain separator and JCS implementation using shared Go/Python/TypeScript golden vectors (IEEE-754 numbers, UTF-16 property order, escaping, Unicode, tampering and mutation), then update the resolved ActionRequest code and schema together. Prefer a vetted RFC 8785 implementation over rolling a general-purpose serializer.
 
-## Required execution order
+## Acceptance still required
 
-1. Runtime emits one ActionRequest for one PlanStep.
-2. Guard authenticates Runtime and verifies tenant/Agent/Run/Release ownership.
-3. Guard re-resolves capability version, schema digest, tool binding and current policy; stale or revoked references fail closed.
-4. Guard computes ActionHash over the normalized action and obtains any required human approval bound to that hash.
-5. Guard issues a short-lived, audience-bound, single-use Permit only after approval and policy checks.
-6. Trusted Executor validates signature, audience, expiry, action hash, subject, tenant and nonce; atomically claims the nonce before executing.
-7. OperationJournal persists STARTED/COMPLETED/FAILED/UNKNOWN. Lost ACK or uncertain provider result becomes UNKNOWN and is reconciled against the external resource; never blind-retried.
-8. Runtime receives a signed/verified outcome reference and updates its own Step/Run state.
+- Authenticated Guard HTTP endpoint, PostgreSQL operation allocation and `(tenant,key,digest)` conflict/replay atomicity
+- Cross-tenant conflict isolation, concurrent claims, restart/replay, and lost-ACK operation lookup
+- Trust-source resolution and policy, approval, Permit claim, revocation/fencing
+- Intent-before-side-effect journal, trusted executor, external UNKNOWN reconciliation
+- Cross-repo ACP/Runtime/Decision/Compute consumers, schema generation, Go/Python/TS hash fixtures
 
-## Current implementation boundary
-
-This branch implements ActionRequest validation, strict canonical argument parsing and deterministic SHA-256 ActionHash with mutation tests. The earlier WorkspaceWrite-specific hash helper remains as a narrower example. Permit signing, one-time nonce storage, policy evaluation, filesystem/provider execution and UNKNOWN journal are not implemented by this PR and must not be represented as complete.
+Related blockers: [EngageGuard #3](https://github.com/avaargsh/EngageGuard/issues/3) and [agent-control-panel #3](https://github.com/avaargsh/agent-control-panel/issues/3).
