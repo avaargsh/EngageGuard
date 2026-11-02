@@ -25,9 +25,11 @@ var (
 // Principal must come from an authenticated deployment-resolved identity.
 // Never construct this value from request headers or submission JSON.
 type Principal struct {
-	TenantID  string
-	SubjectID string
-	ServiceID string
+	TenantID   string
+	SubjectID  string
+	ActorID    string
+	WorkloadID string
+	ServiceID  string
 }
 
 // PrincipalResolver is an explicit required trust dependency. Its concrete
@@ -84,7 +86,8 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if principal.TenantID == "" || principal.SubjectID == "" || principal.ServiceID == "" {
+	if principal.TenantID == "" || principal.SubjectID == "" || principal.ActorID == "" ||
+		principal.WorkloadID == "" || principal.ServiceID == "" {
 		http.Error(w, "unauthenticated", http.StatusUnauthorized)
 		return
 	}
@@ -92,7 +95,8 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if !validIdentity(principal.TenantID) || !validIdentity(principal.SubjectID) {
+	if !validIdentity(principal.TenantID) || !validIdentity(principal.SubjectID) ||
+		!validIdentity(principal.ActorID) || !validIdentity(principal.WorkloadID) {
 		http.Error(w, "unauthenticated", http.StatusUnauthorized)
 		return
 	}
