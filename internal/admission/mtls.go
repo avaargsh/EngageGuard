@@ -31,6 +31,7 @@ func NewSPIFFEMTLSResolver(trustDomain string, bindings map[string]Principal) (*
 	for identity, principal := range bindings {
 		if _, err := validateRuntimeSPIFFE(identity, trustDomain); err != nil ||
 			!validIdentity(principal.TenantID) || !validIdentity(principal.SubjectID) ||
+			!validIdentity(principal.ActorID) || !validIdentity(principal.WorkloadID) ||
 			principal.ServiceID != "agent-runtime" {
 			return nil, errors.New("invalid SPIFFE principal binding")
 		}
