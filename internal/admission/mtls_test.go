@@ -8,11 +8,11 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"io"
 	"strings"
 	"testing"
 	"time"
@@ -34,13 +34,13 @@ func verifiedClientTLS(t *testing.T, identities ...string) *tls.ConnectionState 
 		t.Fatal(err)
 	}
 	caTemplate := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject: pkix.Name{CommonName: "test-only-client-ca"},
-		NotBefore: now.Add(-time.Hour),
-		NotAfter: now.Add(time.Hour),
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "test-only-client-ca"},
+		NotBefore:             now.Add(-time.Hour),
+		NotAfter:              now.Add(time.Hour),
 		BasicConstraintsValid: true,
-		IsCA: true,
-		KeyUsage: x509.KeyUsageCertSign,
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign,
 	}
 	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
 	if err != nil {
@@ -64,12 +64,12 @@ func verifiedClientTLS(t *testing.T, identities ...string) *tls.ConnectionState 
 	}
 	leafTemplate := &x509.Certificate{
 		SerialNumber: big.NewInt(2),
-		Subject: pkix.Name{CommonName: "do-not-trust-cn"},
-		NotBefore: now.Add(-time.Hour),
-		NotAfter: now.Add(time.Hour),
-		KeyUsage: x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		URIs: uris,
+		Subject:      pkix.Name{CommonName: "do-not-trust-cn"},
+		NotBefore:    now.Add(-time.Hour),
+		NotAfter:     now.Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		URIs:         uris,
 	}
 	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, caCert, &leafKey.PublicKey, caKey)
 	if err != nil {
@@ -116,7 +116,7 @@ func TestUnverifiedAndAmbiguousMTLSFailsClosed(t *testing.T) {
 	good := verifiedClientTLS(t, runtimeSPIFFE)
 	badLeaf := verifiedClientTLS(t, "spiffe://platform.example/ns/agents/sa/attacker")
 	cases := []struct {
-		name string
+		name  string
 		state *tls.ConnectionState
 	}{
 		{"missing TLS", nil},
@@ -142,8 +142,8 @@ func TestUnverifiedAndAmbiguousMTLSFailsClosed(t *testing.T) {
 }
 
 func TestMTLSResolverConfigRejectsAuthorityAmbiguity(t *testing.T) {
-	for _, tc := range []struct{
-		domain string
+	for _, tc := range []struct {
+		domain   string
 		bindings map[string]Principal
 	}{
 		{"", map[string]Principal{runtimeSPIFFE: boundRuntime()}},
