@@ -142,9 +142,9 @@ func verifiedClientTLSWithIntermediate(t *testing.T, identity string) *tls.Conne
 	leafTemplate := &x509.Certificate{
 		SerialNumber: big.NewInt(12), Subject: pkix.Name{CommonName: "runtime-svid"},
 		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
-		KeyUsage: x509.KeyUsageDigitalSignature,
+		KeyUsage:    x509.KeyUsageDigitalSignature,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		URIs: []*url.URL{uri},
+		URIs:        []*url.URL{uri},
 	}
 	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, intermediate, &leafKey.PublicKey, intermediateKey)
 	if err != nil {
