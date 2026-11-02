@@ -125,3 +125,16 @@ func TestHashMatchesV01GoldenVector(t *testing.T) {
 		t.Fatalf("ActionHash mismatch: got %s want %s", got, wantHash)
 	}
 }
+
+func TestHashMatchesUnicodeJCSVectors(t *testing.T) {
+	a := sample()
+	a.WorkspaceID = "ws<>&/\\\"line\\break\n" + "\u2028" + "tail"
+	got, err := Hash(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const wantHash = "411e40272cb19ddc868174ec995f3cda73d41c18451c903d6a75854e02c473a9"
+	if got != wantHash {
+		t.Fatalf("Unicode ActionHash mismatch: got %s want %s", got, wantHash)
+	}
+}
