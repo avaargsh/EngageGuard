@@ -26,13 +26,15 @@ func (f *fakeResolver) ResolvePrincipal(_ context.Context, _ *http.Request) (Pri
 }
 
 type fakeVerifier struct {
-	err   error
-	calls int
-	last  action.ActionSubmission
+	err           error
+	calls         int
+	last          action.ActionSubmission
+	lastPrincipal Principal
 }
 
-func (f *fakeVerifier) VerifySubmission(_ context.Context, _ Principal, s action.ActionSubmission) error {
+func (f *fakeVerifier) VerifySubmission(_ context.Context, principal Principal, s action.ActionSubmission) error {
 	f.calls++
+	f.lastPrincipal = principal
 	f.last = s
 	return f.err
 }
@@ -107,7 +109,9 @@ func TestAuthenticatedAdmissionAndStableReplay(t *testing.T) {
 	if verifier.calls != 2 || store.calls != 2 || resolver.calls != 2 {
 		t.Fatalf("all replays must be authenticated and reverified: %d %d %d", resolver.calls, verifier.calls, store.calls)
 	}
-	if store.tenant != "tenant-a" || verifier.last.RunID != "run-1" {
+	if store.tenant != "tenant-a" || verifier.last.RunID != "run-1" ||
+		verifier.lastPrincipal.ActorID != "agent-runtime" ||
+		verifier.lastPrincipal.WorkloadID != "runtime-workload" {
 		t.Fatal("resolved tenant or verified Run was lost")
 	}
 }
@@ -181,6 +185,7 @@ func TestRejectMalformedSubmissionBeforeStore(t *testing.T) {
 		{"bad key", goodBody()},
 		{"key-1", `{"operation_id":"caller-forged"}`},
 		{"key-1", strings.Replace(goodBody(), `"run_id":`, `"tenant_id":"forged","run_id":`, 1)},
+		{"key-1", strings.Replace(goodBody(), `"version":"1.0.0"`, `"version":"1.0.0","contract_sha256":"`+strings.Repeat("b",64)+`"`, 1)},
 		{"key-1", goodBody() + "{}"},
 		{"key-1", goodBody() + strings.Repeat(" ", 65537)},
 	} {
