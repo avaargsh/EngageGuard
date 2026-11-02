@@ -42,7 +42,7 @@ func NewSPIFFEMTLSResolver(trustDomain string, bindings map[string]Principal) (*
 func validateRuntimeSPIFFE(identity, trustDomain string) (*url.URL, error) {
 	uri, err := url.Parse(identity)
 	if err != nil || uri.Scheme != "spiffe" || uri.Host != trustDomain ||
-		uri.User != nil || uri.Opaque != "" || uri.RawQuery != "" || uri.Fragment != "" ||
+		uri.User != nil || uri.Opaque != "" || uri.RawQuery != "" || uri.ForceQuery || uri.Fragment != "" ||
 		uri.RawPath != "" || uri.String() != identity {
 		return nil, ErrUnauthenticated
 	}
@@ -60,7 +60,7 @@ func (s *SPIFFEMTLSResolver) ResolvePrincipal(_ context.Context, request *http.R
 	}
 	state := request.TLS
 	if !state.HandshakeComplete || state.Version < tls.VersionTLS13 ||
-		len(state.PeerCertificates) != 1 || len(state.VerifiedChains) == 0 {
+		len(state.PeerCertificates) == 0 || len(state.VerifiedChains) == 0 {
 		return Principal{}, ErrUnauthenticated
 	}
 	leaf := state.PeerCertificates[0]
