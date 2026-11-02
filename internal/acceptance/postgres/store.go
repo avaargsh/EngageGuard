@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/avaargsh/EngageGuard/internal/action"
 )
@@ -26,9 +27,16 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	if db == nil {
 		return errors.New("database unavailable")
 	}
-	_, err := db.ExecContext(ctx, initialSchema)
-	if err != nil {
-		return fmt.Errorf("install Guard admission schema: %w", err)
+	// pgx uses the extended query protocol by default, which requires
+	// one statement per Exec. These three fixed DDL statements have no
+	// procedural bodies; a versioned migration runner will supersede this.
+	for _, statement := range strings.Split(initialSchema, ";") {
+		if strings.TrimSpace(statement) == "" {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("install Guard admission schema: %w", err)
+		}
 	}
 	return nil
 }
