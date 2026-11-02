@@ -121,7 +121,7 @@ func canonicalArguments(raw []byte) ([]byte, error) {
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
-	value, err := readJSONValueAtDepth(decoder, depth+1)
+	value, err := readJSONValue(decoder)
 	if err != nil {
 		return nil, err
 	}
