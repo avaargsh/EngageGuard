@@ -146,12 +146,12 @@ func TestActionHashBindsEveryResolvedAuthorizationDimension(t *testing.T) {
 		"capability-version":  func(a *CanonicalAction) { a.Capability.Version = "2.0.0" },
 		"capability-contract": func(a *CanonicalAction) { a.Capability.ContractSHA256 = strings.Repeat("d", 64) },
 		"resource":            func(a *CanonicalAction) { a.ResourceRef = "workspace-2" },
-		"arguments":           func(a *CanonicalAction) {
+		"arguments": func(a *CanonicalAction) {
 			a.Arguments = []byte(`{"path":"reports/other.txt","content_sha256":"` + strings.Repeat("b", 64) + `"}`)
 		},
-		"tool-binding":        func(a *CanonicalAction) { a.ToolBindingDigest = strings.Repeat("e", 64) },
-		"policy":              func(a *CanonicalAction) { a.PolicyVersion = "policy-v2" },
-		"audience":            func(a *CanonicalAction) { a.Audience = "other-executor" },
+		"tool-binding": func(a *CanonicalAction) { a.ToolBindingDigest = strings.Repeat("e", 64) },
+		"policy": func(a *CanonicalAction) { a.PolicyVersion = "policy-v2" },
+		"audience": func(a *CanonicalAction) { a.Audience = "other-executor" },
 	}
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {
@@ -204,7 +204,7 @@ func TestWorkspaceWriteRejectsUnknownArgumentFields(t *testing.T) {
 }
 
 func TestWorkspaceWriteRejectsLexicallyUnsafePaths(t *testing.T) {
-	for _, value := range []string{"../secret", "./reports/a", "/etc/passwd", "reports/../secret", "reports\\secret", "reports//a", ".", "C:/secret", "reports/a/"} {
+	for _, value := range []string{"../secret", "./reports/a", "/etc/passwd", "reports/../secret", "reports\\secret", "reports//a", ".", "C:/secret", "C:relative", "C:", "reports/a/"} {
 		a := validCanonicalAction()
 		a.Arguments = []byte(`{"path":` + strconvQuote(value) + `,"content_sha256":"` + strings.Repeat("b", 64) + `"}`)
 		if _, err := ActionHash(a); err == nil {
