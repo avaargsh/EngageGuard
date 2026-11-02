@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS guard_outbox_events (
     event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id TEXT NOT NULL,
     operation_id UUID NOT NULL,
-    event_type TEXT NOT NULL CHECK (event_type = 'guard.operation.accepted.v1'),
+    event_type TEXT NOT NULL CHECK (event_type = 'guard.submission.recorded.v1'),
     occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT guard_outbox_operation_fk
         FOREIGN KEY (tenant_id, operation_id)
