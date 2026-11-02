@@ -25,6 +25,9 @@ var initialSchema string
 //go:embed schema_v2.sql
 var permitSchema string
 
+//go:embed schema_v3.sql
+var ledgerIntegritySchema string
+
 // Migration versions and bytes are immutable after release. A journal's
 // durability guarantees depend on a known PostgreSQL schema at every boot.
 const initialMigrationVersion int64 = 1
@@ -40,8 +43,9 @@ var (
 )
 
 // Migrate serializes schema installation in one transaction. Version 1
-// bytes are unchanged; version 2 introduces only the internal pre-dispatch
-// Permit/Intent/Audit ledger. Versions and checksums are fail-closed.
+// bytes are unchanged; version 2 introduces the internal pre-dispatch
+// Permit/Intent/Audit ledger, and v3 binds the same operation and hash across
+// all three tables. Versions and checksums are fail-closed.
 func Migrate(ctx context.Context, db *sql.DB) error {
 	if db == nil {
 		return errors.New("database unavailable")
@@ -88,6 +92,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	}{
 		{initialMigrationVersion, initialSchema},
 		{2, permitSchema},
+		{3, ledgerIntegritySchema},
 	}
 	if len(applied) > len(migrations) {
 		return ErrSchemaDrift
