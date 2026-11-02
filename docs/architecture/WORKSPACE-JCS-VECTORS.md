@@ -10,7 +10,7 @@ The `WorkspaceWrite` struct has exactly twelve fixed ASCII property names and st
 SHA-256( UTF8("engageguard/action-hash/v1") || 0x00 || UTF8(JCS(WorkspaceWrite)) )
 ```
 
-The versioned domain separator includes a **literal NUL byte**, not six printable characters `\\u0000`. No Unicode normalization is applied. The digest is not itself a Permit.
+The versioned domain separator includes a **literal NUL byte**, not six printable characters `\u0000`. No Unicode normalization is applied. The digest is not itself a Permit.
 
 ## Frozen vectors and independent checks
 
