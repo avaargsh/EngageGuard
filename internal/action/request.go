@@ -70,6 +70,7 @@ func (a ActionRequest) Validate() error {
 		!validSHA256(a.ToolBindingDigest) {
 		return errors.New("invalid ActionRequest schema or capability binding")
 	}
+	if !validSHA256(a.PlanHash) { return errors.New("invalid plan hash") }
 	if len(a.Arguments) == 0 || len(a.Arguments) > maxArgumentsBytes {
 		return errors.New("ActionRequest arguments missing or oversized")
 	}
