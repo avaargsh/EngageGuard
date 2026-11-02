@@ -8,8 +8,8 @@ EngageGuard owns canonical action resolution, authorization decisions, risk eval
 
 ## Authority split
 
-- Runtime sends an untrusted `ActionSubmission` with a persisted `Idempotency-Key`.
-- EngageGuard derives authenticated identity, validates authoritative Run/Plan state, resolves the current capability contract and ToolBinding, and generates `operation_id`.
+- Runtime sends an untrusted `ActionSubmission` with a persisted `Idempotency-Key`; `capability` is only an id/version selector.
+- EngageGuard derives authenticated identity, validates authoritative Run/Plan state, resolves the current capability contract digest and ToolBinding from trusted registries, and generates `operation_id`. Caller-supplied `contract_sha256` is rejected.
 - `SubmissionDigest` is an exact-byte replay fingerprint for tenant-scoped idempotency. It is not an approval hash.
 - Internal resolved `ActionRequest` is canonicalized with RFC 8785 JCS and hashed using `engageguard/action-hash/v1\0`. Approval and Permit bind this digest.
 - A separately deployed Trusted Executor must validate a one-time Permit and durable intent before any protected side effect.
