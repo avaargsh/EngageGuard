@@ -46,7 +46,7 @@ func TestSharedResolvedActionHashVector(t *testing.T) {
 	}
 	var fixture struct {
 		SchemaVersion string `json:"schema_version"`
-		ActionHash struct {
+		ActionHash    struct {
 			DomainSeparator string        `json:"domain_separator"`
 			ActionRequest   ActionRequest `json:"action_request"`
 			CanonicalJSON   string        `json:"canonical_json"`
