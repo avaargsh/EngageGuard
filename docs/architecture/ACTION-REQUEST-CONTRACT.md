@@ -1,39 +1,67 @@
-# ActionRequest v1 — Guard-owned authorization contract
+# ActionRequest v1 and Operation identity
 
-Status: contract and canonical ActionHash reference implementation; no Permit issuance or Trusted Executor implementation is claimed.
+Status: protocol implementation candidate, 2026-11-03. Protected effects remain disabled until durable idempotency, Permit claim, trusted execution and UNKNOWN recovery are integration-tested.
 
 ## Ownership
 
-- Decision emits an immutable PlanCandidate and PlanHash. It does not construct an executable request or authorize a side effect.
-- Runtime validates the plan against the active Run and AgentRelease, resolves one PlanStep and its inputs, and creates one ActionRequest with a stable OperationID.
-- EngageGuard is the authority for validating the ActionRequest, re-resolving the current Capability and ToolBinding, evaluating policy/risk/approval, computing ActionHash and issuing or denying a Permit.
-- Trusted Executor revalidates and consumes a one-time, action-bound Permit immediately before the side effect. OperationJournal owns operation state and UNKNOWN reconciliation.
+Runtime creates and durably retains one stable `Idempotency-Key` per logical submission before the first HTTP request. Retries reuse the same key. The request body contains only untrusted intent: Agent/Run/Decision/Plan/Step references, capability selector, resource reference and arguments.
 
-## Required binding
+EngageGuard derives tenant, subject, actor and workload from authenticated context. It verifies the references, resolves the capability contract and ToolBinding, evaluates current policy, generates `operation_id`, and owns the Action Operation, approval, Permit, executor attempt and Receipt. Runtime only projects resulting state into its Run/Step.
 
-ActionRequest v1 binds tenant, subject, agent, Run, Decision, Plan, PlanHash, Step, Operation, exact Capability ID/version/contract digest, resource target, canonical arguments, trusted ToolBinding digest, policy version and executor audience.
+## ActionRequest body
 
-No endpoint, provider secret, bearer token or executable code is accepted in the ActionRequest contract. The tenant and identity fields are assertions to compare against the authenticated caller and authoritative Run; they are not trusted merely because they appear in JSON.
+`docs/contracts/action-request.v1.schema.json` is the wire schema. Unknown fields are rejected. Accepted fields are `schema_version`, `agent_id`, `run_id`, `decision_id`, `plan_id`, `plan_hash`, `step_id`, `capability.id`, `capability.version`, `resource_ref`, and `arguments`.
 
-## Canonicalization
+The body must not contain `tenant_id`, `subject_id`, `actor_id`, `workload_id`, `operation_id`, `tool_binding_digest`, `policy_version`, `audience`, `attempt_id`, or `action_hash`. These are Guard-derived or Guard-owned values.
 
-- Arguments must be a JSON object, no larger than 64 KiB.
-- Duplicate object keys are rejected at every nesting depth.
-- Object keys are sorted by canonical re-encoding; numeric values preserve their JSON number lexeme (no float64 conversion).
-- The hash covers all identity and authorization binding fields plus the canonical arguments.
-- A change to any bound field produces a different ActionHash. A Permit must reference the exact hash, audience, tenant, subject, expiry and nonce.
+`Idempotency-Key` is a required HTTP header, not a body property. It must be 1–128 visible ASCII bytes without whitespace or control characters and is scoped by authenticated tenant.
 
-## Required execution order
+## RequestHash and replay contract
 
-1. Runtime emits one ActionRequest for one PlanStep.
-2. Guard authenticates Runtime and verifies tenant/Agent/Run/Release ownership.
-3. Guard re-resolves capability version, schema digest, tool binding and current policy; stale or revoked references fail closed.
-4. Guard computes ActionHash over the normalized action and obtains any required human approval bound to that hash.
-5. Guard issues a short-lived, audience-bound, single-use Permit only after approval and policy checks.
-6. Trusted Executor validates signature, audience, expiry, action hash, subject, tenant and nonce; atomically claims the nonce before executing.
-7. OperationJournal persists STARTED/COMPLETED/FAILED/UNKNOWN. Lost ACK or uncertain provider result becomes UNKNOWN and is reconciled against the external resource; never blind-retried.
-8. Runtime receives a signed/verified outcome reference and updates its own Step/Run state.
+```text
+"engageguard/request-hash/v1\\0" || JCS({
+  "authenticated_context": { tenant_id, subject_id, actor_id, workload_id },
+  "request": ActionRequest
+})
+```
 
-## Current implementation boundary
+RequestHash binds the normalized request to authenticated identity. It excludes the idempotency key (the index key) and server-generated `operation_id`. The persistent store must enforce uniqueness on `(tenant_id, idempotency_key)`; a read-then-write check is unsafe. Persist RequestHash, generated operation ID, initial state and durable intent before any external effect.
 
-This branch implements ActionRequest validation, strict canonical argument parsing and deterministic SHA-256 ActionHash with mutation tests. The earlier WorkspaceWrite-specific hash helper remains as a narrower example. Permit signing, one-time nonce storage, policy evaluation, filesystem/provider execution and UNKNOWN journal are not implemented by this PR and must not be represented as complete.
+| Condition | Required behavior |
+|---|---|
+| New tenant + key | Atomically create one Operation; return 202 with server-generated operation ID |
+| Same tenant + key + same RequestHash | Return the existing operation ID and current state; never dispatch again |
+| Same tenant + key + different RequestHash | Return 409 `IDEMPOTENCY_KEY_REUSED`; create no second Operation |
+| Existing Operation is UNKNOWN/RECONCILING | Return current state; never redispatch while the result is ambiguous |
+
+A lost acknowledgement is recovered by resubmitting the exact body with the exact same key. Distinct intended effects require distinct keys. Key/tombstone retention must outlive all retry and dead-letter replay paths.
+
+## CanonicalAction and ActionHash
+
+After authentication and trusted resolution, Guard creates CanonicalAction with authenticated tenant/subject/actor/workload, validated Agent/Run/Decision/Plan/Step references, server-generated operation ID, resolved capability ID/version/contract digest, exact target, canonical arguments, ToolBinding digest, current policy version and executor audience.
+
+```text
+"engageguard/action-hash/v1\\0" || JCS(CanonicalAction)
+```
+
+ActionHash binds approval and Permit to the exact resolved action. Any change to identity, delegation, workload, Run/Plan/Step, operation, capability contract, target, arguments, ToolBinding, policy or audience changes the digest. Agent/plugin-supplied hashes are never trusted. Approval cannot override DENY; revocation, expiry and one-time Permit claim remain independent checks.
+
+RequestHash and ActionHash are distinct: the first detects replay/conflicting key reuse; the second binds execution authority to the final trusted action.
+
+## Canonicalization and workspace.write
+
+JCS requirements: UTF-16 property ordering; ECMAScript IEEE-754 binary64 number formatting; duplicate-key rejection at all depths; valid UTF-8; rejection of unpaired surrogate escapes; maximum nesting depth 64; maximum arguments size 64 KiB. Strings are not Unicode-normalized, and HTML-specific escaping is not applied.
+
+Shared fixtures: `docs/contracts/jcs-number-vectors.v1.json` and `docs/contracts/action-hash-vectors.v1.json`. Go tests load these files; Python and TypeScript parity checks are still required before cross-language ratification.
+
+The resolved `workspace.write` v1 arguments contain exactly `path` and `content_sha256`. The path check rejects absolute, noncanonical, traversal, empty-segment, backslash, NUL and Windows drive-prefixed paths. This is lexical validation only; it does not provide filesystem confinement or prevent symlink/TOCTOU races. A Trusted Executor must use root-relative race-resistant OS operations after Permit verification and durable intent.
+
+## Operation lifecycle and explicit non-goals
+
+`PENDING → CLAIMED → DISPATCHING → SUCCEEDED | FAILED_CONFIRMED | UNKNOWN`
+
+`UNKNOWN → RECONCILING → SUCCEEDED | FAILED_CONFIRMED | MANUAL_REVIEW`
+
+FAILED_CONFIRMED requires authoritative evidence. Lost acknowledgement is UNKNOWN, never implicit failure or permission to retry.
+
+This branch implements strict ActionRequest decoding, RequestHash, trusted CanonicalAction ActionHash, JCS and shared vectors. It does not yet implement PostgreSQL idempotency, policy evaluation, human approval, signed Permit, atomic nonce claim, Trusted Executor, persistent Operation Journal, UNKNOWN reconciliation or an end-to-end HTTP endpoint. Do not enable protected execution until those gates pass.
