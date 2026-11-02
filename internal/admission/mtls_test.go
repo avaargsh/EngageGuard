@@ -85,7 +85,7 @@ func verifiedClientTLS(t *testing.T, identities ...string) *tls.ConnectionState 
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &tls.ConnectionState{PeerCertificates: []*x509.Certificate{leaf}, VerifiedChains: chains}
+	return &tls.ConnectionState{HandshakeComplete: true, Version: tls.VersionTLS13, PeerCertificates: []*x509.Certificate{leaf}, VerifiedChains: chains}
 }
 
 func configuredResolver(t *testing.T, bindings map[string]Principal) PrincipalResolver {
