@@ -3,7 +3,7 @@ name: Go EngageGuard action tests
 on:
   pull_request:
   push:
-    branches: ['feature/**']
+    branches: ['feature/**', 'fix/**']
 
 permissions:
   contents: read
