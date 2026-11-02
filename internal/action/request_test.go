@@ -68,17 +68,17 @@ func TestActionHashBindsEveryResolvedAuthorizationDimension(t *testing.T) {
 		"decision":            func(a *ActionRequest) { a.DecisionID = "decision-2" },
 		"plan":                func(a *ActionRequest) { a.PlanID = "plan-2" },
 		"plan-hash":           func(a *ActionRequest) { a.PlanHash = strings.Repeat("9", 64) },
-		"step":                 func(a *ActionRequest) { a.StepID = "step-2" },
-		"operation":            func(a *ActionRequest) { a.OperationID = "operation-2" },
+		"step":                func(a *ActionRequest) { a.StepID = "step-2" },
+		"operation":           func(a *ActionRequest) { a.OperationID = "operation-2" },
 		"capability-version":  func(a *ActionRequest) { a.Capability.Version = "2.0.0" },
 		"capability-contract": func(a *ActionRequest) { a.Capability.ContractSHA256 = strings.Repeat("d", 64) },
 		"resource":            func(a *ActionRequest) { a.ResourceRef = "workspace-2" },
 		"arguments": func(a *ActionRequest) {
 			a.Arguments = []byte(`{"path":"reports/other.txt","content_sha256":"` + strings.Repeat("b", 64) + `"}`)
 		},
-		"tool-binding":         func(a *ActionRequest) { a.ToolBindingDigest = strings.Repeat("e", 64) },
-		"policy":               func(a *ActionRequest) { a.PolicyVersion = "policy-v2" },
-		"audience":             func(a *ActionRequest) { a.Audience = "other-executor" },
+		"tool-binding": func(a *ActionRequest) { a.ToolBindingDigest = strings.Repeat("e", 64) },
+		"policy": func(a *ActionRequest) { a.PolicyVersion = "policy-v2" },
+		"audience": func(a *ActionRequest) { a.Audience = "other-executor" },
 	}
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {
