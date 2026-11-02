@@ -21,8 +21,10 @@ type ActionCapabilityRef struct {
 	ContractSHA256 string `json:"contract_sha256"`
 }
 
-// ActionRequest is one concrete proposed side effect. The PEP must derive
-// identity and tool-binding values from authenticated control-plane context.
+// ActionRequest is a Guard-INTERNAL, resolved side-effect record. It is NOT
+// the Runtime-to-Guard wire request; use ActionSubmission for caller intent.
+// Guard alone allocates OperationID and resolves all identity, policy and
+// tool-binding attributes from authenticated authoritative context.
 type ActionRequest struct {
 	SchemaVersion     string              `json:"schema_version"`
 	TenantID          string              `json:"tenant_id"`
@@ -82,9 +84,12 @@ func (a ActionRequest) Validate() error {
 	return nil
 }
 
-// ActionHash canonicalizes the argument object, then binds it to the exact
-// tenant, subject, agent, Run, Decision, Plan, Step, operation, capability,
-// resource, tool binding, policy version and executor audience.
+// ActionHash is an EXPERIMENTAL Go-only digest for the resolved-action draft.
+// Its use of json.Marshal is NOT RFC8785 JCS for arbitrary numbers/Unicode;
+// do not use this output for cross-language approval or Permit binding until
+// normative canonicalization vectors and the versioned domain are ratified.
+// It currently binds tenant, subject, agent, Run, Decision, Plan, Step, operation,
+// capability, resource, tool binding, policy version and executor audience.
 func ActionHash(a ActionRequest) (string, error) {
 	if err := a.Validate(); err != nil {
 		return "", err
