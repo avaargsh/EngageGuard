@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": [
     "schema_version", "tenant_id", "subject_id", "agent_id", "run_id",
-    "decision_id", "plan_id", "plan_hash", "step_id", "operation_id",
+    "decision_id", "plan_id", "plan_hash", "step_id",
     "capability", "resource_ref", "arguments", "tool_binding_digest",
     "policy_version", "audience"
   ],
@@ -20,7 +20,6 @@
     "plan_id": { "type": "string", "minLength": 1, "maxLength": 512 },
     "plan_hash": { "$ref": "#/$defs/sha256" },
     "step_id": { "type": "string", "minLength": 1, "maxLength": 512 },
-    "operation_id": { "type": "string", "minLength": 1, "maxLength": 512 },
     "capability": { "$ref": "#/$defs/capability" },
     "resource_ref": { "type": "string", "minLength": 1, "maxLength": 512 },
     "arguments": { "type": "object" },
