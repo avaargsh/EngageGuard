@@ -26,12 +26,12 @@ var ErrPermitMismatch = errors.New("Guard Permit does not match resolved action"
 // executor receipt, external ACK, or permission to call an external API
 // independently of trusted-executor verification.
 type DispatchIntent struct {
-	TenantID string
+	TenantID    string
 	OperationID string
-	PermitID string
-	AttemptID string
-	ActionHash string
-	State string
+	PermitID    string
+	AttemptID   string
+	ActionHash  string
+	State       string
 }
 
 // ClaimAuthorizedIntent is ONLY for the future trusted Guard authorization
