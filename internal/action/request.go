@@ -294,7 +294,7 @@ func validWorkspaceRelativePath(value string) bool {
 }
 
 func hasWindowsDrivePrefix(value string) bool {
-	if len(value) < 3 || value[1] != ':' || value[2] != '/' {
+	if len(value) < 2 || value[1] != ':' {
 		return false
 	}
 	letter := value[0]
