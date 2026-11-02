@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 type JSONValue = null | boolean | number | string | JSONValue[] | { [key: string]: JSONValue };
 
-const root = resolve(import.meta.dirname ?? process.cwd());
+const root = resolve(import.meta.dirname ?? process.cwd(), "..");
 const domain = "engageguard/action-hash/v1\0";
 
 function assertWellFormedUnicode(value: string): void {
