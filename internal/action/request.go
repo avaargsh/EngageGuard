@@ -31,6 +31,7 @@ type ActionRequest struct {
 	RunID string `json:"run_id"`
 	DecisionID string `json:"decision_id"`
 	PlanID string `json:"plan_id"`
+	PlanHash string `json:"plan_hash"`
 	StepID string `json:"step_id"`
 	OperationID string `json:"operation_id"`
 	Capability ActionCapabilityRef `json:"capability"`
@@ -57,7 +58,7 @@ func validSHA256(value string) bool {
 func (a ActionRequest) Validate() error {
 	for _, value := range []string{
 		a.SchemaVersion, a.TenantID, a.SubjectID, a.AgentID, a.RunID,
-		a.DecisionID, a.PlanID, a.StepID, a.OperationID, a.ResourceRef,
+		a.DecisionID, a.PlanID, a.PlanHash, a.StepID, a.OperationID, a.ResourceRef,
 		a.PolicyVersion, a.Audience,
 	} {
 		if !validActionField(value) {
