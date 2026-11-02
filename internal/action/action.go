@@ -12,8 +12,8 @@ import (
 
 const actionHashDomain = "engageguard/action-hash/v1\x00"
 
-// WorkspaceWrite is a *trusted, resolved* action. The PEP must derive identity
-// and binding attributes from authenticated context, not model-provided JSON.
+// Deprecated: WorkspaceWrite is retained only as a frozen v0.1 reference vector.
+// Production approval and Permit binding must use CanonicalAction.
 type WorkspaceWrite struct {
 	SchemaVersion     string `json:"schema_version"`
 	TenantID          string `json:"tenant_id"`
@@ -125,9 +125,8 @@ func appendJSONString(dst []byte, value string) []byte {
 	return append(dst, '"')
 }
 
-// Hash binds the exact normalized action to its identity and policy context.
-// It uses a versioned domain separator and RFC 8785 JCS before SHA-256.
-// A digest is not a Permit or authorization decision.
+// Deprecated: Hash computes the frozen WorkspaceWrite v0.1 reference digest.
+// Use ActionHash(CanonicalAction) for production approval and Permit binding.
 func Hash(a WorkspaceWrite) (string, error) {
 	if err := a.Validate(); err != nil {
 		return "", err
@@ -140,8 +139,8 @@ func Hash(a WorkspaceWrite) (string, error) {
 	return hex.EncodeToString(digest[:]), nil
 }
 
-// ApprovalMatches compares the approved action digest without trusting an
-// action-supplied approval claim. Revocation must still be checked separately.
+// Deprecated: ApprovalMatches only supports the frozen WorkspaceWrite v0.1 vector.
+// Use ApprovalMatchesActionHash with a trusted CanonicalAction.
 func ApprovalMatches(approvedDigest string, proposed WorkspaceWrite) bool {
 	current, err := Hash(proposed)
 	if err != nil || len(approvedDigest) != 64 {
