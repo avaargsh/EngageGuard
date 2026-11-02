@@ -14,6 +14,7 @@ import (
 )
 
 const maxArgumentsBytes = 64 * 1024
+const maxJSONDepth = 128
 
 type ActionCapabilityRef struct {
 	ID             string `json:"id"`
@@ -120,7 +121,7 @@ func canonicalArguments(raw []byte) ([]byte, error) {
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
-	value, err := readJSONValue(decoder)
+	value, err := readJSONValueAtDepth(decoder, depth+1)
 	if err != nil {
 		return nil, err
 	}
@@ -134,6 +135,13 @@ func canonicalArguments(raw []byte) ([]byte, error) {
 }
 
 func readJSONValue(decoder *json.Decoder) (any, error) {
+	return readJSONValueAtDepth(decoder, 0)
+}
+
+func readJSONValueAtDepth(decoder *json.Decoder, depth int) (any, error) {
+	if depth > maxJSONDepth {
+		return nil, errors.New("JSON nesting depth exceeds limit")
+	}
 	token, err := decoder.Token()
 	if err != nil {
 		return nil, err
@@ -157,7 +165,7 @@ func readJSONValue(decoder *json.Decoder) (any, error) {
 			if _, exists := object[key]; exists {
 				return nil, fmt.Errorf("duplicate object key %q", key)
 			}
-			value, err := readJSONValue(decoder)
+			value, err := readJSONValueAtDepth(decoder, depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -171,7 +179,7 @@ func readJSONValue(decoder *json.Decoder) (any, error) {
 	case '[':
 		array := make([]any, 0)
 		for decoder.More() {
-			value, err := readJSONValue(decoder)
+			value, err := readJSONValueAtDepth(decoder, depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -185,6 +193,37 @@ func readJSONValue(decoder *json.Decoder) (any, error) {
 	default:
 		return nil, errors.New("unexpected JSON delimiter")
 	}
+}
+
+func validateExactSubmissionKeys(value any) error {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return errors.New("ActionRequest submission must be a JSON object")
+	}
+	topLevel := map[string]struct{}{
+		"schema_version": {}, "tenant_id": {}, "subject_id": {}, "agent_id": {},
+		"run_id": {}, "decision_id": {}, "plan_id": {}, "plan_hash": {},
+		"step_id": {}, "capability": {}, "resource_ref": {}, "arguments": {},
+		"tool_binding_digest": {}, "policy_version": {}, "audience": {},
+	}
+	for key := range object {
+		if _, allowed := topLevel[key]; !allowed {
+			return fmt.Errorf("unknown or noncanonical ActionRequest field %q", key)
+		}
+	}
+	capability, ok := object["capability"].(map[string]any)
+	if !ok {
+		return errors.New("capability must be an object")
+	}
+	capabilityFields := map[string]struct{}{
+		"id": {}, "version": {}, "contract_sha256": {},
+	}
+	for key := range capability {
+		if _, allowed := capabilityFields[key]; !allowed {
+			return fmt.Errorf("unknown or noncanonical capability field %q", key)
+		}
+	}
+	return nil
 }
 
 // Submission is a proposed Runtime-to-Guard input. The key belongs to the
@@ -210,8 +249,12 @@ func DecodeSubmission(idempotencyKey string, raw []byte) (Submission, error) {
 	// struct would silently keep the last occurrence.
 	first := json.NewDecoder(bytes.NewReader(raw))
 	first.UseNumber()
-	if _, err := readJSONValue(first); err != nil {
+	parsed, err := readJSONValue(first)
+	if err != nil {
 		return Submission{}, fmt.Errorf("invalid submission JSON: %w", err)
+	}
+	if err := validateExactSubmissionKeys(parsed); err != nil {
+		return Submission{}, err
 	}
 	if _, err := first.Token(); !errors.Is(err, io.EOF) {
 		return Submission{}, errors.New("trailing submission JSON")
