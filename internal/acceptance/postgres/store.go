@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	_ "embed"
 	"errors"
@@ -21,22 +22,104 @@ var tenantIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 //go:embed schema.sql
 var initialSchema string
 
-// Migrate installs the first admission-only schema in the current database
-// search_path. A versioned, checksummed migration runner remains P0 release work.
+// Migration versions and bytes are immutable after release. A journal's
+// durability guarantees depend on a known PostgreSQL schema at every boot.
+const initialMigrationVersion int64 = 1
+const schemaMigrationLockKey int64 = 0x45474d494752
+
+var (
+	// ErrSchemaDrift means the database ledger contradicts this binary's
+	// migration or contains a version this binary cannot interpret.
+	ErrSchemaDrift = errors.New("Guard schema migration checksum/version mismatch")
+	// ErrUnversionedSchema requires explicit operator-led adoption of an
+	// existing schema, never automatic stamping of unknown DDL.
+	ErrUnversionedSchema = errors.New("Guard schema exists without migration history")
+)
+
+// Migrate atomically installs and checks the admission-only schema. This
+// serializes concurrent boot migrations within the PostgreSQL database;
+// installation, version marker and checksum commit (or roll back) together.
+// A schema migration is not authorization to dispatch any external action.
 func Migrate(ctx context.Context, db *sql.DB) error {
 	if db == nil {
 		return errors.New("database unavailable")
 	}
-	// pgx uses the extended query protocol by default, which requires
-	// one statement per Exec. These three fixed DDL statements have no
-	// procedural bodies; a versioned migration runner will supersede this.
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return fmt.Errorf("begin Guard schema migration: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", schemaMigrationLockKey); err != nil {
+		return fmt.Errorf("lock Guard schema migration: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS guard_schema_migrations (
+			version BIGINT PRIMARY KEY,
+			checksum TEXT NOT NULL CHECK (checksum ~ '^[0-9a-f]{64}$'),
+			applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)
+	`); err != nil {
+		return fmt.Errorf("create Guard schema ledger: %w", err)
+	}
+
+	var currentVersionCount int
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM guard_schema_migrations").Scan(&currentVersionCount); err != nil {
+		return fmt.Errorf("inspect Guard migration history: %w", err)
+	}
+	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(initialSchema)))
+	if currentVersionCount > 0 {
+		var existing string
+		if currentVersionCount != 1 {
+			return ErrSchemaDrift
+		}
+		if err := tx.QueryRowContext(ctx,
+			"SELECT checksum FROM guard_schema_migrations WHERE version=$1",
+			initialMigrationVersion,
+		).Scan(&existing); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrSchemaDrift
+			}
+			return fmt.Errorf("read Guard schema checksum: %w", err)
+		}
+		if existing != digest {
+			return ErrSchemaDrift
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit Guard schema verification: %w", err)
+		}
+		return nil
+	}
+
+	// Never silently assign canonical status to an existing unmanaged
+	// installation. An operator must inspect/upgrade it explicitly.
+	var hasUnversionedRelations bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT to_regclass('guard_action_operations') IS NOT NULL
+		    OR to_regclass('guard_outbox_events') IS NOT NULL
+	`).Scan(&hasUnversionedRelations); err != nil {
+		return fmt.Errorf("inspect unversioned Guard relations: %w", err)
+	}
+	if hasUnversionedRelations {
+		return ErrUnversionedSchema
+	}
+	// This initial SQL consists only of fixed DDL statements; future
+	// migrations must be separate immutable, checksummed versions.
 	for _, statement := range strings.Split(initialSchema, ";") {
 		if strings.TrimSpace(statement) == "" {
 			continue
 		}
-		if _, err := db.ExecContext(ctx, statement); err != nil {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("install Guard admission schema: %w", err)
 		}
+	}
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO guard_schema_migrations (version, checksum) VALUES ($1, $2)",
+		initialMigrationVersion, digest,
+	); err != nil {
+		return fmt.Errorf("record Guard schema checksum: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit Guard schema migration: %w", err)
 	}
 	return nil
 }
