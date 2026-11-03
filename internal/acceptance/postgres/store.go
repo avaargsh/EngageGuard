@@ -84,6 +84,9 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		if existing != digest {
 			return ErrSchemaDrift
 		}
+		if err := verifyGuardCatalog(ctx, tx); err != nil {
+			return err
+		}
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("commit Guard schema verification: %w", err)
 		}
@@ -112,6 +115,9 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("install Guard admission schema: %w", err)
 		}
 	}
+	if err := verifyGuardCatalog(ctx, tx); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx,
 		"INSERT INTO guard_schema_migrations (version, checksum) VALUES ($1, $2)",
 		initialMigrationVersion, digest,
@@ -120,6 +126,71 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit Guard schema migration: %w", err)
+	}
+	return nil
+}
+
+// verifyGuardCatalog ensures a matching migration source checksum is not
+// mistaken for proof that the current PostgreSQL schema is intact. This
+// checks admission-critical constraints and the index used for outbox scans.
+// It does not replace full production migration/backup review.
+func verifyGuardCatalog(ctx context.Context, tx *sql.Tx) error {
+	for _, relation := range []string{
+		"guard_action_operations", "guard_outbox_events", "guard_outbox_unpublished_idx",
+	} {
+		var exists bool
+		if err := tx.QueryRowContext(ctx, "SELECT to_regclass($1) IS NOT NULL", relation).Scan(&exists); err != nil {
+			return fmt.Errorf("%w: inspect relation %s: %v", ErrSchemaDrift, relation, err)
+		}
+		if !exists {
+			return fmt.Errorf("%w: missing relation %s", ErrSchemaDrift, relation)
+		}
+	}
+	required := []struct {
+		table, name, kind string
+	}{
+		{"guard_action_operations", "guard_action_operations_pkey", "p"},
+		{"guard_action_operations", "guard_action_operations_tenant_id_submission_key_key", "u"},
+		{"guard_action_operations", "guard_action_operations_tenant_id_operation_id_key", "u"},
+		{"guard_action_operations", "guard_action_operations_submission_digest_check", "c"},
+		{"guard_action_operations", "guard_action_operations_status_check", "c"},
+		{"guard_outbox_events", "guard_outbox_events_pkey", "p"},
+		{"guard_outbox_events", "guard_outbox_events_tenant_id_operation_id_event_type_key", "u"},
+		{"guard_outbox_events", "guard_outbox_events_event_type_check", "c"},
+		{"guard_outbox_events", "guard_outbox_operation_fk", "f"},
+	}
+	for _, expected := range required {
+		var valid bool
+		err := tx.QueryRowContext(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_constraint AS c
+				WHERE c.conrelid = to_regclass($1)
+					AND c.conname = $2
+					AND c.contype::text = $3
+					AND c.convalidated
+			)
+		`, expected.table, expected.name, expected.kind).Scan(&valid)
+		if err != nil {
+			return fmt.Errorf("%w: inspect constraint %s: %v", ErrSchemaDrift, expected.name, err)
+		}
+		if !valid {
+			return fmt.Errorf("%w: missing or unvalidated constraint %s", ErrSchemaDrift, expected.name)
+		}
+	}
+	var usableIndex bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_index AS i
+			JOIN pg_class AS idx ON idx.oid = i.indexrelid
+			WHERE i.indrelid = to_regclass('guard_outbox_events')
+			  AND idx.oid = to_regclass('guard_outbox_unpublished_idx')
+			  AND i.indisvalid AND i.indisready
+		)
+	`).Scan(&usableIndex); err != nil {
+		return fmt.Errorf("%w: inspect Guard outbox index: %v", ErrSchemaDrift, err)
+	}
+	if !usableIndex {
+		return fmt.Errorf("%w: invalid Guard outbox index", ErrSchemaDrift)
 	}
 	return nil
 }
