@@ -148,7 +148,7 @@ func verifyGuardCatalog(ctx context.Context, tx *sql.Tx) error {
 	}
 	required := []struct {
 		table, name, kind, columns string
-		refTable, refColumns          string
+		refTable, refColumns       string
 	}{
 		{"guard_action_operations", "guard_action_operations_pkey", "p", "operation_id", "", ""},
 		{"guard_action_operations", "guard_action_operations_tenant_id_submission_key_key", "u", "tenant_id,submission_key", "", ""},
