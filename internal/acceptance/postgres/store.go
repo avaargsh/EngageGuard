@@ -147,20 +147,25 @@ func verifyGuardCatalog(ctx context.Context, tx *sql.Tx) error {
 		}
 	}
 	required := []struct {
-		table, name, kind string
+		table, name, kind, columns string
+		refTable, refColumns       string
 	}{
-		{"guard_action_operations", "guard_action_operations_pkey", "p"},
-		{"guard_action_operations", "guard_action_operations_tenant_id_submission_key_key", "u"},
-		{"guard_action_operations", "guard_action_operations_tenant_id_operation_id_key", "u"},
-		{"guard_action_operations", "guard_action_operations_submission_digest_check", "c"},
-		{"guard_action_operations", "guard_action_operations_status_check", "c"},
-		{"guard_outbox_events", "guard_outbox_events_pkey", "p"},
-		{"guard_outbox_events", "guard_outbox_events_tenant_id_operation_id_event_type_key", "u"},
-		{"guard_outbox_events", "guard_outbox_events_event_type_check", "c"},
-		{"guard_outbox_events", "guard_outbox_operation_fk", "f"},
+		{"guard_action_operations", "guard_action_operations_pkey", "p", "operation_id", "", ""},
+		{"guard_action_operations", "guard_action_operations_tenant_id_submission_key_key", "u", "tenant_id,submission_key", "", ""},
+		{"guard_action_operations", "guard_action_operations_tenant_id_operation_id_key", "u", "tenant_id,operation_id", "", ""},
+		{"guard_action_operations", "guard_action_operations_submission_digest_check", "c", "submission_digest", "", ""},
+		{"guard_action_operations", "guard_action_operations_status_check", "c", "status", "", ""},
+		{"guard_outbox_events", "guard_outbox_events_pkey", "p", "event_id", "", ""},
+		{"guard_outbox_events", "guard_outbox_events_tenant_id_operation_id_event_type_key", "u", "tenant_id,operation_id,event_type", "", ""},
+		{"guard_outbox_events", "guard_outbox_events_event_type_check", "c", "event_type", "", ""},
+		{"guard_outbox_events", "guard_outbox_operation_fk", "f", "tenant_id,operation_id", "guard_action_operations", "tenant_id,operation_id"},
 	}
 	for _, expected := range required {
 		var valid bool
+		refTable := expected.refTable
+		if refTable == "" {
+			refTable = expected.table
+		}
 		err := tx.QueryRowContext(ctx, `
 			SELECT EXISTS (
 				SELECT 1 FROM pg_constraint AS c
@@ -168,13 +173,31 @@ func verifyGuardCatalog(ctx context.Context, tx *sql.Tx) error {
 					AND c.conname = $2
 					AND c.contype::text = $3
 					AND c.convalidated
+					AND NOT c.condeferrable
+					AND NOT c.condeferred
+					AND (
+						SELECT string_agg(att.attname, ',' ORDER BY keys.ord)
+						FROM unnest(c.conkey) WITH ORDINALITY AS keys(attnum, ord)
+						JOIN pg_attribute AS att
+						  ON att.attrelid = c.conrelid AND att.attnum = keys.attnum
+					) = $4
+					AND ($3 <> 'f' OR (
+						c.confrelid = to_regclass($5)
+						AND (
+							SELECT string_agg(att.attname, ',' ORDER BY keys.ord)
+							FROM unnest(c.confkey) WITH ORDINALITY AS keys(attnum, ord)
+							JOIN pg_attribute AS att
+							  ON att.attrelid = c.confrelid AND att.attnum = keys.attnum
+						) = $6
+					))
 			)
-		`, expected.table, expected.name, expected.kind).Scan(&valid)
+		`, expected.table, expected.name, expected.kind, expected.columns,
+			refTable, expected.refColumns).Scan(&valid)
 		if err != nil {
 			return fmt.Errorf("%w: inspect constraint %s: %v", ErrSchemaDrift, expected.name, err)
 		}
 		if !valid {
-			return fmt.Errorf("%w: missing or unvalidated constraint %s", ErrSchemaDrift, expected.name)
+			return fmt.Errorf("%w: missing or misbound constraint %s", ErrSchemaDrift, expected.name)
 		}
 	}
 	var usableIndex bool

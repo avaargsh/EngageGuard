@@ -116,6 +116,55 @@ func TestAuthenticatedAdmissionAndStableReplay(t *testing.T) {
 	}
 }
 
+// A previously accepted idempotency key must not bypass a newly denied or
+// unavailable Run authority. This is a revocation/ACK-loss replay boundary.
+func TestReplayRevalidatesAuthoritativeRunState(t *testing.T) {
+	resolver := &fakeResolver{principal: Principal{
+		TenantID: "tenant-a", SubjectID: "runtime-service",
+		ActorID: "agent-runtime", WorkloadID: "runtime-workload",
+		ServiceID: "agent-runtime",
+	}}
+	verifier := &fakeVerifier{}
+	store := &fakeStore{}
+	h := NewHandler(resolver, verifier, store)
+
+	first := exercise(h, "key-reverify", goodBody())
+	if first.Code != http.StatusCreated || store.calls != 1 {
+		t.Fatalf("initial acceptance: status=%d store calls=%d", first.Code, store.calls)
+	}
+
+	verifier.err = ErrForbidden
+	denied := exercise(h, "key-reverify", goodBody())
+	if denied.Code != http.StatusForbidden || store.calls != 1 {
+		t.Fatalf("revoked Run replay: status=%d store calls=%d", denied.Code, store.calls)
+	}
+
+	verifier.err = errors.New("Run authority unavailable")
+	unavailable := exercise(h, "key-reverify", goodBody())
+	if unavailable.Code != http.StatusServiceUnavailable || store.calls != 1 {
+		t.Fatalf("unavailable Run authority replay: status=%d store calls=%d", unavailable.Code, store.calls)
+	}
+
+	verifier.err = nil
+	replay := exercise(h, "key-reverify", goodBody())
+	if replay.Code != http.StatusOK || store.calls != 2 ||
+		resolver.calls != 4 || verifier.calls != 4 {
+		t.Fatalf("reverified replay: status=%d resolver=%d verifier=%d store=%d",
+			replay.Code, resolver.calls, verifier.calls, store.calls)
+	}
+
+	for _, rec := range []*httptest.ResponseRecorder{first, replay} {
+		var receipt map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &receipt); err != nil {
+			t.Fatal(err)
+		}
+		if len(receipt) != 2 || receipt["status"] != "ACCEPTED" ||
+			receipt["operation_id"] != "guard-created-operation" {
+			t.Fatalf("admission response claims more than ACCEPTED: %+v", receipt)
+		}
+	}
+}
+
 func TestFailClosedWhenResolverOrVerifierMissing(t *testing.T) {
 	realResolver := &fakeResolver{principal: Principal{TenantID: "tenant-a", SubjectID: "runtime-service", ActorID: "agent-runtime", WorkloadID: "runtime-workload", ServiceID: "agent-runtime"}}
 	for name, h := range map[string]http.Handler{
