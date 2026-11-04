@@ -196,7 +196,6 @@ func TestMTLSHTTPServerRealHandshakeAndAdmission(t *testing.T) {
 	}
 }
 
-
 // A misconfigured deployment might call Serve instead of ServeTLS. The
 // transport constructor must still refuse plaintext independently of a
 // resolver that accidentally returns a privileged Principal.
