@@ -72,7 +72,7 @@ func NewMTLSHTTPServer(address string, handler http.Handler, certificate tls.Cer
 
 	return &http.Server{
 		Addr:    address,
-		Handler: handler,
+		Handler: requireVerifiedClientTLS(handler),
 		TLSConfig: &tls.Config{
 			MinVersion:   tls.VersionTLS13,
 			ClientAuth:   tls.RequireAndVerifyClientCert,
@@ -86,4 +86,37 @@ func NewMTLSHTTPServer(address string, handler http.Handler, certificate tls.Cer
 		IdleTimeout:       30 * time.Second,
 		MaxHeaderBytes:    16 << 10,
 	}, nil
+}
+
+
+// requireVerifiedClientTLS is defense in depth against accidental plaintext
+// http.Server.Serve, a missing client-certificate policy or a permissive
+// PrincipalResolver. An X-Forwarded-Proto header never proves transport TLS.
+// The configured TLS server still performs the actual client-CA validation.
+func requireVerifiedClientTLS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r == nil || r.TLS == nil || !r.TLS.HandshakeComplete ||
+			r.TLS.Version < tls.VersionTLS13 ||
+			len(r.TLS.PeerCertificates) == 0 || len(r.TLS.VerifiedChains) == 0 {
+			w.Header().Set("Cache-Control", "no-store")
+			http.Error(w, "verified mutual TLS required", http.StatusUnauthorized)
+			return
+		}
+		leaf := r.TLS.PeerCertificates[0]
+		chainValid := false
+		if leaf != nil {
+			for _, chain := range r.TLS.VerifiedChains {
+				if len(chain) != 0 && chain[0] != nil && chain[0].Equal(leaf) {
+					chainValid = true
+					break
+				}
+			}
+		}
+		if !chainValid {
+			w.Header().Set("Cache-Control", "no-store")
+			http.Error(w, "verified mutual TLS required", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
