@@ -195,3 +195,49 @@ func TestMTLSHTTPServerRealHandshakeAndAdmission(t *testing.T) {
 		})
 	}
 }
+
+
+// A misconfigured deployment might call Serve instead of ServeTLS. The
+// transport constructor must still refuse plaintext independently of a
+// resolver that accidentally returns a privileged Principal.
+func TestMTLSHTTPServerPlainServeCannotReachAdmission(t *testing.T) {
+	serverCA, serverKey, _ := newTestTransportCA(t)
+	serverCert := newTestTLSLeaf(t, serverCA, serverKey, false, "")
+	_, _, clientRoots := newTestTransportCA(t)
+	resolver := &fakeResolver{principal: boundRuntime()}
+	verifier := &fakeVerifier{}
+	store := &fakeStore{}
+	server, err := NewMTLSHTTPServer("127.0.0.1:0", NewHandler(resolver, verifier, store), serverCert, clientRoots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = server.Serve(ln) }() // intentionally unsafe deployment mode
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = server.Shutdown(ctx)
+	})
+	req, err := http.NewRequest(http.MethodPost,
+		"http://"+ln.Addr().String()+"/v1/action-submissions", strings.NewReader(goodBody()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", "plaintext-should-never-be-accepted")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Tenant-ID", "tenant-verified")
+	client := &http.Client{Timeout: 3 * time.Second}
+	response, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode == http.StatusCreated || store.calls != 0 || verifier.calls != 0 {
+		t.Fatalf("plaintext Serve bypassed mTLS transport: status=%d store=%d verifier=%d",
+			response.StatusCode, store.calls, verifier.calls)
+	}
+}
