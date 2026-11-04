@@ -71,19 +71,19 @@ func NewMTLSHTTPServer(address string, handler http.Handler, certificate tls.Cer
 	}
 
 	return &http.Server{
-		Addr: address,
+		Addr:    address,
 		Handler: handler,
 		TLSConfig: &tls.Config{
-			MinVersion: tls.VersionTLS13,
-			ClientAuth: tls.RequireAndVerifyClientCert,
-			ClientCAs: trustedClientCAs.Clone(),
+			MinVersion:   tls.VersionTLS13,
+			ClientAuth:   tls.RequireAndVerifyClientCert,
+			ClientCAs:    trustedClientCAs.Clone(),
 			Certificates: []tls.Certificate{certificate},
-			NextProtos: []string{"h2", "http/1.1"},
+			NextProtos:   []string{"h2", "http/1.1"},
 		},
 		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout: 15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout: 30 * time.Second,
-		MaxHeaderBytes: 16 << 10,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       30 * time.Second,
+		MaxHeaderBytes:    16 << 10,
 	}, nil
 }
