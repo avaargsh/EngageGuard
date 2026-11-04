@@ -26,10 +26,10 @@ func newTestTransportCA(t *testing.T) (*x509.Certificate, crypto.Signer, *x509.C
 	}
 	cert := &x509.Certificate{
 		SerialNumber: big.NewInt(100),
-		Subject: pkix.Name{CommonName: "transport-test-only-ca"},
-		NotBefore: time.Now().Add(-time.Hour),
-		NotAfter: time.Now().Add(time.Hour),
-		IsCA: true, BasicConstraintsValid: true,
+		Subject:      pkix.Name{CommonName: "transport-test-only-ca"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		IsCA:         true, BasicConstraintsValid: true,
 		KeyUsage: x509.KeyUsageCertSign,
 	}
 	der, err := x509.CreateCertificate(rand.Reader, cert, cert, &key.PublicKey, key)
@@ -53,9 +53,9 @@ func newTestTLSLeaf(t *testing.T, ca *x509.Certificate, signer crypto.Signer, cl
 	}
 	cert := &x509.Certificate{
 		SerialNumber: big.NewInt(200),
-		NotBefore: time.Now().Add(-time.Hour),
-		NotAfter: time.Now().Add(time.Hour),
-		KeyUsage: x509.KeyUsageDigitalSignature,
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
 	}
 	if client {
 		identity, err := url.Parse(spiffeID)
@@ -82,11 +82,11 @@ func TestVerifiedMTLSHTTPServerRejectsMissingTrustMaterial(t *testing.T) {
 	resolver := configuredResolver(t, map[string]Principal{runtimeSPIFFE: boundRuntime()})
 	handler := NewHandler(resolver, &fakeVerifier{}, &fakeStore{})
 	for _, tc := range []struct {
-		name string
-		addr string
+		name    string
+		addr    string
 		handler http.Handler
-		cert tls.Certificate
-		roots *x509.CertPool
+		cert    tls.Certificate
+		roots   *x509.CertPool
 	}{
 		{"no handler", "127.0.0.1:0", nil, serverCert, clientRoots},
 		{"empty bind address", "", handler, serverCert, clientRoots},
@@ -136,7 +136,7 @@ func TestMTLSHTTPServerRealHandshakeAndAdmission(t *testing.T) {
 	request := func(cert []tls.Certificate, maxTLS uint16) (*http.Response, error) {
 		t.Helper()
 		client := &http.Client{
-			Timeout: 3*time.Second,
+			Timeout: 3 * time.Second,
 			Transport: &http.Transport{TLSClientConfig: &tls.Config{
 				RootCAs: serverRoots, Certificates: cert,
 				MinVersion: tls.VersionTLS12, MaxVersion: maxTLS,
@@ -175,9 +175,9 @@ func TestMTLSHTTPServerRealHandshakeAndAdmission(t *testing.T) {
 	}
 	// These must fail before HTTP admission runs.
 	for _, tc := range []struct {
-		name string
+		name  string
 		certs []tls.Certificate
-		max uint16
+		max   uint16
 	}{
 		{"missing client certificate", nil, 0},
 		{"untrusted client issuer", []tls.Certificate{untrustedCert}, 0},
