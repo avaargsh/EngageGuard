@@ -88,7 +88,6 @@ func NewMTLSHTTPServer(address string, handler http.Handler, certificate tls.Cer
 	}, nil
 }
 
-
 // requireVerifiedClientTLS is defense in depth against accidental plaintext
 // http.Server.Serve, a missing client-certificate policy or a permissive
 // PrincipalResolver. An X-Forwarded-Proto header never proves transport TLS.
