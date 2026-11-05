@@ -286,3 +286,42 @@ func TestSPIFFEMTLSResolverWithAdmissionNeverUsesHeaderTenant(t *testing.T) {
 func ioNopCloserFromString(s string) io.ReadCloser {
 	return io.NopCloser(strings.NewReader(s))
 }
+
+
+func TestSPIFFEMTLSResolverRejectsInvalidLeafKeyUsage(t *testing.T) {
+	resolver := configuredResolver(t, map[string]Principal{runtimeSPIFFE: boundRuntime()})
+	for _, tc := range []struct {
+		name  string
+		usage x509.KeyUsage
+	}{
+		{"missing digital signature", 0},
+		{"CA sign bit", x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign},
+		{"CRL sign bit", x509.KeyUsageDigitalSignature | x509.KeyUsageCRLSign},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := verifiedClientTLS(t, runtimeSPIFFE)
+			// Preserve the signed DER and trusted chain while exercising the
+			// resolver's explicit SVID KeyUsage validation.
+			leaf := *state.PeerCertificates[0]
+			leaf.KeyUsage = tc.usage
+			state.PeerCertificates[0] = &leaf
+			req := httptest.NewRequest(http.MethodPost, "/v1/action-submissions", nil)
+			req.TLS = state
+			if _, err := resolver.ResolvePrincipal(context.Background(), req); err == nil {
+				t.Fatal("SPIFFE leaf with invalid KeyUsage authenticated")
+			}
+		})
+	}
+}
+
+func TestSPIFFEMTLSResolverRejectsInvalidPinnedTrustRoots(t *testing.T) {
+	leaf := verifiedClientTLS(t, runtimeSPIFFE).PeerCertificates[0]
+	if _, err := NewSPIFFEMTLSResolver("platform.example",
+		map[string]Principal{runtimeSPIFFE: boundRuntime()}, leaf); err == nil {
+		t.Fatal("accepted non-CA leaf as trust-domain root")
+	}
+	if _, err := NewSPIFFEMTLSResolver("platform.example",
+		map[string]Principal{runtimeSPIFFE: boundRuntime()}, nil); err == nil {
+		t.Fatal("accepted missing trust-domain root certificate")
+	}
+}
