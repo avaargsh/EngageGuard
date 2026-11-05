@@ -58,8 +58,8 @@ type CapabilityAuthority interface {
 // A concurrent breaker transition after this read is not atomically fenced:
 // G03/G05 execution still requires a later authoritative Guard safety gate.
 type ComposedRunVerifier struct {
-	run RunSafetyAuthority
-	decision DecisionPlanAuthority
+	run        RunSafetyAuthority
+	decision   DecisionPlanAuthority
 	capability CapabilityAuthority
 }
 
