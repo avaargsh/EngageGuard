@@ -2,6 +2,7 @@ package admission
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -14,14 +15,18 @@ import (
 
 // SPIFFEMTLSResolver pins an authenticated workload to an operator-supplied
 // tenant and subject; it never reads identity claims from HTTP headers.
+// A network deployment must pin the trust-domain CA roots as well as identity.
 type SPIFFEMTLSResolver struct {
-	trustDomain string
-	bindings    map[string]Principal
+	trustDomain     string
+	bindings        map[string]Principal
+	trustedRootPins map[[32]byte]struct{}
 }
 
 var trustDomainRE = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$`)
 
-func NewSPIFFEMTLSResolver(trustDomain string, bindings map[string]Principal) (*SPIFFEMTLSResolver, error) {
+// Without trustedRoots, the resolver is only suitable for isolated component
+// tests. NewMTLSHTTPServer refuses unpinned resolvers at its network boundary.
+func NewSPIFFEMTLSResolver(trustDomain string, bindings map[string]Principal, trustedRoots ...*x509.Certificate) (*SPIFFEMTLSResolver, error) {
 	if !trustDomainRE.MatchString(trustDomain) || strings.Contains(trustDomain, "..") ||
 		strings.HasPrefix(trustDomain, "-") || strings.Contains(trustDomain, ".-") ||
 		strings.Contains(trustDomain, "-.") || len(bindings) == 0 {
@@ -37,7 +42,15 @@ func NewSPIFFEMTLSResolver(trustDomain string, bindings map[string]Principal) (*
 		}
 		copyBindings[identity] = principal
 	}
-	return &SPIFFEMTLSResolver{trustDomain: trustDomain, bindings: copyBindings}, nil
+	rootPins := make(map[[32]byte]struct{}, len(trustedRoots))
+	for _, root := range trustedRoots {
+		if root == nil || len(root.Raw) == 0 || !root.IsCA ||
+			root.KeyUsage&x509.KeyUsageCertSign == 0 {
+			return nil, errors.New("invalid SPIFFE trust-domain root certificate")
+		}
+		rootPins[sha256.Sum256(root.Raw)] = struct{}{}
+	}
+	return &SPIFFEMTLSResolver{trustDomain: trustDomain, bindings: copyBindings, trustedRootPins: rootPins}, nil
 }
 
 func validateRuntimeSPIFFE(identity, trustDomain string) (*url.URL, error) {
@@ -65,7 +78,9 @@ func (s *SPIFFEMTLSResolver) ResolvePrincipal(_ context.Context, request *http.R
 		return Principal{}, ErrUnauthenticated
 	}
 	leaf := state.PeerCertificates[0]
-	if leaf == nil || leaf.IsCA || len(leaf.Raw) == 0 || len(leaf.URIs) != 1 {
+	if leaf == nil || leaf.IsCA || len(leaf.Raw) == 0 || len(leaf.URIs) != 1 ||
+		leaf.KeyUsage&x509.KeyUsageDigitalSignature == 0 ||
+		leaf.KeyUsage&(x509.KeyUsageCertSign|x509.KeyUsageCRLSign) != 0 {
 		return Principal{}, ErrUnauthenticated
 	}
 	now := time.Now()
@@ -76,10 +91,20 @@ func (s *SPIFFEMTLSResolver) ResolvePrincipal(_ context.Context, request *http.R
 	// ClientCAs; PeerCertificates without a verified chain provide no authority.
 	verified := false
 	for _, chain := range state.VerifiedChains {
-		if len(chain) > 0 && chain[0] != nil && chain[0].Equal(leaf) {
-			verified = true
-			break
+		if len(chain) == 0 || chain[0] == nil || !chain[0].Equal(leaf) {
+			continue
 		}
+		if len(s.trustedRootPins) > 0 {
+			root := chain[len(chain)-1]
+			if root == nil || len(root.Raw) == 0 {
+				continue
+			}
+			if _, ok := s.trustedRootPins[sha256.Sum256(root.Raw)]; !ok {
+				continue
+			}
+		}
+		verified = true
+		break
 	}
 	if !verified {
 		return Principal{}, ErrUnauthenticated
