@@ -50,3 +50,11 @@ The real-network Go CI handshake regression exercises trusted Runtime, wrong-but
 - Reviewed least-privilege database roles and tenant isolation.
 - Action-bound approval, signed single-use Permit and atomic claim.
 - Trusted executor, durable operation completion journal, UNKNOWN reconciliation and recovery.
+
+## SPIFFE tenant scope and legacy-branch consolidation
+
+The URI SAN identity `spiffe://<trust-domain>/ns/<namespace>/sa/<service-account>` is pinned to exactly one configured `Principal` (tenant, subject, actor, workload and service). The CommonName and DNS SAN are **not** identity claims. `NewSPIFFEMTLSResolver` copies its workload allowlist; runtime mutation of the caller's original map cannot change tenant authority. Unregistered and multi-URI identities fail closed.
+
+A shared multi-tenant Runtime must use a separately authenticated, scoped delegation proof and check ACP policy and current Run authority; **never** reinterpret an ordinary service-account certificate as global tenant delegation. Reject `X-Tenant-ID`, forwarded client-certificate or proxy TLS headers as authority. A trusted Go TLS server owns `r.TLS`; accepting a request-scoped TLS object supplied by an untrusted gateway is outside this adapter's security contract.
+
+This supersedes the old client-resolver-only [PR #12](https://github.com/avaargsh/EngageGuard/pull/12) documentation. The new branch additionally provides real TLS 1.3 client-auth handshake tests and a defensive outer transport check, but cert issuance/revocation/rotation, a deployed listener binary and authoritative RunVerifier remain outstanding. Do not treat consolidation as G03/G05 acceptance.
