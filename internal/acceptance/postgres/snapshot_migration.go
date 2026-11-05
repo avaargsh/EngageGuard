@@ -111,6 +111,32 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 	if err != nil || !valid {
 		return fmt.Errorf("%w: disabled or replaced snapshot immutability trigger: %v", ErrSchemaDrift, err)
 	}
+	// A matching constraint name/column is insufficient: reject weaker
+	// same-name expressions, including CHECK(TRUE), on every startup.
+	var checkExpr string
+	err = tx.QueryRowContext(ctx, `
+		SELECT pg_get_expr(c.conbin, c.conrelid)
+		FROM pg_constraint c
+		WHERE c.conrelid=to_regclass('guard_accepted_submission_snapshots')
+		  AND c.conname='guard_snapshot_bytes_length_check'
+	`).Scan(&checkExpr)
+	if err != nil {
+		return fmt.Errorf("%w: inspect snapshot size check: %v", ErrSchemaDrift, err)
+	}
+	normalized := strings.NewReplacer("(", "", ")", "", " ", "", "\n", "").Replace(checkExpr)
+	if normalized != "octet_lengthsubmission_bytes>=1ANDoctet_lengthsubmission_bytes<=65536" {
+		return fmt.Errorf("%w: weakened accepted snapshot size expression", ErrSchemaDrift)
+	}
+	// A same-named enabled trigger must still execute the exact immutable
+	// implementation, not a replaced no-op function.
+	var functionBody string
+	err = tx.QueryRowContext(ctx, `
+		SELECT p.prosrc FROM pg_proc p
+		WHERE p.oid=to_regprocedure('guard_reject_snapshot_mutation()')
+	`).Scan(&functionBody)
+	if err != nil || strings.TrimSpace(functionBody) != "BEGIN\n    RAISE EXCEPTION 'accepted Guard submission snapshots are immutable';\nEND;" {
+		return fmt.Errorf("%w: snapshot mutation trigger function changed: %v", ErrSchemaDrift, err)
+	}
 	// At least retain exact BYTEA type, NOT NULL, and the CHECK name/column.
 	err = tx.QueryRowContext(ctx, `
 		SELECT EXISTS (
