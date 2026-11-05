@@ -287,7 +287,6 @@ func ioNopCloserFromString(s string) io.ReadCloser {
 	return io.NopCloser(strings.NewReader(s))
 }
 
-
 func TestSPIFFEMTLSResolverRejectsInvalidLeafKeyUsage(t *testing.T) {
 	resolver := configuredResolver(t, map[string]Principal{runtimeSPIFFE: boundRuntime()})
 	for _, tc := range []struct {
