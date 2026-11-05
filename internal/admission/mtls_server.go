@@ -22,15 +22,25 @@ import (
 // SPIFFE resolver remains the separate, mandatory workload-to-tenant binding,
 // and the authoritative RunVerifier remains required by the handler.
 // This does not issue Permits or authorize protected side effects.
-func NewMTLSHTTPServer(address string, handler http.Handler, certificate tls.Certificate, trustedClientCAs *x509.CertPool) (*http.Server, error) {
+func NewMTLSHTTPServer(address string, admissionHandler http.Handler, certificate tls.Certificate, trustedClientCAs *x509.CertPool) (*http.Server, error) {
 	if strings.TrimSpace(address) == "" {
 		return nil, errors.New("Guard mTLS listen address required")
 	}
 	if _, _, err := net.SplitHostPort(address); err != nil {
 		return nil, fmt.Errorf("invalid Guard mTLS listen address: %w", err)
 	}
-	if handler == nil {
+	if admissionHandler == nil {
 		return nil, errors.New("Guard authenticated handler required")
+	}
+	// Never let a valid TLS connection bypass the authenticated admission
+	// pipeline or use an SPIFFE identity verified by an unpinned CA.
+	guardHandler, ok := admissionHandler.(*handler)
+	if !ok || guardHandler == nil || guardHandler.verifier == nil || guardHandler.store == nil {
+		return nil, errors.New("Guard mTLS endpoint requires a complete admission handler")
+	}
+	spiffeResolver, ok := guardHandler.resolver.(*SPIFFEMTLSResolver)
+	if !ok || spiffeResolver == nil || len(spiffeResolver.trustedRootPins) == 0 {
+		return nil, errors.New("Guard mTLS endpoint requires trust-root-pinned SPIFFE Principal binding")
 	}
 	if trustedClientCAs == nil || len(trustedClientCAs.Subjects()) == 0 {
 		return nil, errors.New("dedicated nonempty Guard client CA pool required")
@@ -72,7 +82,7 @@ func NewMTLSHTTPServer(address string, handler http.Handler, certificate tls.Cer
 
 	return &http.Server{
 		Addr:    address,
-		Handler: requireVerifiedClientTLS(handler),
+		Handler: requireVerifiedClientTLS(admissionHandler),
 		TLSConfig: &tls.Config{
 			MinVersion:   tls.VersionTLS13,
 			ClientAuth:   tls.RequireAndVerifyClientCert,
