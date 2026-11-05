@@ -337,6 +337,11 @@ func (s *Store) Accept(ctx context.Context, tenantID, submissionKey string, raw 
 		if existingDigest != digest {
 			return Operation{}, false, ErrConflict
 		}
+		// Never report a successful replay if the immutable original intent
+		// cannot be recovered and verified against the accepted digest.
+		if err := readAcceptedBytesTx(ctx, tx, op); err != nil {
+			return Operation{}, false, err
+		}
 		if err := tx.Commit(); err != nil {
 			return Operation{}, false, fmt.Errorf("commit Guard replay read: %w", err)
 		}
@@ -344,6 +349,16 @@ func (s *Store) Accept(ctx context.Context, tenantID, submissionKey string, raw 
 	}
 	if err != nil {
 		return Operation{}, false, fmt.Errorf("claim Guard submission key: %w", err)
+	}
+
+	// Store exactly the bytes the caller submitted. The immutable snapshot,
+	// operation receipt, and non-dispatchable outbox event commit atomically.
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO guard_accepted_submission_snapshots
+		    (tenant_id, operation_id, submission_key, submission_digest, submission_bytes)
+		VALUES ($1, $2, $3, $4, $5)
+	`, tenantID, op.OperationID, submissionKey, digest, raw); err != nil {
+		return Operation{}, false, fmt.Errorf("persist immutable Guard accepted submission: %w", err)
 	}
 
 	// An accepted outbox notification cannot exist without the durable
