@@ -66,7 +66,10 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("read Guard migration ledger: %w", err)
 	}
-	var applied []struct{ version int64; checksum string }
+	var applied []struct {
+		version  int64
+		checksum string
+	}
 	for rows.Next() {
 		var v int64
 		var checksum string
@@ -74,7 +77,10 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			rows.Close()
 			return fmt.Errorf("read Guard migration entry: %w", err)
 		}
-		applied = append(applied, struct{ version int64; checksum string }{v, checksum})
+		applied = append(applied, struct {
+			version  int64
+			checksum string
+		}{v, checksum})
 	}
 	err = rows.Err()
 	rows.Close()
