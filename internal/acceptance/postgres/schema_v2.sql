@@ -33,3 +33,8 @@ $guard_snapshot$;
 CREATE TRIGGER guard_snapshot_immutable_row
 BEFORE UPDATE OR DELETE ON guard_accepted_submission_snapshots
 FOR EACH ROW EXECUTE FUNCTION guard_reject_snapshot_mutation();
+
+-- statement break
+CREATE TRIGGER guard_snapshot_immutable_truncate
+BEFORE TRUNCATE ON guard_accepted_submission_snapshots
+FOR EACH STATEMENT EXECUTE FUNCTION guard_reject_snapshot_mutation();
