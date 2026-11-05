@@ -105,6 +105,8 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 		    AND t.tgname='guard_snapshot_immutable_row'
 		    AND NOT t.tgisinternal AND t.tgenabled='O'
 		    AND t.tgtype=27
+		    AND t.tgqual IS NULL
+		    AND t.tgattr::text=''
 		    AND t.tgfoid=to_regprocedure('guard_reject_snapshot_mutation()')
 		)
 	`).Scan(&valid)
@@ -120,6 +122,8 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 		    AND t.tgname='guard_snapshot_immutable_truncate'
 		    AND NOT t.tgisinternal AND t.tgenabled='O'
 		    AND t.tgtype=34
+		    AND t.tgqual IS NULL
+		    AND t.tgattr::text=''
 		    AND t.tgfoid=to_regprocedure('guard_reject_snapshot_mutation()')
 		)
 	`).Scan(&valid)
