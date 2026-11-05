@@ -101,3 +101,34 @@ func TestV2MigrationRejectsSnapshotCatalogIntegrityLoss(t *testing.T) {
 		})
 	}
 }
+
+func TestSnapshotMigrationRejectsSameNameWeakenedCheckAndTriggerBody(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ddl  []string
+	}{
+		{"snapshot byte bounds replaced with CHECK TRUE", []string{
+			"ALTER TABLE guard_accepted_submission_snapshots DROP CONSTRAINT guard_snapshot_bytes_length_check",
+			"ALTER TABLE guard_accepted_submission_snapshots ADD CONSTRAINT guard_snapshot_bytes_length_check CHECK (TRUE)",
+		}},
+		{"snapshot immutable trigger function replaced", []string{
+			`CREATE OR REPLACE FUNCTION guard_reject_snapshot_mutation() RETURNS trigger
+			   LANGUAGE plpgsql AS $unsafe$ BEGIN RETURN NEW; END; $unsafe$`,
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := unmigratedDatabase(t)
+			if err := Migrate(context.Background(), db); err != nil {
+				t.Fatal(err)
+			}
+			for _, statement := range tc.ddl {
+				if _, err := db.ExecContext(context.Background(), statement); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := Migrate(context.Background(), db); !errors.Is(err, ErrSchemaDrift) {
+				t.Fatalf("checksum-matched weakened snapshot catalog bypassed guard: %v", err)
+			}
+		})
+	}
+}
