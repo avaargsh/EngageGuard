@@ -30,8 +30,8 @@ node --experimental-strip-types scripts/verify_workspace_jcs.ts
 
 ## Not yet proven / safety gate
 
-- The general `ActionRequest.ActionHash` still uses Go `json.Marshal`, including number lexemes and Unicode property ordering. It is **not JCS-compliant** across arbitrary JSON values and cannot be used as normative Approval/Permit hash.
-- RFC 8785 complete numeric and UTF-16 property-name golden vectors remain a P0 requirement; these four WorkspaceWrite vectors do **not** close EngageGuard #3.
+- Parent PR #5 now includes a generic RFC 8785 canonicalizer (`internal/action/jcs.go`) and Go number / resolved-ActionRequest vectors. **These four legacy WorkspaceWrite v0.1 vectors do not establish generic cross-language parity**, authoritative Policy/Approval/Permit issuance, or production-safe protected execution. Review the separate generic test evidence and trust-source gates before using a normative ActionHash for authorization.
+- Generic numeric/JCS and resolved-action contract tests are maintained separately under `docs/contracts/` and their own Go/Python/TypeScript verifiers. This compatibility subset cannot be counted as proof for arbitrary JSON arguments, protected effects or closure of EngageGuard #3.
 - Before an actual side effect, a Trusted Executor must enforce the action binding, one-time Permit, root-confined filesystem operation, and durable OperationJournal.
 - Approval validity also depends on policy and revocation checks, not only a matching hash.
 
