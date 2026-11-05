@@ -240,3 +240,29 @@ func TestMTLSHTTPServerPlainServeCannotReachAdmission(t *testing.T) {
 			response.StatusCode, store.calls, verifier.calls)
 	}
 }
+
+ 
+// Security RED: production TLS ingress must not accept an unpinned SPIFFE
+// identity resolver or a generic handler that bypasses Guard admission.
+func TestMTLSHTTPServerRejectsUnpinnedOrUnboundAdmission(t *testing.T) {
+	serverCA, serverKey, _ := newTestTransportCA(t)
+	serverCert := newTestTLSLeaf(t, serverCA, serverKey, false, "")
+	_, _, clientRoots := newTestTransportCA(t)
+
+	unpinned := NewHandler(
+		configuredResolver(t, map[string]Principal{runtimeSPIFFE: boundRuntime()}),
+		&fakeVerifier{}, &fakeStore{},
+	)
+	if server, err := NewMTLSHTTPServer("127.0.0.1:0", unpinned, serverCert, clientRoots); err == nil {
+		_ = server.Close()
+		t.Fatal("accepted network admission without a trust-root-pinned SPIFFE resolver")
+	}
+
+	arbitraryHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	})
+	if server, err := NewMTLSHTTPServer("127.0.0.1:0", arbitraryHandler, serverCert, clientRoots); err == nil {
+		_ = server.Close()
+		t.Fatal("accepted arbitrary handler without mandatory Principal and Run verification")
+	}
+}
