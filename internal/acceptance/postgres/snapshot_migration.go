@@ -111,6 +111,21 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 	if err != nil || !valid {
 		return fmt.Errorf("%w: disabled or replaced snapshot immutability trigger: %v", ErrSchemaDrift, err)
 	}
+	// TRUNCATE bypasses row-level triggers. The statement trigger must be
+	// enabled as well or a privileged writer can erase all accepted evidence.
+	err = tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM pg_trigger t
+		  WHERE t.tgrelid=to_regclass('guard_accepted_submission_snapshots')
+		    AND t.tgname='guard_snapshot_immutable_truncate'
+		    AND NOT t.tgisinternal AND t.tgenabled='O'
+		    AND t.tgtype=34
+		    AND t.tgfoid=to_regprocedure('guard_reject_snapshot_mutation()')
+		)
+	`).Scan(&valid)
+	if err != nil || !valid {
+		return fmt.Errorf("%w: missing or disabled snapshot TRUNCATE trigger: %v", ErrSchemaDrift, err)
+	}
 	// A matching constraint name/column is insufficient: reject weaker
 	// same-name expressions, including CHECK(TRUE), on every startup.
 	var checkExpr string
