@@ -11,10 +11,10 @@ import (
 
 type testRunAuthority struct {
 	snapshot RunSafetySnapshot
-	err error
-	calls int
-	tenant string
-	run string
+	err      error
+	calls    int
+	tenant   string
+	run      string
 }
 
 func (a *testRunAuthority) GetRunSafetySnapshot(_ context.Context, tenantID, runID string) (RunSafetySnapshot, error) {
@@ -24,10 +24,10 @@ func (a *testRunAuthority) GetRunSafetySnapshot(_ context.Context, tenantID, run
 }
 
 type testDecisionPlanAuthority struct {
-	err error
-	calls int
-	snapshot RunSafetySnapshot
-	principal Principal
+	err        error
+	calls      int
+	snapshot   RunSafetySnapshot
+	principal  Principal
 	submission action.ActionSubmission
 }
 
@@ -40,9 +40,9 @@ func (a *testDecisionPlanAuthority) VerifyDecisionPlanStep(
 }
 
 type testCapabilityAuthority struct {
-	err error
-	calls int
-	snapshot RunSafetySnapshot
+	err        error
+	calls      int
+	snapshot   RunSafetySnapshot
 	submission action.ActionSubmission
 }
 
@@ -76,9 +76,9 @@ func TestComposedRunVerifierRequiresAllThreeAuthorities(t *testing.T) {
 	decision := &testDecisionPlanAuthority{}
 	capability := &testCapabilityAuthority{}
 	for _, tc := range []struct {
-		name string
-		reader RunSafetyAuthority
-		decision DecisionPlanAuthority
+		name       string
+		reader     RunSafetyAuthority
+		decision   DecisionPlanAuthority
 		capability CapabilityAuthority
 	}{
 		{"nil Runtime", nil, decision, capability},
@@ -96,7 +96,7 @@ func TestComposedRunVerifierRequiresAllThreeAuthorities(t *testing.T) {
 
 func TestComposedRunVerifierBindsRuntimeTenantAndRunBeforeDecision(t *testing.T) {
 	for _, tc := range []struct {
-		name string
+		name   string
 		mutate func(*RunSafetySnapshot)
 	}{
 		{"different tenant", func(s *RunSafetySnapshot) { s.TenantID = "tenant-attacker" }},
@@ -136,12 +136,12 @@ func TestComposedRunVerifierBindsRuntimeTenantAndRunBeforeDecision(t *testing.T)
 
 func TestComposedRunVerifierRequiresDecisionAndACPAuthority(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		readErr error
-		decisionErr error
-		capabilityErr error
-		want error
-		decisionCalls int
+		name            string
+		readErr         error
+		decisionErr     error
+		capabilityErr   error
+		want            error
+		decisionCalls   int
 		capabilityCalls int
 	}{
 		{"Runtime denied", ErrForbidden, nil, nil, ErrForbidden, 0, 0},
