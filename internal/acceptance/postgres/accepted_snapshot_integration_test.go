@@ -63,3 +63,19 @@ func TestAcceptedSnapshotCannotBeMissingOnReplay(t *testing.T) {
         t.Fatal("read succeeded after immutable snapshot disappeared")
     }
 }
+
+func TestAcceptedSubmissionSnapshotTruncateDenied(t *testing.T) {
+	store, db := integrationStore(t)
+	ctx := context.Background()
+	op, _, err := store.Accept(ctx, "tenant-a", "key-protect-truncate", sampleSubmission())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, "TRUNCATE guard_accepted_submission_snapshots"); err == nil {
+		t.Fatal("TRUNCATE bypassed immutable accepted submission retention")
+	}
+	recovered, err := New(db).ReadAcceptedSubmission(ctx, "tenant-a", op.OperationID)
+	if err != nil || !bytes.Equal(recovered.Raw, sampleSubmission()) {
+		t.Fatalf("TRUNCATE damaged retained accepted intent: %v", err)
+	}
+}
