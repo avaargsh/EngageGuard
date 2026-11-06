@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -78,8 +79,12 @@ func newTestTLSLeaf(t *testing.T, ca *x509.Certificate, signer crypto.Signer, cl
 func TestVerifiedMTLSHTTPServerRejectsMissingTrustMaterial(t *testing.T) {
 	serverCA, serverKey, _ := newTestTransportCA(t)
 	serverCert := newTestTLSLeaf(t, serverCA, serverKey, false, "")
-	_, _, clientRoots := newTestTransportCA(t)
-	resolver := configuredResolver(t, map[string]Principal{runtimeSPIFFE: boundRuntime()})
+	clientCA, _, clientRoots := newTestTransportCA(t)
+	resolver, err := NewSPIFFEMTLSResolver("platform.example",
+		map[string]Principal{runtimeSPIFFE: boundRuntime()}, clientCA)
+	if err != nil {
+		t.Fatal(err)
+	}
 	handler := NewHandler(resolver, &fakeVerifier{}, &fakeStore{})
 	for _, tc := range []struct {
 		name    string
@@ -111,11 +116,21 @@ func TestMTLSHTTPServerRealHandshakeAndAdmission(t *testing.T) {
 	unknownCert := newTestTLSLeaf(t, clientCA, clientCAKey, true, "spiffe://platform.example/ns/agents/sa/unknown")
 	otherCA, otherCAKey, _ := newTestTransportCA(t)
 	untrustedCert := newTestTLSLeaf(t, otherCA, otherCAKey, true, runtimeSPIFFE)
+	// The TLS transport accepts either trusted CA, but the SPIFFE trust-domain
+	// binding must reject a forged same-URI certificate from the other CA.
+	spoofCA, spoofKey, _ := newTestTransportCA(t)
+	spoofCert := newTestTLSLeaf(t, spoofCA, spoofKey, true, runtimeSPIFFE)
+	mixedClientRoots := clientRoots.Clone()
+	mixedClientRoots.AddCert(spoofCA)
 
-	resolver := configuredResolver(t, map[string]Principal{runtimeSPIFFE: boundRuntime()})
+	resolver, err := NewSPIFFEMTLSResolver("platform.example",
+		map[string]Principal{runtimeSPIFFE: boundRuntime()}, clientCA)
+	if err != nil {
+		t.Fatal(err)
+	}
 	store := &fakeStore{}
 	verifier := &fakeVerifier{}
-	server, err := NewMTLSHTTPServer("127.0.0.1:0", NewHandler(resolver, verifier, store), serverCert, clientRoots)
+	server, err := NewMTLSHTTPServer("127.0.0.1:0", NewHandler(resolver, verifier, store), serverCert, mixedClientRoots)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,6 +188,18 @@ func TestMTLSHTTPServerRealHandshakeAndAdmission(t *testing.T) {
 	if response.StatusCode != http.StatusUnauthorized || store.calls != 1 {
 		t.Fatalf("unbound SPIFFE identity reached store: code=%d calls=%d", response.StatusCode, store.calls)
 	}
+	// TLS accepts this second issuer, but its SPIFFE identity is not
+	// authorized to speak for the pinned trust domain.
+	response, err = request([]tls.Certificate{spoofCert}, 0)
+	if err != nil {
+		t.Fatalf("spoofed SPIFFE client should reach resolver after TLS verification: %v", err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusUnauthorized || store.calls != 1 || verifier.calls != 1 {
+		t.Fatalf("mixed-CA forged SPIFFE reached admission: status=%d store=%d verifier=%d",
+			response.StatusCode, store.calls, verifier.calls)
+	}
+
 	// These must fail before HTTP admission runs.
 	for _, tc := range []struct {
 		name  string
@@ -202,8 +229,12 @@ func TestMTLSHTTPServerRealHandshakeAndAdmission(t *testing.T) {
 func TestMTLSHTTPServerPlainServeCannotReachAdmission(t *testing.T) {
 	serverCA, serverKey, _ := newTestTransportCA(t)
 	serverCert := newTestTLSLeaf(t, serverCA, serverKey, false, "")
-	_, _, clientRoots := newTestTransportCA(t)
-	resolver := &fakeResolver{principal: boundRuntime()}
+	clientCA, _, clientRoots := newTestTransportCA(t)
+	resolver, err := NewSPIFFEMTLSResolver("platform.example",
+		map[string]Principal{runtimeSPIFFE: boundRuntime()}, clientCA)
+	if err != nil {
+		t.Fatal(err)
+	}
 	verifier := &fakeVerifier{}
 	store := &fakeStore{}
 	server, err := NewMTLSHTTPServer("127.0.0.1:0", NewHandler(resolver, verifier, store), serverCert, clientRoots)
@@ -235,8 +266,52 @@ func TestMTLSHTTPServerPlainServeCannotReachAdmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = response.Body.Close()
-	if response.StatusCode == http.StatusCreated || store.calls != 0 || verifier.calls != 0 {
+	if response.StatusCode != http.StatusUnauthorized || store.calls != 0 || verifier.calls != 0 {
 		t.Fatalf("plaintext Serve bypassed mTLS transport: status=%d store=%d verifier=%d",
 			response.StatusCode, store.calls, verifier.calls)
+	}
+}
+
+// Security RED: production TLS ingress must not accept an unpinned SPIFFE
+// identity resolver or a generic handler that bypasses Guard admission.
+func TestMTLSHTTPServerRejectsUnpinnedOrUnboundAdmission(t *testing.T) {
+	serverCA, serverKey, _ := newTestTransportCA(t)
+	serverCert := newTestTLSLeaf(t, serverCA, serverKey, false, "")
+	_, _, clientRoots := newTestTransportCA(t)
+
+	unpinned := NewHandler(
+		configuredResolver(t, map[string]Principal{runtimeSPIFFE: boundRuntime()}),
+		&fakeVerifier{}, &fakeStore{},
+	)
+	if server, err := NewMTLSHTTPServer("127.0.0.1:0", unpinned, serverCert, clientRoots); err == nil {
+		_ = server.Close()
+		t.Fatal("accepted network admission without a trust-root-pinned SPIFFE resolver")
+	}
+
+	arbitraryHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	})
+	if server, err := NewMTLSHTTPServer("127.0.0.1:0", arbitraryHandler, serverCert, clientRoots); err == nil {
+		_ = server.Close()
+		t.Fatal("accepted arbitrary handler without mandatory Principal and Run verification")
+	}
+}
+
+// Defense-in-depth: plaintext is denied even when lower layers are deliberately
+// permissive, not just because the SPIFFE resolver would reject absent TLS.
+func TestVerifiedClientTLSGateRejectsPermissiveResolver(t *testing.T) {
+	verifier := &fakeVerifier{}
+	store := &fakeStore{}
+	gate := requireVerifiedClientTLS(NewHandler(
+		&fakeResolver{principal: boundRuntime()}, verifier, store))
+	req := httptest.NewRequest(http.MethodPost, "/v1/action-submissions",
+		strings.NewReader(goodBody()))
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Tenant-ID", "tenant-verified")
+	rec := httptest.NewRecorder()
+	gate.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized || verifier.calls != 0 || store.calls != 0 {
+		t.Fatalf("permissive resolver bypassed outer TLS gate: status=%d verifier=%d store=%d",
+			rec.Code, verifier.calls, store.calls)
 	}
 }
