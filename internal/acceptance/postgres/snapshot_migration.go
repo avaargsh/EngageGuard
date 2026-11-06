@@ -50,8 +50,12 @@ func applySnapshotMigration(ctx context.Context, tx *sql.Tx) error {
 func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 	var valid bool
 	err := tx.QueryRowContext(ctx, `
-		SELECT to_regclass('guard_accepted_submission_snapshots') IS NOT NULL
-			AND to_regprocedure('guard_reject_snapshot_mutation()') IS NOT NULL
+		SELECT EXISTS (
+			SELECT 1 FROM pg_catalog.pg_class c
+			WHERE c.oid = pg_catalog.to_regclass('guard_accepted_submission_snapshots')
+			  AND c.relkind = 'r' AND c.relpersistence = 'p'
+			  AND c.relnamespace = current_schema()::regnamespace
+		) AND to_regprocedure('guard_reject_snapshot_mutation()') IS NOT NULL
 	`).Scan(&valid)
 	if err != nil || !valid {
 		return fmt.Errorf("%w: missing accepted snapshot relation/function: %v", ErrSchemaDrift, err)
