@@ -62,6 +62,25 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("create Guard schema ledger: %w", err)
 	}
 
+	// Check the actual migration-history storage before trusting its rows.
+	// The version/checksum ledger is itself crash-recovery evidence; an
+	// UNLOGGED or session-local relation is not a valid authority even if
+	// its version and checksum values appear correct.
+	var ledgerDurable bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_catalog.pg_class c
+			WHERE c.oid = pg_catalog.to_regclass('guard_schema_migrations')
+			  AND c.relkind = 'r' AND c.relpersistence = 'p'
+			  AND c.relnamespace = current_schema()::regnamespace
+		)
+	`).Scan(&ledgerDurable); err != nil {
+		return fmt.Errorf("%w: inspect Guard migration ledger durability: %v", ErrSchemaDrift, err)
+	}
+	if !ledgerDurable {
+		return fmt.Errorf("%w: Guard migration ledger is not a permanent ordinary table", ErrSchemaDrift)
+	}
+
 	rows, err := tx.QueryContext(ctx, "SELECT version, checksum FROM guard_schema_migrations ORDER BY version")
 	if err != nil {
 		return fmt.Errorf("read Guard migration ledger: %w", err)
