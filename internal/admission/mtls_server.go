@@ -35,7 +35,7 @@ func NewMTLSHTTPServer(address string, admissionHandler http.Handler, certificat
 	// Never let a valid TLS connection bypass the authenticated admission
 	// pipeline or use an SPIFFE identity verified by an unpinned CA.
 	guardHandler, ok := admissionHandler.(*handler)
-	if !ok || guardHandler == nil || guardHandler.verifier == nil || guardHandler.store == nil {
+	if !ok || guardHandler == nil || nilAuthority(guardHandler.verifier) || nilAuthority(guardHandler.store) {
 		return nil, errors.New("Guard mTLS endpoint requires a complete admission handler")
 	}
 	spiffeResolver, ok := guardHandler.resolver.(*SPIFFEMTLSResolver)
