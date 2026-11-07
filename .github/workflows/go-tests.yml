@@ -46,6 +46,10 @@ jobs:
         run: |
           python3 scripts/verify_resolved_action_hash.py
           node --experimental-strip-types scripts/verify_resolved_action_hash.ts
+      - name: Verify WorkspaceWrite v0.1 compatibility subset
+        run: |
+          python3 scripts/verify_workspace_jcs.py
+          node --experimental-strip-types scripts/verify_workspace_jcs.ts
       - name: Check gofmt
         shell: bash
         run: |
