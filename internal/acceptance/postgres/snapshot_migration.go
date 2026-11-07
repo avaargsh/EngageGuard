@@ -101,13 +101,15 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 			return fmt.Errorf("%w: invalid snapshot constraint %s: %v", ErrSchemaDrift, expected.name, err)
 		}
 	}
+	// The v2 schema originally installs origin-only triggers. Accept O or A here
+	// during the atomic v2->v3 upgrade; the v3 attestation separately mandates A.
 	// A same-named disabled or rebound trigger is not immutable storage.
 	err = tx.QueryRowContext(ctx, `
 		SELECT EXISTS (
 		  SELECT 1 FROM pg_trigger t
 		  WHERE t.tgrelid=to_regclass('guard_accepted_submission_snapshots')
 		    AND t.tgname='guard_snapshot_immutable_row'
-		    AND NOT t.tgisinternal AND t.tgenabled='A'
+		    AND NOT t.tgisinternal AND t.tgenabled IN ('O','A')
 		    AND t.tgtype=27
 		    AND t.tgqual IS NULL
 		    AND t.tgattr::text=''
@@ -124,7 +126,7 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 		  SELECT 1 FROM pg_trigger t
 		  WHERE t.tgrelid=to_regclass('guard_accepted_submission_snapshots')
 		    AND t.tgname='guard_snapshot_immutable_truncate'
-		    AND NOT t.tgisinternal AND t.tgenabled='A'
+		    AND NOT t.tgisinternal AND t.tgenabled IN ('O','A')
 		    AND t.tgtype=34
 		    AND t.tgqual IS NULL
 		    AND t.tgattr::text=''
