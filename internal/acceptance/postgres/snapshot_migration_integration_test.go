@@ -85,6 +85,8 @@ func TestV2MigrationRejectsSnapshotCatalogIntegrityLoss(t *testing.T) {
 	}{
 		{"detached composite FK", "ALTER TABLE guard_accepted_submission_snapshots DROP CONSTRAINT guard_snapshot_operation_binding_fk"},
 		{"disabled immutable trigger", "ALTER TABLE guard_accepted_submission_snapshots DISABLE TRIGGER guard_snapshot_immutable_row"},
+		{"origin-only immutable trigger", "ALTER TABLE guard_accepted_submission_snapshots ENABLE TRIGGER guard_snapshot_immutable_row"},
+		{"origin-only truncate trigger", "ALTER TABLE guard_accepted_submission_snapshots ENABLE TRIGGER guard_snapshot_immutable_truncate"},
 		{"removed digest tuple unique", "ALTER TABLE guard_accepted_submission_snapshots DROP CONSTRAINT guard_accepted_submission_snapshots_pkey CASCADE"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

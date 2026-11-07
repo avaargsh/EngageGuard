@@ -107,7 +107,7 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 		  SELECT 1 FROM pg_trigger t
 		  WHERE t.tgrelid=to_regclass('guard_accepted_submission_snapshots')
 		    AND t.tgname='guard_snapshot_immutable_row'
-		    AND NOT t.tgisinternal AND t.tgenabled='O'
+		    AND NOT t.tgisinternal AND t.tgenabled='A'
 		    AND t.tgtype=27
 		    AND t.tgqual IS NULL
 		    AND t.tgattr::text=''
@@ -124,7 +124,7 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 		  SELECT 1 FROM pg_trigger t
 		  WHERE t.tgrelid=to_regclass('guard_accepted_submission_snapshots')
 		    AND t.tgname='guard_snapshot_immutable_truncate'
-		    AND NOT t.tgisinternal AND t.tgenabled='O'
+		    AND NOT t.tgisinternal AND t.tgenabled='A'
 		    AND t.tgtype=34
 		    AND t.tgqual IS NULL
 		    AND t.tgattr::text=''
