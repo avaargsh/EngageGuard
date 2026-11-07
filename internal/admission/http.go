@@ -73,7 +73,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if h.resolver == nil || h.verifier == nil || h.store == nil {
+	if nilAuthority(h.resolver) || nilAuthority(h.verifier) || nilAuthority(h.store) {
 		http.Error(w, "Guard admission authority unavailable", http.StatusServiceUnavailable)
 		return
 	}
