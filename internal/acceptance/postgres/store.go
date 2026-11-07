@@ -62,70 +62,118 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("create Guard schema ledger: %w", err)
 	}
 
-	var currentVersionCount int
-	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM guard_schema_migrations").Scan(&currentVersionCount); err != nil {
-		return fmt.Errorf("inspect Guard migration history: %w", err)
+	// Check the actual migration-history storage before trusting its rows.
+	// The version/checksum ledger is itself crash-recovery evidence; an
+	// UNLOGGED or session-local relation is not a valid authority even if
+	// its version and checksum values appear correct.
+	var ledgerDurable bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_catalog.pg_class c
+			WHERE c.oid = pg_catalog.to_regclass('guard_schema_migrations')
+			  AND c.relkind = 'r' AND c.relpersistence = 'p'
+			  AND c.relnamespace = current_schema()::regnamespace
+		)
+	`).Scan(&ledgerDurable); err != nil {
+		return fmt.Errorf("%w: inspect Guard migration ledger durability: %v", ErrSchemaDrift, err)
 	}
-	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(initialSchema)))
-	if currentVersionCount > 0 {
-		var existing string
-		if currentVersionCount != 1 {
+	if !ledgerDurable {
+		return fmt.Errorf("%w: Guard migration ledger is not a permanent ordinary table", ErrSchemaDrift)
+	}
+
+	rows, err := tx.QueryContext(ctx, "SELECT version, checksum FROM guard_schema_migrations ORDER BY version")
+	if err != nil {
+		return fmt.Errorf("read Guard migration ledger: %w", err)
+	}
+	var applied []struct {
+		version  int64
+		checksum string
+	}
+	for rows.Next() {
+		var v int64
+		var checksum string
+		if err := rows.Scan(&v, &checksum); err != nil {
+			rows.Close()
+			return fmt.Errorf("read Guard migration entry: %w", err)
+		}
+		applied = append(applied, struct {
+			version  int64
+			checksum string
+		}{v, checksum})
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return fmt.Errorf("read Guard migration entries: %w", err)
+	}
+
+	v1Checksum := fmt.Sprintf("%x", sha256.Sum256([]byte(initialSchema)))
+	v2Checksum := fmt.Sprintf("%x", sha256.Sum256([]byte(snapshotSchema)))
+	if len(applied) > 2 {
+		return ErrSchemaDrift
+	}
+	for i, entry := range applied {
+		expectedVersion, expectedChecksum := int64(1), v1Checksum
+		if i == 1 {
+			expectedVersion, expectedChecksum = snapshotMigrationVersion, v2Checksum
+		}
+		if entry.version != expectedVersion || entry.checksum != expectedChecksum {
 			return ErrSchemaDrift
 		}
-		if err := tx.QueryRowContext(ctx,
-			"SELECT checksum FROM guard_schema_migrations WHERE version=$1",
-			initialMigrationVersion,
-		).Scan(&existing); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return ErrSchemaDrift
+	}
+
+	if len(applied) == 0 {
+		var unmanaged bool
+		if err := tx.QueryRowContext(ctx, `
+			SELECT to_regclass('guard_action_operations') IS NOT NULL
+			    OR to_regclass('guard_outbox_events') IS NOT NULL
+			    OR to_regclass('guard_accepted_submission_snapshots') IS NOT NULL
+		`).Scan(&unmanaged); err != nil {
+			return fmt.Errorf("inspect unversioned Guard relations: %w", err)
+		}
+		if unmanaged {
+			return ErrUnversionedSchema
+		}
+		// The v1 bytes remain unchanged and are still checksummed separately.
+		for _, statement := range strings.Split(initialSchema, ";") {
+			if strings.TrimSpace(statement) == "" {
+				continue
 			}
-			return fmt.Errorf("read Guard schema checksum: %w", err)
-		}
-		if existing != digest {
-			return ErrSchemaDrift
+			if _, err := tx.ExecContext(ctx, statement); err != nil {
+				return fmt.Errorf("install Guard v1 admission schema: %w", err)
+			}
 		}
 		if err := verifyGuardCatalog(ctx, tx); err != nil {
 			return err
 		}
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit Guard schema verification: %w", err)
+		if _, err := tx.ExecContext(ctx, "INSERT INTO guard_schema_migrations (version, checksum) VALUES ($1, $2)",
+			initialMigrationVersion, v1Checksum); err != nil {
+			return fmt.Errorf("record Guard v1 migration checksum: %w", err)
 		}
-		return nil
+	} else {
+		if err := verifyGuardCatalog(ctx, tx); err != nil {
+			return err
+		}
 	}
 
-	// Never silently assign canonical status to an existing unmanaged
-	// installation. An operator must inspect/upgrade it explicitly.
-	var hasUnversionedRelations bool
-	if err := tx.QueryRowContext(ctx, `
-		SELECT to_regclass('guard_action_operations') IS NOT NULL
-		    OR to_regclass('guard_outbox_events') IS NOT NULL
-	`).Scan(&hasUnversionedRelations); err != nil {
-		return fmt.Errorf("inspect unversioned Guard relations: %w", err)
-	}
-	if hasUnversionedRelations {
-		return ErrUnversionedSchema
-	}
-	// This initial SQL consists only of fixed DDL statements; future
-	// migrations must be separate immutable, checksummed versions.
-	for _, statement := range strings.Split(initialSchema, ";") {
-		if strings.TrimSpace(statement) == "" {
-			continue
+	if len(applied) < 2 {
+		// No authentic exact bytes can be recovered from a v1 digest alone.
+		// Never stamp old admitted operations as migrated to v2.
+		var originalOperations int64
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM guard_action_operations").Scan(&originalOperations); err != nil {
+			return fmt.Errorf("inspect v1 accepted operations before snapshot migration: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("install Guard admission schema: %w", err)
+		if originalOperations != 0 {
+			return ErrSnapshotBackfillRequired
 		}
-	}
-	if err := verifyGuardCatalog(ctx, tx); err != nil {
+		if err := applySnapshotMigration(ctx, tx); err != nil {
+			return err
+		}
+	} else if err := verifySnapshotCatalog(ctx, tx); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx,
-		"INSERT INTO guard_schema_migrations (version, checksum) VALUES ($1, $2)",
-		initialMigrationVersion, digest,
-	); err != nil {
-		return fmt.Errorf("record Guard schema checksum: %w", err)
-	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit Guard schema migration: %w", err)
+		return fmt.Errorf("commit Guard versioned schema migration: %w", err)
 	}
 	return nil
 }
@@ -314,6 +362,11 @@ func (s *Store) Accept(ctx context.Context, tenantID, submissionKey string, raw 
 		if existingDigest != digest {
 			return Operation{}, false, ErrConflict
 		}
+		// Never report a successful replay if the immutable original intent
+		// cannot be recovered and verified against the accepted digest.
+		if err := readAcceptedBytesTx(ctx, tx, op); err != nil {
+			return Operation{}, false, err
+		}
 		if err := tx.Commit(); err != nil {
 			return Operation{}, false, fmt.Errorf("commit Guard replay read: %w", err)
 		}
@@ -321,6 +374,16 @@ func (s *Store) Accept(ctx context.Context, tenantID, submissionKey string, raw 
 	}
 	if err != nil {
 		return Operation{}, false, fmt.Errorf("claim Guard submission key: %w", err)
+	}
+
+	// Store exactly the bytes the caller submitted. The immutable snapshot,
+	// operation receipt, and non-dispatchable outbox event commit atomically.
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO guard_accepted_submission_snapshots
+		    (tenant_id, operation_id, submission_key, submission_digest, submission_bytes)
+		VALUES ($1, $2, $3, $4, $5)
+	`, tenantID, op.OperationID, submissionKey, digest, raw); err != nil {
+		return Operation{}, false, fmt.Errorf("persist immutable Guard accepted submission: %w", err)
 	}
 
 	// An accepted outbox notification cannot exist without the durable
