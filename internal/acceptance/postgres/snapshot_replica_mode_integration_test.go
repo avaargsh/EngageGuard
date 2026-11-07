@@ -32,7 +32,11 @@ func TestAcceptedSnapshotRejectsReplicaModeMutation(t *testing.T) {
 			if _, err := tx.ExecContext(ctx, "SET LOCAL session_replication_role=replica"); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := tx.ExecContext(ctx, tc.statement, op.OperationID); err == nil {
+			args := []any{op.OperationID}
+			if tc.name == "TRUNCATE" {
+				args = nil
+			}
+			if _, err := tx.ExecContext(ctx, tc.statement, args...); err == nil {
 				t.Fatalf("%s bypassed immutable Guard snapshot under replica mode", tc.name)
 			}
 		})
