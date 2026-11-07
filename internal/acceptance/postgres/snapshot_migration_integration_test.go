@@ -51,8 +51,8 @@ func TestV2MigrationUpgradesEmptyV1WithoutRewritingOriginalChecksum(t *testing.T
 	if err := db.QueryRow("SELECT count(*) FROM guard_schema_migrations").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 2 {
-		t.Fatalf("expected two immutable migration ledger rows, got %d", count)
+	if count != 3 {
+		t.Fatalf("expected three immutable migration ledger rows, got %d", count)
 	}
 }
 
@@ -133,4 +133,72 @@ func TestSnapshotMigrationRejectsSameNameWeakenedCheckAndTriggerBody(t *testing.
 			}
 		})
 	}
+}
+
+func TestV3UpgradesPreviouslyAppliedOriginalV2Checksum(t *testing.T) {
+    db := unmigratedDatabase(t)
+    installOnlyOriginalV1ForUpgradeTest(t, db)
+    ctx := context.Background()
+    tx, err := db.BeginTx(ctx, nil)
+    if err != nil {
+        t.Fatal(err)
+    }
+    if err := applySnapshotMigration(ctx, tx); err != nil {
+        _ = tx.Rollback()
+        t.Fatalf("apply historical original v2: %v", err)
+    }
+    if err := tx.Commit(); err != nil {
+        t.Fatal(err)
+    }
+    var oldChecksum string
+    if err := db.QueryRowContext(ctx,
+        "SELECT checksum FROM guard_schema_migrations WHERE version=2").
+        Scan(&oldChecksum); err != nil {
+        t.Fatal(err)
+    }
+    expectedV2 := fmt.Sprintf("%x", sha256.Sum256([]byte(snapshotSchema)))
+    if oldChecksum != expectedV2 {
+        t.Fatalf("historical v2 fixture checksum mismatch: %s != %s",
+            oldChecksum, expectedV2)
+    }
+    if err := Migrate(ctx, db); err != nil {
+        t.Fatalf("forward-only v2 to v3 upgrade: %v", err)
+    }
+    if err := Migrate(ctx, db); err != nil {
+        t.Fatalf("v3 repeat migration: %v", err)
+    }
+    var after string
+    var count int
+    if err := db.QueryRowContext(ctx,
+        "SELECT checksum FROM guard_schema_migrations WHERE version=2").Scan(&after); err != nil {
+        t.Fatal(err)
+    }
+    if err := db.QueryRowContext(ctx,
+        "SELECT count(*) FROM guard_schema_migrations").Scan(&count); err != nil {
+        t.Fatal(err)
+    }
+    if oldChecksum != after || count != 3 {
+        t.Fatalf("v2 checksum changed or v3 ledger missing: old=%s new=%s versions=%d",
+            oldChecksum, after, count)
+    }
+}
+
+func TestV3MigrationRejectsReplicaFenceDowngrade(t *testing.T) {
+    for _, name := range []string{
+        "guard_snapshot_immutable_row", "guard_snapshot_immutable_truncate",
+    } {
+        t.Run(name, func(t *testing.T) {
+            db := unmigratedDatabase(t)
+            ctx := context.Background()
+            if err := Migrate(ctx, db); err != nil {
+                t.Fatal(err)
+            }
+            if _, err := db.ExecContext(ctx, "ALTER TABLE guard_accepted_submission_snapshots ENABLE TRIGGER "+name); err != nil {
+                t.Fatal(err)
+            }
+            if err := Migrate(ctx, db); !errors.Is(err, ErrSchemaDrift) {
+                t.Fatalf("origin-only downgrade passed after v3: %s: %v", name, err)
+            }
+        })
+    }
 }
