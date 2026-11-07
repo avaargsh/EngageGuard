@@ -109,13 +109,17 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 
 	v1Checksum := fmt.Sprintf("%x", sha256.Sum256([]byte(initialSchema)))
 	v2Checksum := fmt.Sprintf("%x", sha256.Sum256([]byte(snapshotSchema)))
-	if len(applied) > 2 {
+	v3Checksum := fmt.Sprintf("%x", sha256.Sum256([]byte(snapshotReplicaSchema)))
+	if len(applied) > 3 {
 		return ErrSchemaDrift
 	}
 	for i, entry := range applied {
 		expectedVersion, expectedChecksum := int64(1), v1Checksum
-		if i == 1 {
+		switch i {
+		case 1:
 			expectedVersion, expectedChecksum = snapshotMigrationVersion, v2Checksum
+		case 2:
+			expectedVersion, expectedChecksum = snapshotReplicaMigrationVersion, v3Checksum
 		}
 		if entry.version != expectedVersion || entry.checksum != expectedChecksum {
 			return ErrSchemaDrift
@@ -170,6 +174,16 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			return err
 		}
 	} else if err := verifySnapshotCatalog(ctx, tx); err != nil {
+		return err
+	}
+	// The previously applied v2 bytes remain immutable. A v2 installation
+	// uses origin-only snapshot triggers; v3 upgrades them to ALWAYS within
+	// this same migration transaction and pins the v3 checksum separately.
+	if len(applied) < 3 {
+		if err := applySnapshotReplicaMigration(ctx, tx); err != nil {
+			return err
+		}
+	} else if err := verifySnapshotReplicaCatalog(ctx, tx); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
