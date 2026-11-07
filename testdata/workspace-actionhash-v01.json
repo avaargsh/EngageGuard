@@ -1,0 +1,83 @@
+{
+  "schema_version": "workspace-actionhash-fixtures.v0.1",
+  "scope": "Only fixed 12-property all-string WorkspaceWrite v0.1; not general ActionRequest JCS",
+  "domain_separator": "engageguard/action-hash/v1\\u0000",
+  "vectors": [
+    {
+      "name": "base",
+      "action": {
+        "schema_version": "v0.1",
+        "tenant_id": "tenant-1",
+        "subject_id": "user-1",
+        "agent_id": "agent-1",
+        "operation_id": "op-1",
+        "capability_id": "workspace.write",
+        "tool_binding_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "policy_version": "policy-v1",
+        "audience": "workspace-executor",
+        "workspace_id": "workspace-1",
+        "relative_path": "docs/report.txt",
+        "content_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "canonical": "{\"agent_id\":\"agent-1\",\"audience\":\"workspace-executor\",\"capability_id\":\"workspace.write\",\"content_digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"operation_id\":\"op-1\",\"policy_version\":\"policy-v1\",\"relative_path\":\"docs/report.txt\",\"schema_version\":\"v0.1\",\"subject_id\":\"user-1\",\"tenant_id\":\"tenant-1\",\"tool_binding_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workspace_id\":\"workspace-1\"}",
+      "sha256": "5dbeace589dcd3578e124aa8a90959e394822872bd973f41a36f88226681fa8f"
+    },
+    {
+      "name": "unicode-controls",
+      "action": {
+        "schema_version": "v0.1",
+        "tenant_id": "tenant-1",
+        "subject_id": "user-1",
+        "agent_id": "agent-1",
+        "operation_id": "op-1",
+        "capability_id": "workspace.write",
+        "tool_binding_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "policy_version": "policy-v1",
+        "audience": "workspace-executor",
+        "workspace_id": "ws<>&/\"line\\break\n tail",
+        "relative_path": "docs/report.txt",
+        "content_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "canonical": "{\"agent_id\":\"agent-1\",\"audience\":\"workspace-executor\",\"capability_id\":\"workspace.write\",\"content_digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"operation_id\":\"op-1\",\"policy_version\":\"policy-v1\",\"relative_path\":\"docs/report.txt\",\"schema_version\":\"v0.1\",\"subject_id\":\"user-1\",\"tenant_id\":\"tenant-1\",\"tool_binding_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workspace_id\":\"ws<>&/\\\"line\\\\break\\n tail\"}",
+      "sha256": "411e40272cb19ddc868174ec995f3cda73d41c18451c903d6a75854e02c473a9"
+    },
+    {
+      "name": "changed-tenant",
+      "action": {
+        "schema_version": "v0.1",
+        "tenant_id": "tenant-2",
+        "subject_id": "user-1",
+        "agent_id": "agent-1",
+        "operation_id": "op-1",
+        "capability_id": "workspace.write",
+        "tool_binding_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "policy_version": "policy-v1",
+        "audience": "workspace-executor",
+        "workspace_id": "workspace-1",
+        "relative_path": "docs/report.txt",
+        "content_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "canonical": "{\"agent_id\":\"agent-1\",\"audience\":\"workspace-executor\",\"capability_id\":\"workspace.write\",\"content_digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"operation_id\":\"op-1\",\"policy_version\":\"policy-v1\",\"relative_path\":\"docs/report.txt\",\"schema_version\":\"v0.1\",\"subject_id\":\"user-1\",\"tenant_id\":\"tenant-2\",\"tool_binding_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workspace_id\":\"workspace-1\"}",
+      "sha256": "b8128e12fda96e9770a748faa398b6b566cb7b37f60a56e4b6009859c5b644e6"
+    },
+    {
+      "name": "unicode-path",
+      "action": {
+        "schema_version": "v0.1",
+        "tenant_id": "tenant-1",
+        "subject_id": "user-1",
+        "agent_id": "agent-1",
+        "operation_id": "op-1",
+        "capability_id": "workspace.write",
+        "tool_binding_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "policy_version": "policy-v1",
+        "audience": "workspace-executor",
+        "workspace_id": "line\tfeed\r\b\f雪",
+        "relative_path": "docs/报告😀.txt",
+        "content_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "canonical": "{\"agent_id\":\"agent-1\",\"audience\":\"workspace-executor\",\"capability_id\":\"workspace.write\",\"content_digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"operation_id\":\"op-1\",\"policy_version\":\"policy-v1\",\"relative_path\":\"docs/报告😀.txt\",\"schema_version\":\"v0.1\",\"subject_id\":\"user-1\",\"tenant_id\":\"tenant-1\",\"tool_binding_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"workspace_id\":\"line\\tfeed\\r\\b\\f雪\"}",
+      "sha256": "1702357d5e96a7db09cddb07a99f81a90f41b089d6209c1d7d7e64b705519207"
+    }
+  ]
+}
