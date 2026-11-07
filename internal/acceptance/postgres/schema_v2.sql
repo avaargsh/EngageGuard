@@ -38,11 +38,3 @@ FOR EACH ROW EXECUTE FUNCTION guard_reject_snapshot_mutation();
 CREATE TRIGGER guard_snapshot_immutable_truncate
 BEFORE TRUNCATE ON guard_accepted_submission_snapshots
 FOR EACH STATEMENT EXECUTE FUNCTION guard_reject_snapshot_mutation();
-
--- statement break
-ALTER TABLE guard_accepted_submission_snapshots
-    ENABLE ALWAYS TRIGGER guard_snapshot_immutable_row;
-
--- statement break
-ALTER TABLE guard_accepted_submission_snapshots
-    ENABLE ALWAYS TRIGGER guard_snapshot_immutable_truncate;
