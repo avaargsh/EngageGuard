@@ -315,3 +315,31 @@ func TestVerifiedClientTLSGateRejectsPermissiveResolver(t *testing.T) {
 			rec.Code, verifier.calls, store.calls)
 	}
 }
+
+func TestMTLSHTTPServerRejectsTypedNilGuardDependencies(t *testing.T) {
+	serverCA, serverKey, _ := newTestTransportCA(t)
+	serverCert := newTestTLSLeaf(t, serverCA, serverKey, false, "")
+	clientCA, _, clientRoots := newTestTransportCA(t)
+	resolver, err := NewSPIFFEMTLSResolver("platform.example",
+		map[string]Principal{runtimeSPIFFE: boundRuntime()}, clientCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name     string
+		verifier RunVerifier
+		store    AcceptanceStore
+	}{
+		{"typed nil verifier", (*fakeVerifier)(nil), &fakeStore{}},
+		{"typed nil store", &fakeVerifier{}, (*fakeStore)(nil)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server, err := NewMTLSHTTPServer("127.0.0.1:0",
+				NewHandler(resolver, tc.verifier, tc.store), serverCert, clientRoots)
+			if err == nil {
+				_ = server.Close()
+				t.Fatal("mTLS listener accepted an incomplete Guard admission dependency")
+			}
+		})
+	}
+}
