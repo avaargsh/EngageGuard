@@ -284,3 +284,33 @@ func TestContentTypeAndMethodAreRestricted(t *testing.T) {
 		t.Fatalf("media mismatch accepted: %d", rec.Code)
 	}
 }
+
+func TestHandlerRejectsTypedNilAuthoritiesWithoutPanicking(t *testing.T) {
+	goodResolver := &fakeResolver{principal: Principal{
+		TenantID: "tenant-a", SubjectID: "runtime-service",
+		ActorID: "agent-runtime", WorkloadID: "runtime-workload",
+		ServiceID: "agent-runtime",
+	}}
+	for _, tc := range []struct {
+		name     string
+		resolver PrincipalResolver
+		verifier RunVerifier
+		store    AcceptanceStore
+	}{
+		{"typed nil resolver", (*fakeResolver)(nil), &fakeVerifier{}, &fakeStore{}},
+		{"typed nil verifier", goodResolver, (*fakeVerifier)(nil), &fakeStore{}},
+		{"typed nil store", goodResolver, &fakeVerifier{}, (*fakeStore)(nil)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if value := recover(); value != nil {
+					t.Errorf("misconfigured admission authority panicked: %v", value)
+				}
+			}()
+			response := exercise(NewHandler(tc.resolver, tc.verifier, tc.store), "typed-nil-1", goodBody())
+			if response.Code != http.StatusServiceUnavailable {
+				t.Fatalf("typed-nil admission authority accepted: status=%d", response.Code)
+			}
+		})
+	}
+}
