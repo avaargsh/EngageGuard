@@ -20,36 +20,36 @@ const acpProtectedWorkspacePath = "/internal/v1/guard-protected-workspaces:verif
 // Exactly one trusted, scope-limited workspace.write catalog selector. The
 // original ACP source owns policy, Release digest, Run/Session and subject.
 type acpProtectedWorkspaceRequest struct {
-	SchemaVersion string `json:"schema_version"`
-	RunID string `json:"run_id"`
-	AgentID string `json:"agent_id"`
-	AgentReleaseID string `json:"agent_release_id"`
-	SessionID string `json:"session_id"`
-	SubjectID string `json:"subject_id"`
-	CapabilityID string `json:"capability_id"`
+	SchemaVersion     string `json:"schema_version"`
+	RunID             string `json:"run_id"`
+	AgentID           string `json:"agent_id"`
+	AgentReleaseID    string `json:"agent_release_id"`
+	SessionID         string `json:"session_id"`
+	SubjectID         string `json:"subject_id"`
+	CapabilityID      string `json:"capability_id"`
 	CapabilityVersion string `json:"capability_version"`
-	PolicyRevision string `json:"policy_revision"`
-	WorkspaceID string `json:"workspace_id"`
+	PolicyRevision    string `json:"policy_revision"`
+	WorkspaceID       string `json:"workspace_id"`
 	ToolBindingDigest string `json:"tool_binding_digest"`
-	Audience string `json:"audience"`
+	Audience          string `json:"audience"`
 }
 
 type acpProtectedWorkspaceReceipt struct {
-	SchemaVersion string `json:"schema_version"`
-	RunID string `json:"run_id"`
-	AgentID string `json:"agent_id"`
-	AgentReleaseID string `json:"agent_release_id"`
-	SessionID string `json:"session_id"`
-	SubjectID string `json:"subject_id"`
-	CapabilityID string `json:"capability_id"`
+	SchemaVersion     string `json:"schema_version"`
+	RunID             string `json:"run_id"`
+	AgentID           string `json:"agent_id"`
+	AgentReleaseID    string `json:"agent_release_id"`
+	SessionID         string `json:"session_id"`
+	SubjectID         string `json:"subject_id"`
+	CapabilityID      string `json:"capability_id"`
 	CapabilityVersion string `json:"capability_version"`
-	ContractSHA256 string `json:"contract_sha256"`
-	ConfigDigest string `json:"config_digest"`
-	PolicyRevision string `json:"policy_revision"`
-	WorkspaceID string `json:"workspace_id"`
+	ContractSHA256    string `json:"contract_sha256"`
+	ConfigDigest      string `json:"config_digest"`
+	PolicyRevision    string `json:"policy_revision"`
+	WorkspaceID       string `json:"workspace_id"`
 	ToolBindingDigest string `json:"tool_binding_digest"`
-	Audience string `json:"audience"`
-	Status string `json:"status"`
+	Audience          string `json:"audience"`
+	Status            string `json:"status"`
 }
 
 // ProtectedWorkspaceObservation is a read-only, time-of-check ACP catalog
@@ -57,7 +57,7 @@ type acpProtectedWorkspaceReceipt struct {
 // authorization to perform a side effect.
 type ProtectedWorkspaceObservation struct {
 	ContractSHA256 string
-	ConfigDigest string
+	ConfigDigest   string
 	PolicyRevision string
 }
 
@@ -114,11 +114,11 @@ func (c *ACPProtectedWorkspaceClient) ObserveProtectedWorkspace(
 	}
 	payload := acpProtectedWorkspaceRequest{
 		SchemaVersion: acpProtectedWorkspaceSchema,
-		RunID: run.RunID, AgentID: run.AgentID,
+		RunID:         run.RunID, AgentID: run.AgentID,
 		AgentReleaseID: run.AgentReleaseID, SessionID: run.SessionID,
 		SubjectID: resolved.SubjectID, CapabilityID: resolved.CapabilityID,
 		CapabilityVersion: capabilityVersion, PolicyRevision: resolved.PolicyVersion,
-		WorkspaceID: resolved.WorkspaceID,
+		WorkspaceID:       resolved.WorkspaceID,
 		ToolBindingDigest: resolved.ToolBindingDigest, Audience: resolved.Audience,
 	}
 	raw, err := json.Marshal(payload)
@@ -178,4 +178,3 @@ func (c *ACPProtectedWorkspaceClient) ObserveProtectedWorkspace(
 		PolicyRevision: proof.PolicyRevision,
 	}, nil
 }
-
