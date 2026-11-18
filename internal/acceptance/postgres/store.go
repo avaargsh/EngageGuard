@@ -110,18 +110,17 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	v1Checksum := fmt.Sprintf("%x", sha256.Sum256([]byte(initialSchema)))
 	v2Checksum := fmt.Sprintf("%x", sha256.Sum256([]byte(snapshotSchema)))
 	v3Checksum := fmt.Sprintf("%x", sha256.Sum256([]byte(snapshotReplicaSchema)))
-	if len(applied) > 3 {
+	// The existing v1-v3 admission snapshot checksums are never repurposed.
+	// The experimental Permit v2-v5 sources are assigned new slots v4-v7.
+	checksums := []string{v1Checksum, v2Checksum, v3Checksum}
+	for _, source := range []string{permitClaimSchema, permitIdentitySchema, permitUnknownSchema, permitRevocationSchema} {
+		checksums = append(checksums, fmt.Sprintf("%x", sha256.Sum256([]byte(source))))
+	}
+	if len(applied) > len(checksums) {
 		return ErrSchemaDrift
 	}
 	for i, entry := range applied {
-		expectedVersion, expectedChecksum := int64(1), v1Checksum
-		switch i {
-		case 1:
-			expectedVersion, expectedChecksum = snapshotMigrationVersion, v2Checksum
-		case 2:
-			expectedVersion, expectedChecksum = snapshotReplicaMigrationVersion, v3Checksum
-		}
-		if entry.version != expectedVersion || entry.checksum != expectedChecksum {
+		if entry.version != int64(i+1) || entry.checksum != checksums[i] {
 			return ErrSchemaDrift
 		}
 	}
@@ -184,6 +183,9 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			return err
 		}
 	} else if err := verifySnapshotReplicaCatalog(ctx, tx); err != nil {
+		return err
+	}
+	if err := applyPermitLedgerExtension(ctx, tx, len(applied)); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
