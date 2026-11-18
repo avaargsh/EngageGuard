@@ -70,7 +70,7 @@ func NewRuntimeRunSafetyClient(origin, expectedSPIFFE, tenant string, roots *x50
 				return nil
 			},
 		},
-		DisableKeepAlives:      true, // require fresh cert verification on each read
+		DisableKeepAlives:     true, // require fresh cert verification on each read
 		TLSHandshakeTimeout:   3 * time.Second,
 		ResponseHeaderTimeout: 3 * time.Second,
 	}
