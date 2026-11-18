@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
-	"errors"
 	"io"
 	"mime"
 	"net/http"
@@ -85,7 +84,7 @@ func NewDecisionPlanClient(
 			RootCAs:      roots.Clone(),
 			Certificates: []tls.Certificate{credential},
 			VerifyConnection: func(s tls.ConnectionState) error {
-				if s.Version != tls.VersionTLS13 || len(s.PeerCertificates) != 1 ||
+				if s.Version != tls.VersionTLS13 || len(s.PeerCertificates) == 0 ||
 					len(s.VerifiedChains) == 0 {
 					return ErrAuthorityUnavailable
 				}
@@ -198,13 +197,16 @@ func (c *DecisionPlanClient) VerifyDecisionPlanStep(
 }
 
 func canonicalSHA256(s string) bool {
-	if len(s) != 64 { return false }
+	if len(s) != 64 {
+		return false
+	}
 	for _, c := range s {
-		if c >= '0' && c <= '9' || c >= 'a' && c <= 'f' { continue }
+		if c >= '0' && c <= '9' || c >= 'a' && c <= 'f' {
+			continue
+		}
 		return false
 	}
 	return true
 }
 
 var _ DecisionPlanAuthority = (*DecisionPlanClient)(nil)
-var _ = errors.Is // kept for compatibility with Go errors conventions
