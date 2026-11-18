@@ -94,6 +94,15 @@ func TestExternalLiveComposedRunVerifier(t *testing.T) {
 	case "postflight":
 		if !errors.Is(got,ErrForbidden){t.Fatalf("live breaker generation changed but postflight accepted: %v",got)}
 		if err:=os.WriteFile(filepath.Join(required("GUARD_COMPOSED_SYNC_DIR"),"postflight-denied"),[]byte(runID),0600);err!=nil{t.Fatal(err)}
+		// The disposable owner must restore the original Runtime fixture
+		// before Decision continues its subsequent source-revoke checks.
+		restored:=false
+		for until:=time.Now().Add(12*time.Second);time.Now().Before(until);{
+			b,e:=os.ReadFile(filepath.Join(required("GUARD_COMPOSED_SYNC_DIR"),"postflight-restored"))
+			if e==nil && string(b)==runID {restored=true;break}
+			time.Sleep(40*time.Millisecond)
+		}
+		if !restored {t.Fatal("test-only breaker recovery did not complete")}
 		t.Logf("real ComposedRunVerifier denied live postflight breaker drift same-Run %s",runID)
 	case "revoked":
 		if !errors.Is(got,ErrForbidden){t.Fatalf("source revoked but three-authority composite accepted: %v",got)}
