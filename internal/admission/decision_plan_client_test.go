@@ -45,11 +45,13 @@ func TestGuardDecisionClientReadsExactFreshMTLSPlanNotCallerApproval(t *testing.
 		SchemaVersion: decisionPlanSchema, RunID: safetyRun,
 		DecisionID: submission.DecisionID, PlanHash: submission.PlanHash,
 		StepID: submission.StepID, RecordSHA256: strings.Repeat("c", 64),
-		BreakerEpoch: int64(snapshot.BreakerEpoch),
+		BreakerEpoch:   int64(snapshot.BreakerEpoch),
 		BreakerVersion: int64(snapshot.BreakerVersion), Status: "VERIFIED",
 	}
 	body, err := json.Marshal(want)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	var response atomic.Value
 	response.Store(string(body))
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -69,45 +71,53 @@ func TestGuardDecisionClientReadsExactFreshMTLSPlanNotCallerApproval(t *testing.
 	srv.StartTLS()
 	defer srv.Close()
 	client, err := NewDecisionPlanClient(srv.URL, guardDecisionPeer, snapshot.TenantID, roots, cert)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer client.CloseIdleConnections()
 	principal := boundRuntime()
-	if err := client.VerifyDecisionPlanStep(context.Background(),principal,snapshot,submission);err!=nil{
-		t.Fatalf("authentic fresh Decision proof rejected: %v",err)
+	if err := client.VerifyDecisionPlanStep(context.Background(), principal, snapshot, submission); err != nil {
+		t.Fatalf("authentic fresh Decision proof rejected: %v", err)
 	}
 	original := count.Load()
 	bad := submission
 	bad.Capability.ID = "workspace.write"
-	if err := client.VerifyDecisionPlanStep(context.Background(),principal,snapshot,bad);!errors.Is(err,ErrForbidden)||count.Load()!=original{
-		t.Fatalf("write tool sent to read-only Decision authority: %v",err)
+	if err := client.VerifyDecisionPlanStep(context.Background(), principal, snapshot, bad); !errors.Is(err, ErrForbidden) || count.Load() != original {
+		t.Fatalf("write tool sent to read-only Decision authority: %v", err)
 	}
-	for _, tc := range []struct{ status int; body string; want error }{
-		{http.StatusForbidden,string(body),ErrForbidden},
-		{http.StatusServiceUnavailable,string(body),ErrAuthorityUnavailable},
-		{http.StatusOK,strings.Replace(string(body),`"breaker_version":11`,`"breaker_version":12`,1),ErrAuthorityUnavailable},
-		{http.StatusOK,strings.Replace(string(body),`"record_sha256":"`+strings.Repeat("c",64)+`"`,`"record_sha256":"bad"`,1),ErrAuthorityUnavailable},
-		{http.StatusOK,string(body)+" {}",ErrAuthorityUnavailable},
+	for _, tc := range []struct {
+		status int
+		body   string
+		want   error
+	}{
+		{http.StatusForbidden, string(body), ErrForbidden},
+		{http.StatusServiceUnavailable, string(body), ErrAuthorityUnavailable},
+		{http.StatusOK, strings.Replace(string(body), `"breaker_version":11`, `"breaker_version":12`, 1), ErrAuthorityUnavailable},
+		{http.StatusOK, strings.Replace(string(body), `"record_sha256":"`+strings.Repeat("c", 64)+`"`, `"record_sha256":"bad"`, 1), ErrAuthorityUnavailable},
+		{http.StatusOK, string(body) + " {}", ErrAuthorityUnavailable},
 	} {
 		status.Store(int32(tc.status))
 		response.Store(tc.body)
-		if err := client.VerifyDecisionPlanStep(context.Background(),principal,snapshot,submission);!errors.Is(err,tc.want){
-			t.Fatalf("stale or invalid source accepted: %v want %v",err,tc.want)
+		if err := client.VerifyDecisionPlanStep(context.Background(), principal, snapshot, submission); !errors.Is(err, tc.want) {
+			t.Fatalf("stale or invalid source accepted: %v want %v", err, tc.want)
 		}
 	}
 	status.Store(http.StatusOK)
 	response.Store(string(body))
-	wrong,err := NewDecisionPlanClient(srv.URL,"spiffe://platform.example/ns/decision/sa/other",snapshot.TenantID,roots,cert)
-	if err!=nil{t.Fatal(err)}
+	wrong, err := NewDecisionPlanClient(srv.URL, "spiffe://platform.example/ns/decision/sa/other", snapshot.TenantID, roots, cert)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer wrong.CloseIdleConnections()
-	if err := wrong.VerifyDecisionPlanStep(context.Background(),principal,snapshot,submission);!errors.Is(err,ErrAuthorityUnavailable){
-		t.Fatalf("wrong Decision SPIFFE peer accepted: %v",err)
+	if err := wrong.VerifyDecisionPlanStep(context.Background(), principal, snapshot, submission); !errors.Is(err, ErrAuthorityUnavailable) {
+		t.Fatalf("wrong Decision SPIFFE peer accepted: %v", err)
 	}
 }
 
 // Guard may not turn a synthetic test proof into a real admission without a
 // separately configured, working ACP capability authority.
 func TestDecisionPlanClientRequiresPinnedCredentials(t *testing.T) {
-	if _,err := NewDecisionPlanClient("http://localhost:8080","spiffe://platform.example/ns/decision/sa/agent-decision","tenant-a",x509.NewCertPool(),tls.Certificate{});err==nil{
+	if _, err := NewDecisionPlanClient("http://localhost:8080", "spiffe://platform.example/ns/decision/sa/agent-decision", "tenant-a", x509.NewCertPool(), tls.Certificate{}); err == nil {
 		t.Fatal("untrusted plaintext Decision origin accepted")
 	}
 }
