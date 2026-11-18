@@ -24,6 +24,9 @@ var permitUnknownSchema string
 //go:embed schema_permit_v7.sql
 var permitRevocationSchema string
 
+//go:embed schema_permit_v8.sql
+var permitIntegritySchema string
+
 func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) error {
 	migrations := []struct {
 		version int64
@@ -33,6 +36,7 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 		{5, permitIdentitySchema},
 		{6, permitUnknownSchema},
 		{7, permitRevocationSchema},
+		{8, permitIntegritySchema},
 	}
 	for _, item := range migrations {
 		if applied >= int(item.version) {
@@ -40,7 +44,13 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 		}
 		// All four extension files contain only plain DDL. Do not use
 		// this delimiter for future functions with semicolon bodies.
-		for _, stmt := range strings.Split(item.source, ";") {
+		statements := strings.Split(item.source, ";")
+		if item.version == 8 {
+			// v8 includes two PL/pgSQL trigger functions with internal
+			// semicolons; the explicit statement separator is mandatory.
+			statements = strings.Split(item.source, "-- statement break")
+		}
+		for _, stmt := range statements {
 			if strings.TrimSpace(stmt) == "" {
 				continue
 			}
@@ -107,6 +117,31 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
 		`, pair.table, pair.name, pair.referenced, pair.columns, pair.target).Scan(&valid)
 		if err != nil || !valid {
 			return fmt.Errorf("%w: invalid Permit relation %s: %v", ErrSchemaDrift, pair.name, err)
+		}
+	}
+	// Catalog checks are performed every boot, not only on first install.
+	for _, expected := range []struct {
+		table, trigger, function string
+		typeMask int
+	}{
+		{"guard_permits", "guard_permit_immutable_row_v8", "guard_permit_immutable_row_v8()", 27},
+		{"guard_permits", "guard_permit_immutable_truncate_v8", "guard_forbid_permit_evidence_mutation_v8()", 34},
+		{"guard_permit_revocations", "guard_revocation_immutable_row_v8", "guard_forbid_permit_evidence_mutation_v8()", 27},
+		{"guard_permit_revocations", "guard_revocation_immutable_truncate_v8", "guard_forbid_permit_evidence_mutation_v8()", 34},
+	} {
+		var intact bool
+		err := tx.QueryRowContext(ctx, `
+			SELECT EXISTS (
+			  SELECT 1 FROM pg_catalog.pg_trigger t
+			  JOIN pg_catalog.pg_proc p ON p.oid=t.tgfoid
+			  WHERE t.tgrelid=to_regclass($1) AND t.tgname=$2
+			    AND NOT t.tgisinternal AND t.tgenabled='A'
+			    AND t.tgtype=$3 AND p.oid=to_regprocedure($4)
+			    AND p.pronamespace=current_schema()::regnamespace
+			)
+		`, expected.table, expected.trigger, expected.typeMask, expected.function).Scan(&intact)
+		if err != nil || !intact {
+			return fmt.Errorf("%w: missing or disabled Permit write-once trigger %s: %v", ErrSchemaDrift, expected.trigger, err)
 		}
 	}
 	return nil

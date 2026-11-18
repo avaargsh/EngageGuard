@@ -8,7 +8,7 @@ import (
 )
 
 // The canonical admission v1/v2/v3 bytes are already deployed. A Permit
-// ledger must be introduced by additive migrations 4..7 only; reusing
+// ledger must be introduced by additive migrations 4..8 only; reusing
 // the old experimental Permit v2/v3 is a destructive history conflict.
 func TestForwardPermitLedgerPreservesAdmissionMigrationHistory(t *testing.T) {
 	db := unmigratedDatabase(t)
@@ -26,8 +26,8 @@ func TestForwardPermitLedgerPreservesAdmissionMigrationHistory(t *testing.T) {
 		}
 	}
 	var versions int
-	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM guard_schema_migrations").Scan(&versions); err != nil || versions != 7 {
-		t.Fatalf("Permit migration must append v4-v7: count=%d %v", versions, err)
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM guard_schema_migrations").Scan(&versions); err != nil || versions != 8 {
+		t.Fatalf("Permit migration must append v4-v8: count=%d %v", versions, err)
 	}
 	for _, table := range []string{
 		"guard_accepted_submission_snapshots",
