@@ -74,7 +74,7 @@ func TestUnknownAuditFailureRollsBackStateTransition(t *testing.T) {
 	store, resolved, permitID := seededWorkspacePermit(t)
 	intent, err := store.ClaimAuthorizedIntent(context.Background(), permitID, resolved)
 	if err != nil { t.Fatal(err) }
-	if _, err := store.db.Exec(`CREATE FUNCTION reject_unknown_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'forced journal unavailable'; END $$`); err != nil { t.Fatal(err) }
+	if _, err := store.db.Exec(`CREATE FUNCTION reject_unknown_insert() RETURNS trigger LANGUAGE plpgsql AS $ BEGIN RAISE EXCEPTION 'forced journal unavailable'; END; $`); err != nil { t.Fatal(err) }
 	if _, err := store.db.Exec(`CREATE TRIGGER fail_unknown BEFORE INSERT ON guard_operation_unknown_events FOR EACH ROW EXECUTE FUNCTION reject_unknown_insert()`); err != nil { t.Fatal(err) }
 	if _, err := store.MarkDispatchUnknown(context.Background(), resolved.TenantID, resolved.OperationID, intent.AttemptID, "ACK_LOST"); err == nil {
 		t.Fatal("UNKNOWN transition committed without its journal evidence")

@@ -48,8 +48,8 @@ func TestMigrateUpgradesExistingVersionOneWithoutRewritingItsChecksum(t *testing
 	if err := store.db.QueryRow("SELECT count(*) FROM guard_schema_migrations").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 3 {
-		t.Fatalf("migration history count=%d, want three immutable versions", count)
+	if count != 4 {
+		t.Fatalf("migration history count=%d, want four immutable versions", count)
 	}
 	var sum string
 	if err := store.db.QueryRow("SELECT checksum FROM guard_schema_migrations WHERE version=2").Scan(&sum); err != nil {
@@ -66,12 +66,19 @@ func TestMigrateUpgradesExistingVersionOneWithoutRewritingItsChecksum(t *testing
 	if sum != want {
 		t.Fatalf("v3 checksum=%q, want %q", sum, want)
 	}
+	if err := store.db.QueryRow("SELECT checksum FROM guard_schema_migrations WHERE version=4").Scan(&sum); err != nil {
+		t.Fatal(err)
+	}
+	want = fmt.Sprintf("%x", sha256.Sum256([]byte(unknownJournalSchema)))
+	if sum != want {
+		t.Fatalf("v4 checksum=%q want %q", sum, want)
+	}
 }
 
 func TestMigrateRejectsUnknownOrTamperedVersionTwo(t *testing.T) {
 	for _, tc := range []struct{ name, change string }{
 		{"tampered checksum", "UPDATE guard_schema_migrations SET checksum=repeat('0',64) WHERE version=2"},
-		{"unknown future version", "INSERT INTO guard_schema_migrations(version,checksum) VALUES(4,repeat('a',64))"},
+		{"unknown future version", "INSERT INTO guard_schema_migrations(version,checksum) VALUES(5,repeat('a',64))"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := unmigratedDatabase(t)
