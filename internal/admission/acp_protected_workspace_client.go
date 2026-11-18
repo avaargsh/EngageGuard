@@ -10,7 +10,6 @@ import (
 	"mime"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/avaargsh/EngageGuard/internal/action"
 )
@@ -180,4 +179,3 @@ func (c *ACPProtectedWorkspaceClient) ObserveProtectedWorkspace(
 	}, nil
 }
 
-var _ = time.Second // TLS deadlines are enforced by the pinned base client.
