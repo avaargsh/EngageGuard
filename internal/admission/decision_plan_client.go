@@ -76,8 +76,8 @@ func NewDecisionPlanClient(
 		return nil, ErrAuthorityUnavailable
 	}
 	tr := &http.Transport{
-		DisableKeepAlives:   true,
-		TLSHandshakeTimeout: 3 * time.Second,
+		DisableKeepAlives:     true,
+		TLSHandshakeTimeout:   3 * time.Second,
 		ResponseHeaderTimeout: 5 * time.Second,
 		TLSClientConfig: &tls.Config{
 			MinVersion:   tls.VersionTLS13,
@@ -145,7 +145,7 @@ func (c *DecisionPlanClient) VerifyDecisionPlanStep(
 		PlanID: submission.PlanID, PlanHash: submission.PlanHash,
 		StepID: submission.StepID, CapabilityID: submission.Capability.ID,
 		CapabilityVersion: submission.Capability.Version,
-		ResourceRef: submission.ResourceRef, Arguments: submission.Arguments,
+		ResourceRef:       submission.ResourceRef, Arguments: submission.Arguments,
 		BreakerEpoch: int64(snapshot.BreakerEpoch), BreakerVersion: int64(snapshot.BreakerVersion),
 	}
 	raw, err := json.Marshal(reqPayload)
