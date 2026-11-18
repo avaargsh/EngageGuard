@@ -55,6 +55,13 @@ func TestExternalLiveComposedRunVerifier(t *testing.T) {
 		AgentID:required("GUARD_COMPOSED_AGENT"),AgentReleaseID:required("GUARD_COMPOSED_RELEASE"),
 		SessionID:required("GUARD_COMPOSED_SESSION"),Status:"RUNNING",BreakerState:"CLOSED",
 		BreakerEpoch:parse("GUARD_COMPOSED_BREAKER_EPOCH"),BreakerVersion:parse("GUARD_COMPOSED_BREAKER_VERSION")}
+	// This is a real network read from Runtime's PostgreSQL-backed
+	// canonical Run. The independent Decision receipt must not silently
+	// bind a different breaker/agent generation.
+	actual,readErr:=runtime.GetRunSafetySnapshot(context.Background(),tenant,runID)
+	if readErr!=nil||actual!=scope {
+		t.Fatalf("live Runtime fence diverged from committed Decision: %+v %v",actual,readErr)
+	}
 	principal:=Principal{TenantID:tenant,SubjectID:"subject-1",ActorID:"subject-1",
 		WorkloadID:"real-guard-test-client",ServiceID:"agent-runtime"}
 	submission:=action.ActionSubmission{SchemaVersion:"action-submission.v1",RunID:runID,
