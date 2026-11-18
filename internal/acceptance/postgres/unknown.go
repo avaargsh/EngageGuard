@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-
 )
 
 // ErrUnknownConflict requires manual reconciliation, never another dispatch.
@@ -17,13 +16,13 @@ var ErrUnknownCause = errors.New("unrecognized dispatch uncertainty reason")
 // DispatchState is a local ledger observation, not proof of a provider result,
 // a Permit or a permission to retry an external effect.
 type DispatchState struct {
-	TenantID string
+	TenantID    string
 	OperationID string
-	PermitID string
-	AttemptID string
-	ActionHash string
-	State string
-	Reason string
+	PermitID    string
+	AttemptID   string
+	ActionHash  string
+	State       string
+	Reason      string
 }
 
 func validUnknownReason(reason string) bool {
