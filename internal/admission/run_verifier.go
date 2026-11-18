@@ -131,6 +131,21 @@ func (v *ComposedRunVerifier) VerifySubmission(
 	if err := v.capability.VerifyCapabilityAccess(ctx, principal, snapshot, submission); err != nil {
 		return verifyAuthorityFailure("ACP capability/policy", err)
 	}
+	// Decision and ACP are independently owned and their reads can race
+	// a Run cancellation or breaker transition. A final live Runtime read
+	// prevents accepting an already-observed stale generation. This is NOT
+	// a distributed atomic fence: Guard's Permit issuer / execution PEP
+	// must revalidate and atomically fence any protected side effect.
+	postflight, err := v.run.GetRunSafetySnapshot(ctx, principal.TenantID, submission.RunID)
+	if err != nil {
+		return verifyAuthorityFailure("Runtime Run postflight", err)
+	}
+	if postflight != snapshot {
+		return ErrForbidden
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("%w: postflight context canceled: %w", ErrAuthorityUnavailable, err)
+	}
 	return nil
 }
 

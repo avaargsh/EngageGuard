@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+set -euo pipefail
+: "${RUNTIME_SAFETY_BIN:?pinned Runtime API required}"
+: "${GUARD_RUNTIME_TEST_FIXTURE_DSN:?isolated test database required}"
+root="$(mktemp -d)"
+pid=""
+cleanup() {
+  if [[ -n "$pid" ]]; then
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  fi
+  rm -rf -- "$root"
+}
+trap cleanup EXIT
+umask 077
+
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+  -subj '/CN=Disposable Guard Runtime CA' \
+  -addext 'basicConstraints=critical,CA:TRUE' \
+  -addext 'keyUsage=critical,keyCertSign,cRLSign' \
+  -keyout "$root/ca.key" -out "$root/ca.crt" >/dev/null 2>&1
+issue() {
+  local name="$1" uri="$2" usage="$3" san="$4"
+  openssl req -new -newkey rsa:2048 -nodes -subj "/CN=$name" \
+    -keyout "$root/$name.key" -out "$root/$name.csr" >/dev/null 2>&1
+  printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=%s\nsubjectAltName=%sURI:%s\n' \
+    "$usage" "$san" "$uri" > "$root/$name.ext"
+  openssl x509 -req -days 1 -in "$root/$name.csr" -CA "$root/ca.crt" \
+    -CAkey "$root/ca.key" -CAcreateserial -extfile "$root/$name.ext" \
+    -out "$root/$name.crt" >/dev/null 2>&1
+}
+export GUARD_RUNTIME_SPIFFE="spiffe://platform.example/ns/runtime/sa/agent-runtime"
+export GUARD_RUNTIME_TENANT="tenant-1"
+export GUARD_RUNTIME_ORIGIN="https://127.0.0.1:18443"
+acp="spiffe://platform.example/ns/control/sa/agent-control-panel"
+guard="spiffe://platform.example/ns/guard/sa/engageguard"
+issue runtime "$GUARD_RUNTIME_SPIFFE" serverAuth 'IP:127.0.0.1,'
+issue acp "$acp" clientAuth ''
+issue guard "$guard" clientAuth ''
+
+# Explicit minimal service environment. No tokens or inherited CI secrets.
+env -i PATH="$PATH" HOME="$HOME" RUNTIME_DATABASE_URL="$GUARD_RUNTIME_TEST_FIXTURE_DSN" \
+  RUNTIME_TLS_CERT="$root/runtime.crt" RUNTIME_TLS_KEY="$root/runtime.key" \
+  RUNTIME_CLIENT_CA="$root/ca.crt" RUNTIME_ACP_SPIFFE_ID="$acp" \
+  RUNTIME_ACP_LISTEN_ADDR=127.0.0.1:18443 RUNTIME_SAFETY_SPIFFE_ID="$guard" \
+  RUNTIME_SAFETY_TENANT="$GUARD_RUNTIME_TENANT" "$RUNTIME_SAFETY_BIN" >"$root/runtime.log" 2>&1 &
+pid=$!
+request=(curl --silent --show-error --cacert "$root/ca.crt" --cert "$root/acp.crt" --key "$root/acp.key" --max-time 3)
+ready=0
+for _ in $(seq 1 60); do
+  if ! kill -0 "$pid" 2>/dev/null; then
+    echo 'isolated Runtime API startup failed'
+    exit 1
+  fi
+  if code="$("${request[@]}" -o /dev/null -w '%{http_code}' "$GUARD_RUNTIME_ORIGIN/health-probe" 2>/dev/null)" && [[ "$code" == 404 ]]; then
+    ready=1
+    break
+  fi
+  sleep 1
+done
+[[ "$ready" == 1 ]]
+cat > "$root/accept.json" <<'JSON'
+{"tenant_id":"tenant-1","run_intent_id":"11111111-1111-4111-8111-111111111111","request_digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","agent_id":"agent-1","agent_release_id":"release-1","session_id":"session-1","input":{"objective":"sre_incident_triage","service":"payments","signal":"latency"},"principal_context":{"version":"acp-principal/v1","project_id":"project-1","subject_id":"subject-1","actor_id":"subject-1","policy_revision":"policy-1","config_digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+JSON
+code="$("${request[@]}" -o "$root/receipt.json" -w '%{http_code}' -H 'Content-Type: application/json' --data-binary "@$root/accept.json" "$GUARD_RUNTIME_ORIGIN/internal/v2/run-intents:accept")"
+[[ "$code" == 201 ]]
+export GUARD_RUNTIME_RUN="$(python3 - "$root/receipt.json" <<'PY'
+import json, sys, uuid
+r = json.load(open(sys.argv[1]))
+assert r["status"] == "FOUND" and r["created"] is True
+assert str(uuid.UUID(r["run_id"])) == r["run_id"]
+print(r["run_id"])
+PY
+)"
+export GUARD_RUNTIME_CA="$root/ca.crt" GUARD_RUNTIME_CERT="$root/guard.crt" GUARD_RUNTIME_KEY="$root/guard.key"
+export GUARD_LIVE_RUNTIME_SAFETY=1
+go test -race -count=1 -v -run '^TestLiveRuntimeRunSafetyAuthority$' ./internal/admission | tee "$root/acceptance.log"
+grep -Fq '=== RUN   TestLiveRuntimeRunSafetyAuthority' "$root/acceptance.log"
+grep -Fq -- '--- PASS: TestLiveRuntimeRunSafetyAuthority ' "$root/acceptance.log"
