@@ -86,8 +86,8 @@ func TestLedgerV3UpgradeRejectsExistingCrossOperationRows(t *testing.T) {
 	if err := store.db.QueryRow("SELECT count(*) FROM guard_schema_migrations").Scan(&versions); err != nil {
 		t.Fatal(err)
 	}
-	if versions != 3 {
-		t.Fatalf("upgraded history = %d, expected 3", versions)
+	if versions != 4 {
+		t.Fatalf("upgraded history = %d, expected 4", versions)
 	}
 }
 
