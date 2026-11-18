@@ -1,0 +1,61 @@
+name: Guard to Runtime live safety authority (non-production)
+on:
+  pull_request:
+    paths:
+      - 'internal/admission/**'
+      - 'scripts/test-runtime-safety-authority.sh'
+      - '.github/workflows/runtime-safety-e2e.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  GOTOOLCHAIN: local
+jobs:
+  live-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: runtime_safety_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d runtime_safety_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: guard
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: avaargsh/agent-runtime
+          ref: 8eda8b0545427187b8e5be347d3e1119fad2827e
+          path: runtime
+          persist-credentials: false
+      - name: Verify pinned Runtime source
+        run: test "$(git -C runtime rev-parse HEAD)" = '8eda8b0545427187b8e5be347d3e1119fad2827e'
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.11'
+          cache: false
+      - name: Verify patched Go toolchain
+        run: test "$(go env GOVERSION)" = "go1.26.11"
+      - name: Compile actual Runtime API
+        working-directory: runtime
+        run: go build -trimpath -o "$RUNNER_TEMP/runtime-safety-api" ./cmd/acp-api
+      - name: Real Guard client to authenticated Runtime safety authority
+        working-directory: guard
+        env:
+          RUNTIME_SAFETY_BIN: ${{ runner.temp }}/runtime-safety-api
+          GUARD_RUNTIME_TEST_FIXTURE_DSN: postgres://postgres:isolated-test-only@127.0.0.1:5432/runtime_safety_test?sslmode=disable
+        run: bash scripts/test-runtime-safety-authority.sh
+
+# SQL state transitions are isolated test fixture controls, not evidence
+# of actual business execution or an issued Guard Permit.
