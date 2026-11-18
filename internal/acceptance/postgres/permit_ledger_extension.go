@@ -152,7 +152,7 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
 	}
 	for _, expected := range []struct {
 		name, function string
-		tgtype int
+		tgtype         int
 	}{
 		{"guard_permit_immutable_row_v9", "guard_permit_immutable_row_v9()", 27},
 		{"guard_permit_immutable_truncate_v9", "guard_reject_snapshot_mutation()", 34},
