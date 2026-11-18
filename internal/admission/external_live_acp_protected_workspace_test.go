@@ -50,11 +50,11 @@ func TestExternalLiveACPProtectedWorkspaceClient(t *testing.T) {
 	}
 	actionWrite := action.WorkspaceWrite{
 		SchemaVersion: "v0.1",
-		TenantID: tenant, SubjectID: required("GUARD_ACP_SUBJECT"),
+		TenantID:      tenant, SubjectID: required("GUARD_ACP_SUBJECT"),
 		AgentID: snapshot.AgentID, OperationID: "11111111-1111-4111-8111-111111111111",
 		CapabilityID: "workspace.write", ToolBindingDigest: strings.Repeat("a", 64),
 		PolicyVersion: required("GUARD_ACP_POLICY"),
-		Audience: "trusted-workspace-executor", WorkspaceID: "workspace-1",
+		Audience:      "trusted-workspace-executor", WorkspaceID: "workspace-1",
 		RelativePath: "docs/approved.txt", ContentDigest: strings.Repeat("b", 64),
 	}
 	if err := actionWrite.Validate(); err != nil {
@@ -87,7 +87,7 @@ func TestExternalLiveACPProtectedWorkspaceClient(t *testing.T) {
 		SchemaVersion: "action-submission.v1", RunID: runID,
 		DecisionID: "dec-test-capability", PlanID: "plan-test-capability",
 		PlanHash: strings.Repeat("a", 64), StepID: "step-test-capability",
-		Capability: action.ActionCapabilitySelector{ID: "sre.metrics.read", Version: "1.0.0"},
+		Capability:  action.ActionCapabilitySelector{ID: "sre.metrics.read", Version: "1.0.0"},
 		ResourceRef: "payments", Arguments: json.RawMessage("{}"),
 	}
 	if err := submission.Validate(); err != nil {
