@@ -27,6 +27,9 @@ var permitRevocationSchema string
 //go:embed schema_permit_v8.sql
 var permitEvidenceFenceSchema string
 
+//go:embed schema_permit_v9.sql
+var permitIdentityFenceSchema string
+
 func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) error {
 	migrations := []struct {
 		version int64
@@ -37,6 +40,7 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 		{6, permitUnknownSchema},
 		{7, permitRevocationSchema},
 		{8, permitEvidenceFenceSchema},
+		{9, permitIdentityFenceSchema},
 	}
 	for _, item := range migrations {
 		if applied >= int(item.version) {
@@ -44,7 +48,12 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 		}
 		// All four extension files contain only plain DDL. Do not use
 		// this delimiter for future functions with semicolon bodies.
-		for _, stmt := range strings.Split(item.source, ";") {
+		statements := strings.Split(item.source, ";")
+		if item.version == 9 {
+			// PL/pgSQL trigger bodies contain semicolons.
+			statements = strings.Split(item.source, "-- statement break")
+		}
+		for _, stmt := range statements {
 			if strings.TrimSpace(stmt) == "" {
 				continue
 			}
@@ -139,6 +148,27 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
 				return fmt.Errorf("%w: immutable Guard evidence trigger %s%s: %v",
 					ErrSchemaDrift, table, trigger.suffix, err)
 			}
+		}
+	}
+	for _, expected := range []struct {
+		name, function string
+		tgtype         int
+	}{
+		{"guard_permit_immutable_row_v9", "guard_permit_immutable_row_v9()", 27},
+		{"guard_permit_immutable_truncate_v9", "guard_reject_snapshot_mutation()", 34},
+	} {
+		var intact bool
+		err := tx.QueryRowContext(ctx, `
+			SELECT EXISTS (
+			  SELECT 1 FROM pg_catalog.pg_trigger t
+			  WHERE t.tgrelid=to_regclass('guard_permits')
+			    AND t.tgname=$1 AND t.tgtype=$2
+			    AND NOT t.tgisinternal AND t.tgenabled='A'
+			    AND t.tgfoid=to_regprocedure($3)
+			)
+			`, expected.name, expected.tgtype, expected.function).Scan(&intact)
+		if err != nil || !intact {
+			return fmt.Errorf("%w: Permit v9 write-once trigger %s disabled or changed: %v", ErrSchemaDrift, expected.name, err)
 		}
 	}
 	return nil

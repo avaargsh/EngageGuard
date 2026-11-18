@@ -14,6 +14,10 @@ import (
 // This fixture stands in ONLY for future trusted PEP/approval issuance.
 // There is no public API to issue an action Permit in this slice.
 func seededWorkspacePermit(t *testing.T) (*Store, action.WorkspaceWrite, string) {
+	return seededWorkspacePermitWithExpiry(t, time.Now().UTC().Add(time.Hour))
+}
+
+func seededWorkspacePermitWithExpiry(t *testing.T, expiresAt time.Time) (*Store, action.WorkspaceWrite, string) {
 	t.Helper()
 	store, db := integrationStore(t)
 	op, created, err := store.Accept(context.Background(), "tenant-a", "key-1", sampleSubmission())
@@ -46,7 +50,7 @@ func seededWorkspacePermit(t *testing.T) (*Store, action.WorkspaceWrite, string)
 			RETURNING permit_id::text`,
 		resolved.TenantID, resolved.OperationID, hash,
 		resolved.ToolBindingDigest, resolved.Audience, resolved.PolicyVersion,
-		"test-only-trusted-issuer", time.Now().UTC().Add(time.Hour),
+		"test-only-trusted-issuer", expiresAt,
 	).Scan(&permitID)
 	if err != nil {
 		t.Fatal(err)
@@ -150,14 +154,20 @@ func TestClaimRejectsActionDriftAndWrongTenantBeforeAnyWrite(t *testing.T) {
 }
 
 func TestClaimRejectsExpiredOrRevokedPermit(t *testing.T) {
-	for _, tc := range []struct{ name, update string }{
-		{"expired", "UPDATE guard_permits SET expires_at=now()-interval '1 second' WHERE permit_id=$1::uuid"},
-		{"revoked", "UPDATE guard_permits SET revoked_at=now() WHERE permit_id=$1::uuid"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			store, resolved, permitID := seededWorkspacePermit(t)
-			if _, err := store.db.Exec(tc.update, permitID); err != nil {
-				t.Fatal(err)
+	for _, name := range []string{"expired", "revoked"} {
+		t.Run(name, func(t *testing.T) {
+			expiry := time.Now().UTC().Add(time.Hour)
+			if name == "expired" {
+				// Expiry is fixed at issuance, never mutated to fabricate a
+				// completed Permit; the v8 database trigger forbids that drift.
+				expiry = time.Now().UTC().Add(-time.Minute)
+			}
+			store, resolved, permitID := seededWorkspacePermitWithExpiry(t, expiry)
+			if name == "revoked" {
+				if revoked, err := store.RevokeScopedPermit(context.Background(), resolved.TenantID, permitID,
+					"permit-expiration-test", "POLICY_REVOKED"); err != nil || !revoked {
+					t.Fatalf("seed authentic revoked state: %t %v", revoked, err)
+				}
 			}
 			if _, err := store.ClaimAuthorizedIntent(context.Background(), permitID, resolved); !errors.Is(err, ErrPermitUnavailable) {
 				t.Fatalf("expired or revoked permit claim error=%v, want ErrPermitUnavailable", err)
