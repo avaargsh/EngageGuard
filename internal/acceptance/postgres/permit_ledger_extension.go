@@ -25,7 +25,10 @@ var permitUnknownSchema string
 var permitRevocationSchema string
 
 //go:embed schema_permit_v8.sql
-var permitIntegritySchema string
+var permitEvidenceFenceSchema string
+
+//go:embed schema_permit_v9.sql
+var permitIdentityFenceSchema string
 
 func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) error {
 	migrations := []struct {
@@ -36,7 +39,8 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 		{5, permitIdentitySchema},
 		{6, permitUnknownSchema},
 		{7, permitRevocationSchema},
-		{8, permitIntegritySchema},
+		{8, permitEvidenceFenceSchema},
+		{9, permitIdentityFenceSchema},
 	}
 	for _, item := range migrations {
 		if applied >= int(item.version) {
@@ -45,9 +49,8 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 		// All four extension files contain only plain DDL. Do not use
 		// this delimiter for future functions with semicolon bodies.
 		statements := strings.Split(item.source, ";")
-		if item.version == 8 {
-			// v8 includes two PL/pgSQL trigger functions with internal
-			// semicolons; the explicit statement separator is mandatory.
+		if item.version == 9 {
+			// PL/pgSQL trigger bodies contain semicolons.
 			statements = strings.Split(item.source, "-- statement break")
 		}
 		for _, stmt := range statements {
@@ -119,29 +122,53 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
 			return fmt.Errorf("%w: invalid Permit relation %s: %v", ErrSchemaDrift, pair.name, err)
 		}
 	}
-	// Catalog checks are performed every boot, not only on first install.
+	// Checksums alone cannot prove the actual database still enforces
+	// immutable evidence. Reject disabled, replacement or origin-only
+	// triggers (including disabled triggers after a privileged DDL change).
+	for _, table := range []string{
+		"guard_execution_audit", "guard_operation_unknown_events", "guard_permit_revocations",
+	} {
+		for _, trigger := range []struct {
+			suffix string
+			kind   int
+		}{{"_immutable_row", 27}, {"_immutable_truncate", 34}} {
+			var valid bool
+			err := tx.QueryRowContext(ctx, `
+				SELECT EXISTS (
+					SELECT 1 FROM pg_catalog.pg_trigger t
+					WHERE t.tgrelid = to_regclass($1)
+					  AND t.tgname = $2
+					  AND t.tgenabled = 'A'
+					  AND NOT t.tgisinternal
+					  AND t.tgtype = $3
+					  AND t.tgfoid = to_regprocedure('guard_reject_snapshot_mutation()')
+				)
+			`, table, table+trigger.suffix, trigger.kind).Scan(&valid)
+			if err != nil || !valid {
+				return fmt.Errorf("%w: immutable Guard evidence trigger %s%s: %v",
+					ErrSchemaDrift, table, trigger.suffix, err)
+			}
+		}
+	}
 	for _, expected := range []struct {
-		table, trigger, function string
-		typeMask int
+		name, function string
+		tgtype int
 	}{
-		{"guard_permits", "guard_permit_immutable_row_v8", "guard_permit_immutable_row_v8()", 27},
-		{"guard_permits", "guard_permit_immutable_truncate_v8", "guard_forbid_permit_evidence_mutation_v8()", 34},
-		{"guard_permit_revocations", "guard_revocation_immutable_row_v8", "guard_forbid_permit_evidence_mutation_v8()", 27},
-		{"guard_permit_revocations", "guard_revocation_immutable_truncate_v8", "guard_forbid_permit_evidence_mutation_v8()", 34},
+		{"guard_permit_immutable_row_v9", "guard_permit_immutable_row_v9()", 27},
+		{"guard_permit_immutable_truncate_v9", "guard_reject_snapshot_mutation()", 34},
 	} {
 		var intact bool
 		err := tx.QueryRowContext(ctx, `
 			SELECT EXISTS (
 			  SELECT 1 FROM pg_catalog.pg_trigger t
-			  JOIN pg_catalog.pg_proc p ON p.oid=t.tgfoid
-			  WHERE t.tgrelid=to_regclass($1) AND t.tgname=$2
+			  WHERE t.tgrelid=to_regclass('guard_permits')
+			    AND t.tgname=$1 AND t.tgtype=$2
 			    AND NOT t.tgisinternal AND t.tgenabled='A'
-			    AND t.tgtype=$3 AND p.oid=to_regprocedure($4)
-			    AND p.pronamespace=current_schema()::regnamespace
+			    AND t.tgfoid=to_regprocedure($3)
 			)
-		`, expected.table, expected.trigger, expected.typeMask, expected.function).Scan(&intact)
+			`, expected.name, expected.tgtype, expected.function).Scan(&intact)
 		if err != nil || !intact {
-			return fmt.Errorf("%w: missing or disabled Permit write-once trigger %s: %v", ErrSchemaDrift, expected.trigger, err)
+			return fmt.Errorf("%w: Permit v9 write-once trigger %s disabled or changed: %v", ErrSchemaDrift, expected.name, err)
 		}
 	}
 	return nil
