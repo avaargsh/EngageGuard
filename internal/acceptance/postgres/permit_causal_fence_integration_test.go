@@ -4,6 +4,8 @@ import (
     "context"
     "errors"
     "testing"
+
+    "github.com/avaargsh/EngageGuard/internal/action"
 )
 
 func TestPermitStateChangesRequireCausalEvidenceAtCommit(t *testing.T) {
@@ -28,7 +30,7 @@ func TestPermitStateChangesRequireCausalEvidenceAtCommit(t *testing.T) {
 
 func TestPermitClaimRequiresCompleteMatchingIntentAudit(t *testing.T) {
     store,resolved,permitID:=seededWorkspacePermit(t)
-    hash,err:=testResolvedHash(resolved)
+    hash,err:=action.Hash(resolved)
     if err!=nil {t.Fatal(err)}
     tx,err:=store.db.BeginTx(context.Background(),nil)
     if err!=nil{t.Fatal(err)}
@@ -45,7 +47,7 @@ func TestPermitClaimRequiresCompleteMatchingIntentAudit(t *testing.T) {
 }
 
 func TestMissingPermitCausalFenceTriggerFailsSchemaVerification(t *testing.T){
-    store,_:=seededWorkspacePermit(t)
+    store,_,_:=seededWorkspacePermit(t)
     if _,err:=store.db.Exec("ALTER TABLE guard_permits DISABLE TRIGGER guard_permit_causal_transition_v10");err!=nil{t.Fatal(err)}
     if err:=Migrate(context.Background(),store.db);!errors.Is(err,ErrSchemaDrift){t.Fatalf("missing always-on causal fence was accepted: %v",err)}
 }
