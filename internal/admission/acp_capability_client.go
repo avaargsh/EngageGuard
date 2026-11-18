@@ -68,12 +68,12 @@ func NewACPCapabilityClient(origin, expectedSPIFFE, tenant string, roots *x509.C
 		return nil, ErrAuthorityUnavailable
 	}
 	transport := &http.Transport{
-		DisableKeepAlives: true,
-		TLSHandshakeTimeout: 3 * time.Second,
+		DisableKeepAlives:     true,
+		TLSHandshakeTimeout:   3 * time.Second,
 		ResponseHeaderTimeout: 5 * time.Second,
 		TLSClientConfig: &tls.Config{
-			MinVersion: tls.VersionTLS13,
-			RootCAs: roots.Clone(),
+			MinVersion:   tls.VersionTLS13,
+			RootCAs:      roots.Clone(),
 			Certificates: []tls.Certificate{credential},
 			VerifyConnection: func(s tls.ConnectionState) error {
 				if s.Version != tls.VersionTLS13 || len(s.VerifiedChains) == 0 ||
@@ -130,10 +130,10 @@ func (c *ACPCapabilityClient) VerifyCapabilityAccess(
 	}
 	payload := acpCapabilityRequest{
 		SchemaVersion: acpCapabilitySchema,
-		RunID: run.RunID, AgentID: run.AgentID, AgentReleaseID: run.AgentReleaseID,
+		RunID:         run.RunID, AgentID: run.AgentID, AgentReleaseID: run.AgentReleaseID,
 		SessionID: run.SessionID, CapabilityID: submission.Capability.ID,
 		CapabilityVersion: submission.Capability.Version,
-		ResourceRef: submission.ResourceRef,
+		ResourceRef:       submission.ResourceRef,
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {

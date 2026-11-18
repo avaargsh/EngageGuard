@@ -51,14 +51,14 @@ func TestExternalLiveACPCapabilityClient(t *testing.T) {
 	snapshot := RunSafetySnapshot{
 		TenantID: tenant, RunID: runID, AgentID: required("GUARD_ACP_AGENT"),
 		AgentReleaseID: required("GUARD_ACP_RELEASE"),
-		SessionID: required("GUARD_ACP_SESSION"), Status: "RUNNING",
+		SessionID:      required("GUARD_ACP_SESSION"), Status: "RUNNING",
 		BreakerState: "CLOSED", BreakerEpoch: 1, BreakerVersion: 1,
 	}
 	submission := action.ActionSubmission{
 		SchemaVersion: "action-submission.v1", RunID: runID,
 		DecisionID: "dec-test-capability", PlanID: "plan-test-capability",
 		PlanHash: strings.Repeat("a", 64), StepID: "step-test-capability",
-		Capability: action.ActionCapabilitySelector{ID: "sre.metrics.read", Version: "1.0.0"},
+		Capability:  action.ActionCapabilitySelector{ID: "sre.metrics.read", Version: "1.0.0"},
 		ResourceRef: "payments", Arguments: json.RawMessage("{}"),
 	}
 	if err := submission.Validate(); err != nil {
@@ -72,14 +72,12 @@ func TestExternalLiveACPCapabilityClient(t *testing.T) {
 		}
 		bad := submission
 		bad.Capability.ID = "workspace.write"
-		if err := client.VerifyCapabilityAccess(context.Background(), principal, snapshot, bad);
-			!errors.Is(err, ErrForbidden) {
+		if err := client.VerifyCapabilityAccess(context.Background(), principal, snapshot, bad); !errors.Is(err, ErrForbidden) {
 			t.Fatalf("effectful capability queried or admitted by Guard: %v", err)
 		}
 		bad = submission
 		bad.ResourceRef = "foreign"
-		if err := client.VerifyCapabilityAccess(context.Background(), principal, snapshot, bad);
-			!errors.Is(err, ErrForbidden) {
+		if err := client.VerifyCapabilityAccess(context.Background(), principal, snapshot, bad); !errors.Is(err, ErrForbidden) {
 			t.Fatalf("non-bound service acquired ACP capability: %v", err)
 		}
 		t.Logf("real EngageGuard ACPCapabilityClient verified same-Run %s", runID)
