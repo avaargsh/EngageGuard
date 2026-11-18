@@ -7,12 +7,14 @@ import (
 	"testing"
 )
 
-// Real PostgreSQL only. The fixture's permit was seeded, not issued by a
-// reviewed policy authority; these are ledger invariants, not execution proof.
+// Real PostgreSQL only. The fixture's Permit was seeded, not issued by a
+// reviewed authority; no effect or production execution is proven here.
 func TestLostACKUnknownIsOneDurableAttemptAndNeverSecondDispatch(t *testing.T) {
 	store, resolved, permitID := seededWorkspacePermit(t)
 	intent, err := store.ClaimAuthorizedIntent(context.Background(), permitID, resolved)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	const callers = 12
 	var wg sync.WaitGroup
 	failures := make(chan error, callers)
@@ -27,7 +29,9 @@ func TestLostACKUnknownIsOneDurableAttemptAndNeverSecondDispatch(t *testing.T) {
 	wg.Wait()
 	close(failures)
 	for err := range failures {
-		if err != nil { t.Fatalf("same lost ACK must be idempotent: %v", err) }
+		if err != nil {
+			t.Fatalf("same lost ACK must be idempotent: %v", err)
+		}
 	}
 	observed, err := New(store.db).GetDispatchState(context.Background(), resolved.TenantID, resolved.OperationID, intent.AttemptID)
 	if err != nil || observed.State != "UNKNOWN" || observed.AttemptID != intent.AttemptID ||
@@ -53,8 +57,10 @@ func TestLostACKUnknownIsOneDurableAttemptAndNeverSecondDispatch(t *testing.T) {
 func TestUnknownCannotReconcileForeignTenantOrUncommittedAttempt(t *testing.T) {
 	store, resolved, permitID := seededWorkspacePermit(t)
 	intent, err := store.ClaimAuthorizedIntent(context.Background(), permitID, resolved)
-	if err != nil { t.Fatal(err) }
-	for _, bad := range []struct{tenant, operation, attempt, cause string}{
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []struct{ tenant, operation, attempt, cause string }{
 		{"tenant-b", resolved.OperationID, intent.AttemptID, "ACK_LOST"},
 		{resolved.TenantID, "11111111-1111-4111-8111-111111111111", intent.AttemptID, "ACK_LOST"},
 		{resolved.TenantID, resolved.OperationID, "11111111-1111-4111-8111-111111111111", "ACK_LOST"},
@@ -73,9 +79,15 @@ func TestUnknownCannotReconcileForeignTenantOrUncommittedAttempt(t *testing.T) {
 func TestUnknownAuditFailureRollsBackStateTransition(t *testing.T) {
 	store, resolved, permitID := seededWorkspacePermit(t)
 	intent, err := store.ClaimAuthorizedIntent(context.Background(), permitID, resolved)
-	if err != nil { t.Fatal(err) }
-	if _, err := store.db.Exec(`CREATE FUNCTION reject_unknown_insert() RETURNS trigger LANGUAGE plpgsql AS $ BEGIN RAISE EXCEPTION 'forced journal unavailable'; END; $`); err != nil { t.Fatal(err) }
-	if _, err := store.db.Exec(`CREATE TRIGGER fail_unknown BEFORE INSERT ON guard_operation_unknown_events FOR EACH ROW EXECUTE FUNCTION reject_unknown_insert()`); err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("CREATE FUNCTION reject_unknown_insert() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''forced journal unavailable''; END;'"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("CREATE TRIGGER fail_unknown BEFORE INSERT ON guard_operation_unknown_events FOR EACH ROW EXECUTE FUNCTION reject_unknown_insert()"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := store.MarkDispatchUnknown(context.Background(), resolved.TenantID, resolved.OperationID, intent.AttemptID, "ACK_LOST"); err == nil {
 		t.Fatal("UNKNOWN transition committed without its journal evidence")
 	}
