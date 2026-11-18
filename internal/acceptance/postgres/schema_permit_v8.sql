@@ -1,4 +1,4 @@
--- Guard v8 is additive; v1-v7 hashes remain unchanged.
+-- Guard v8 is additive. All v1-v7 source checksums remain unchanged.
 -- Reuse the existing unconditional immutable snapshot trigger function.
 -- Ordinary runtime SQL roles have no DDL or replication-role privileges.
 -- Snapshot, Permit and provider outcome ownership remains separate.
