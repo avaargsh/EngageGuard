@@ -31,6 +31,9 @@ var ledgerIntegritySchema string
 //go:embed schema_v4.sql
 var unknownJournalSchema string
 
+//go:embed schema_v5.sql
+var permitRevocationSchema string
+
 // Migration versions and bytes are immutable after release. A journal's
 // durability guarantees depend on a known PostgreSQL schema at every boot.
 const initialMigrationVersion int64 = 1
@@ -97,6 +100,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		{2, permitSchema},
 		{3, ledgerIntegritySchema},
 		{4, unknownJournalSchema},
+		{5, permitRevocationSchema},
 	}
 	if len(applied) > len(migrations) {
 		return ErrSchemaDrift
