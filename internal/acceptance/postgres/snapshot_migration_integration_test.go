@@ -51,8 +51,8 @@ func TestV2MigrationUpgradesEmptyV1WithoutRewritingOriginalChecksum(t *testing.T
 	if err := db.QueryRow("SELECT count(*) FROM guard_schema_migrations").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 7 {
-		t.Fatalf("expected seven forward-only migration ledger rows, got %d", count)
+	if count != 8 {
+		t.Fatalf("expected eight forward-only migration ledger rows, got %d", count)
 	}
 }
 
@@ -177,7 +177,7 @@ func TestV3UpgradesPreviouslyAppliedOriginalV2Checksum(t *testing.T) {
 		"SELECT count(*) FROM guard_schema_migrations").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if oldChecksum != after || count != 7 {
+	if oldChecksum != after || count != 8 {
 		t.Fatalf("v2 checksum changed or v3 ledger missing: old=%s new=%s versions=%d",
 			oldChecksum, after, count)
 	}
