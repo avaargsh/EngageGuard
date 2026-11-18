@@ -113,7 +113,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	// The existing v1-v3 admission snapshot checksums are never repurposed.
 	// The experimental Permit v2-v5 sources are assigned new slots v4-v7.
 	checksums := []string{v1Checksum, v2Checksum, v3Checksum}
-	for _, source := range []string{permitClaimSchema, permitIdentitySchema, permitUnknownSchema, permitRevocationSchema, permitEvidenceFenceSchema, permitIdentityFenceSchema} {
+	for _, source := range []string{permitClaimSchema, permitIdentitySchema, permitUnknownSchema, permitRevocationSchema, permitEvidenceFenceSchema, permitIdentityFenceSchema, permitCausalFenceSchema} {
 		checksums = append(checksums, fmt.Sprintf("%x", sha256.Sum256([]byte(source))))
 	}
 	if len(applied) > len(checksums) {

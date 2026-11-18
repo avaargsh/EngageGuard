@@ -30,6 +30,9 @@ var permitEvidenceFenceSchema string
 //go:embed schema_permit_v9.sql
 var permitIdentityFenceSchema string
 
+//go:embed schema_permit_v10.sql
+var permitCausalFenceSchema string
+
 func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) error {
 	migrations := []struct {
 		version int64
@@ -41,6 +44,7 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 		{7, permitRevocationSchema},
 		{8, permitEvidenceFenceSchema},
 		{9, permitIdentityFenceSchema},
+		{10, permitCausalFenceSchema},
 	}
 	for _, item := range migrations {
 		if applied >= int(item.version) {
@@ -49,7 +53,7 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 		// All four extension files contain only plain DDL. Do not use
 		// this delimiter for future functions with semicolon bodies.
 		statements := strings.Split(item.source, ";")
-		if item.version == 9 {
+		if item.version >= 9 {
 			// PL/pgSQL trigger bodies contain semicolons.
 			statements = strings.Split(item.source, "-- statement break")
 		}
@@ -170,6 +174,27 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
 		if err != nil || !intact {
 			return fmt.Errorf("%w: Permit v9 write-once trigger %s disabled or changed: %v", ErrSchemaDrift, expected.name, err)
 		}
+	}
+	// A valid migration checksum is insufficient if an administrator has
+	// disabled the deferred causal claim/revoke guard. This must be an
+	// always-on, constraint-backed AFTER UPDATE row trigger, deferred until
+	// the entire Permit+Intent+Audit transaction is ready to commit.
+	var causalIntact bool
+	err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_catalog.pg_trigger t
+			WHERE t.tgrelid = to_regclass('guard_permits')
+			  AND t.tgname = 'guard_permit_causal_transition_v10'
+			  AND t.tgtype = 17
+			  AND NOT t.tgisinternal AND t.tgenabled = 'A'
+			  AND t.tgdeferrable AND t.tginitdeferred
+			  AND t.tgconstraint <> 0
+			  AND t.tgfoid = to_regprocedure('guard_permit_causal_transition_v10()')
+		)
+	`).Scan(&causalIntact)
+	if err != nil || !causalIntact {
+		return fmt.Errorf("%w: Permit v10 deferred causal journal trigger disabled or changed: %v",
+			ErrSchemaDrift, err)
 	}
 	return nil
 }
