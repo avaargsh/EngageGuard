@@ -24,6 +24,9 @@ var permitUnknownSchema string
 //go:embed schema_permit_v7.sql
 var permitRevocationSchema string
 
+//go:embed schema_permit_v8.sql
+var permitEvidenceFenceSchema string
+
 func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) error {
 	migrations := []struct {
 		version int64
@@ -33,6 +36,7 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 		{5, permitIdentitySchema},
 		{6, permitUnknownSchema},
 		{7, permitRevocationSchema},
+		{8, permitEvidenceFenceSchema},
 	}
 	for _, item := range migrations {
 		if applied >= int(item.version) {
@@ -107,6 +111,34 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
 		`, pair.table, pair.name, pair.referenced, pair.columns, pair.target).Scan(&valid)
 		if err != nil || !valid {
 			return fmt.Errorf("%w: invalid Permit relation %s: %v", ErrSchemaDrift, pair.name, err)
+		}
+	}
+	// Checksums alone cannot prove the actual database still enforces
+	// immutable evidence. Reject disabled, replacement or origin-only
+	// triggers (including disabled triggers after a privileged DDL change).
+	for _, table := range []string{
+		"guard_execution_audit", "guard_operation_unknown_events", "guard_permit_revocations",
+	} {
+		for _, trigger := range []struct {
+			suffix string
+			kind   int
+		}{{"_immutable_row", 27}, {"_immutable_truncate", 34}} {
+			var valid bool
+			err := tx.QueryRowContext(ctx, `
+				SELECT EXISTS (
+					SELECT 1 FROM pg_catalog.pg_trigger t
+					WHERE t.tgrelid = to_regclass($1)
+					  AND t.tgname = $2
+					  AND t.tgenabled = 'A'
+					  AND NOT t.tgisinternal
+					  AND t.tgtype = $3
+					  AND t.tgfoid = to_regprocedure('guard_reject_snapshot_mutation()')
+				)
+			`, table, table+trigger.suffix, trigger.kind).Scan(&valid)
+			if err != nil || !valid {
+				return fmt.Errorf("%w: immutable Guard evidence trigger %s%s: %v",
+					ErrSchemaDrift, table, trigger.suffix, err)
+			}
 		}
 	}
 	return nil
