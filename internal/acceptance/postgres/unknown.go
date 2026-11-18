@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"regexp"
+
 )
 
 // ErrUnknownConflict requires manual reconciliation, never another dispatch.
@@ -73,87 +73,22 @@ func (s *Store) GetDispatchState(ctx context.Context, tenant, operationID, attem
 	}
 	return value, nil
 }
-
-var canonicalDispatchUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}package postgres
-
-import (
-	"context"
-	"database/sql"
-	"errors"
-	"fmt"
-	"regexp"
-)
-
-// ErrUnknownConflict requires manual reconciliation, never another dispatch.
-// A different reason cannot rewrite an already journaled uncertain attempt.
-var ErrUnknownConflict = errors.New("Guard uncertain operation conflicts with durable attempt")
-var ErrDispatchNotFound = errors.New("Guard dispatch attempt is absent or outside tenant")
-var ErrUnknownCause = errors.New("unrecognized dispatch uncertainty reason")
-
-// DispatchState is a local ledger observation, not proof of a provider result,
-// a Permit or a permission to retry an external effect.
-type DispatchState struct {
-	TenantID string
-	OperationID string
-	PermitID string
-	AttemptID string
-	ActionHash string
-	State string
-	Reason string
-}
-
-func validUnknownReason(reason string) bool {
-	switch reason {
-	case "ACK_LOST", "PROVIDER_TIMEOUT", "PROVIDER_UNAVAILABLE", "WORKER_KILLED":
-		return true
-	default:
-		return false
-	}
-}
-
-// GetDispatchState resolves a single already committed attempt by immutable
-// tenant, operation and attempt IDs. UNKNOWN is not a confirmed failure.
-func (s *Store) GetDispatchState(ctx context.Context, tenant, operationID, attemptID string) (DispatchState, error) {
-	var value DispatchState
-	if s == nil || s.db == nil {
-		return value, errors.New("Guard database unavailable")
-	}
-	if !tenantIDPattern.MatchString(tenant) || !validDispatchUUID(operationID) || !validDispatchUUID(attemptID) {
-		return value, ErrDispatchNotFound
-	}
-	var reason sql.NullString
-	err := s.db.QueryRowContext(ctx, `
-		SELECT i.tenant_id, i.operation_id::text, i.permit_id::text,
-		       i.attempt_id::text, i.action_hash, i.state, e.reason
-		FROM guard_operation_intents i
-		LEFT JOIN guard_operation_unknown_events e
-		  ON e.tenant_id=i.tenant_id AND e.attempt_id=i.attempt_id
-		WHERE i.tenant_id=$1 AND i.operation_id=$2::uuid AND i.attempt_id=$3::uuid
-	`, tenant, operationID, attemptID).Scan(
-		&value.TenantID, &value.OperationID, &value.PermitID,
-		&value.AttemptID, &value.ActionHash, &value.State, &reason,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return DispatchState{}, ErrDispatchNotFound
-	}
-	if err != nil {
-		return DispatchState{}, fmt.Errorf("inspect Guard dispatch attempt: %w", err)
-	}
-	if reason.Valid {
-		value.Reason = reason.String
-	}
-	if value.State != "DISPATCHING" && value.State != "UNKNOWN" ||
-		(value.State == "UNKNOWN" && !validUnknownReason(value.Reason)) ||
-		(value.State == "DISPATCHING" && value.Reason != "") {
-		return DispatchState{}, ErrUnknownConflict
-	}
-	return value, nil
-}
-
-)
 
 func validDispatchUUID(input string) bool {
-	return canonicalDispatchUUID.MatchString(input)
+	if len(input) != 36 || input[8] != '-' || input[13] != '-' ||
+		input[18] != '-' || input[23] != '-' {
+		return false
+	}
+	for i := 0; i < len(input); i++ {
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			continue
+		}
+		ch := input[i]
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // MarkDispatchUnknown is an internal journal transition after an external
