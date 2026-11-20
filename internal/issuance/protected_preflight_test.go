@@ -38,11 +38,13 @@ func (r *fakeRuntime) GetRunSafetySnapshot(_ context.Context, tenant, runID stri
 type fakeProtectedDecision struct {
 	step   StepProvenance
 	denied bool
+	revokeOnPostflight bool
 	calls  int
 }
 
 func (d *fakeProtectedDecision) VerifyProtectedStep(context.Context, admission.Principal, admission.RunSafetySnapshot, action.ActionSubmission) (StepProvenance, error) {
 	d.calls++
+	if d.revokeOnPostflight && d.calls > 1 { return StepProvenance{}, admission.ErrForbidden }
 	if d.denied {
 		return StepProvenance{}, admission.ErrForbidden
 	}
@@ -64,13 +66,16 @@ func (r *fakeActionResolver) ResolveWorkspaceWrite(context.Context, admission.Pr
 type fakeProtectedACP struct {
 	observation admission.ProtectedWorkspaceObservation
 	denied      bool
+	driftOnPostflight bool
+	calls int
 }
 
 func (a *fakeProtectedACP) ObserveProtectedWorkspace(context.Context, admission.Principal, admission.RunSafetySnapshot, action.WorkspaceWrite, string) (admission.ProtectedWorkspaceObservation, error) {
-	if a.denied {
-		return admission.ProtectedWorkspaceObservation{}, admission.ErrForbidden
-	}
-	return a.observation, nil
+	a.calls++
+	if a.denied { return admission.ProtectedWorkspaceObservation{}, admission.ErrForbidden }
+	observed := a.observation
+	if a.driftOnPostflight && a.calls > 1 { observed.PolicyRevision = "policy-v2" }
+	return observed, nil
 }
 
 type fakeCurrentApproval struct {
@@ -78,6 +83,7 @@ type fakeCurrentApproval struct {
 	rev                string
 	calls              int
 	revokeOnPostflight bool
+	revisionDriftOnPostflight bool
 }
 
 func (c *fakeCurrentApproval) CheckCurrentApproval(_ context.Context, proof approval.Evidence) (ApprovalState, error) {
@@ -86,16 +92,24 @@ func (c *fakeCurrentApproval) CheckCurrentApproval(_ context.Context, proof appr
 	if c.revokeOnPostflight && c.calls > 1 {
 		status = "REVOKED"
 	}
-	return ApprovalState{ApprovalID: proof.ApprovalID, Scope: proof.Scope, Status: status, Revision: c.rev}, nil
+	rev := c.rev
+	if c.revisionDriftOnPostflight && c.calls > 1 { rev = "rev-4" }
+	return ApprovalState{ApprovalID: proof.ApprovalID, Scope: proof.Scope, Status: status, Revision: rev}, nil
 }
 
 type fakeRisk struct {
-	decision   string
+	decision string
 	generation uint64
+	denyOnPostflight bool
+	bumpOnPostflight bool
+	calls int
 }
-
 func (r *fakeRisk) EvaluateRisk(_ context.Context, scope approval.Scope) (RiskState, error) {
-	return RiskState{Decision: r.decision, ActionHash: scope.ActionHash, PolicyVersion: scope.PolicyVersion, Generation: r.generation}, nil
+	r.calls++
+	state := RiskState{Decision:r.decision,ActionHash:scope.ActionHash,PolicyVersion:scope.PolicyVersion,Generation:r.generation}
+	if r.denyOnPostflight && r.calls > 1 {state.Decision="DENY"}
+	if r.bumpOnPostflight && r.calls > 1 {state.Generation++}
+	return state,nil
 }
 
 type preflightFixture struct {
@@ -203,6 +217,11 @@ func TestProtectedPreflightRejectsStaleEvidenceRiskAndSourceDrift(t *testing.T) 
 		{"ACP source revoked", func(f *preflightFixture) { f.acp.denied = true }},
 		{"approval currently revoked", func(f *preflightFixture) { f.approvals.status = "REVOKED" }},
 		{"approval revoked between preflight and postflight", func(f *preflightFixture) { f.approvals.revokeOnPostflight = true }},
+		{"approval revision changed after initial verification", func(f *preflightFixture) { f.approvals.revisionDriftOnPostflight = true }},
+		{"ACP policy changed after initial capability observation", func(f *preflightFixture) { f.acp.driftOnPostflight = true }},
+		{"Decision revoked after initial Step validation", func(f *preflightFixture) { f.decision.revokeOnPostflight = true }},
+		{"risk DENY after initial check", func(f *preflightFixture) { f.risk.denyOnPostflight = true }},
+		{"risk generation changed after initial check", func(f *preflightFixture) { f.risk.bumpOnPostflight = true }},
 		{"risk blocked", func(f *preflightFixture) { f.risk.decision = "DENY" }},
 		{"risk evidence stale", func(f *preflightFixture) { f.risk.generation = 0 }},
 		{"approval signature changed", func(f *preflightFixture) { f.signed = append([]byte(nil), f.signed...); f.signed[len(f.signed)-3] ^= 1 }},
