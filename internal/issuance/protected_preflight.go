@@ -239,6 +239,7 @@ func (g *Gate) Verify(ctx context.Context, p admission.Principal, sub action.Act
 	if !validApproval(current, proof) {
 		return ErrDenied
 	}
+	initialApproval := current
 	risk, err := g.deps.Risk.EvaluateRisk(ctx, proof.Scope)
 	if err != nil {
 		return failure("live risk", err)
@@ -246,8 +247,10 @@ func (g *Gate) Verify(ctx context.Context, p admission.Principal, sub action.Act
 	if !validRisk(risk, proof.Scope) {
 		return ErrDenied
 	}
-	// Re-read Runtime and approval after separately owned Decision/ACP/risk
-	// checks: success must never be based on an already-observed stale Run.
+	// Re-read ALL independently mutable sources, not just Runtime.
+	// A point-in-time positive capability, risk result or approval revision
+	// does not survive a concurrent source transition. These second reads
+	// reduce stale success but are NOT a distributed atomic execution fence.
 	after, err := g.deps.Runtime.GetRunSafetySnapshot(ctx, p.TenantID, sub.RunID)
 	if err != nil {
 		return failure("Runtime postflight", err)
@@ -255,11 +258,32 @@ func (g *Gate) Verify(ctx context.Context, p admission.Principal, sub action.Act
 	if after != run {
 		return ErrDenied
 	}
+	currentStep, err := g.deps.Decision.VerifyProtectedStep(ctx, p, after, sub)
+	if err != nil {
+		return failure("protected Decision postflight", err)
+	}
+	if !validProtectedStep(currentStep, after, sub) || !reflect.DeepEqual(currentStep, step) {
+		return ErrDenied
+	}
+	currentACP, err := g.deps.ACP.ObserveProtectedWorkspace(ctx, p, after, resolved, sub.Capability.Version)
+	if err != nil {
+		return failure("ACP protected catalog postflight", err)
+	}
+	if currentACP != observed || !validACP(currentACP, resolved.PolicyVersion) {
+		return ErrDenied
+	}
 	current, err = g.deps.Approvals.CheckCurrentApproval(ctx, proof)
 	if err != nil {
 		return failure("approval postflight", err)
 	}
-	if !validApproval(current, proof) {
+	if !validApproval(current, proof) || current != initialApproval {
+		return ErrDenied
+	}
+	currentRisk, err := g.deps.Risk.EvaluateRisk(ctx, proof.Scope)
+	if err != nil {
+		return failure("risk postflight", err)
+	}
+	if !validRisk(currentRisk, proof.Scope) || currentRisk != risk {
 		return ErrDenied
 	}
 	if err := ctx.Err(); err != nil {
