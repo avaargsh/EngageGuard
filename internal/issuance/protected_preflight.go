@@ -300,5 +300,13 @@ func (g *Gate) Verify(ctx context.Context, p admission.Principal, sub action.Act
 	if err := ctx.Err(); err != nil {
 		return failure("context postflight", err)
 	}
+	// An initially fresh signature is not enough if independent live source
+	// checks cross its short expiry window. Read the trusted clock again
+	// immediately before returning; a backwards clock jump also fails
+	// closed. This is still only a necessary preflight, not a Permit fence.
+	finish := g.deps.Now().UTC()
+	if finish.Before(now) || finish.Before(proof.IssuedAt) || !finish.Before(proof.ExpiresAt) {
+		return ErrDenied
+	}
 	return nil
 }
