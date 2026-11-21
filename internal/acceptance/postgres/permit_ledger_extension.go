@@ -10,7 +10,7 @@ import (
 )
 
 // The existing admission v1/v2/v3 migration sources and checksums are immutable.
-// These four separately versioned extensions are forward-only.
+// These separately versioned extensions are forward-only.
 //
 //go:embed schema_permit_v4.sql
 var permitClaimSchema string
@@ -33,6 +33,9 @@ var permitIdentityFenceSchema string
 //go:embed schema_permit_v10.sql
 var permitCausalFenceSchema string
 
+//go:embed schema_permit_v11.sql
+var permitCommitExpirySchema string
+
 func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) error {
 	migrations := []struct {
 		version int64
@@ -45,12 +48,13 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 		{8, permitEvidenceFenceSchema},
 		{9, permitIdentityFenceSchema},
 		{10, permitCausalFenceSchema},
+		{11, permitCommitExpirySchema},
 	}
 	for _, item := range migrations {
 		if applied >= int(item.version) {
 			continue
 		}
-		// All four extension files contain only plain DDL. Do not use
+		// Earlier extension files contain plain DDL. Do not use
 		// this delimiter for future functions with semicolon bodies.
 		statements := strings.Split(item.source, ";")
 		if item.version >= 9 {
@@ -194,6 +198,26 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
 	`).Scan(&causalIntact)
 	if err != nil || !causalIntact {
 		return fmt.Errorf("%w: Permit v10 deferred causal journal trigger disabled or changed: %v",
+			ErrSchemaDrift, err)
+	}
+	// A valid checksum does not prove that the v11 expiry guard still fires
+	// at transaction end. Explicitly reject a disabled, non-deferred,
+	// replacement, origin-only, or non-constraint trigger.
+	var expiryIntact bool
+	err = tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_catalog.pg_trigger t
+			WHERE t.tgrelid=to_regclass('guard_permits')
+			  AND t.tgname='guard_permit_claim_expiry_v11'
+			  AND t.tgtype=17 AND NOT t.tgisinternal
+			  AND t.tgenabled='A'
+			  AND t.tgdeferrable AND t.tginitdeferred
+			  AND t.tgconstraint <> 0
+			  AND t.tgfoid=to_regprocedure('guard_permit_claim_expiry_v11()')
+		)
+	`).Scan(&expiryIntact)
+	if err != nil || !expiryIntact {
+		return fmt.Errorf("%w: Permit v11 deferred expiry trigger disabled or changed: %v",
 			ErrSchemaDrift, err)
 	}
 	return nil
