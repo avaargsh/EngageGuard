@@ -36,15 +36,17 @@ func (r *fakeRuntime) GetRunSafetySnapshot(_ context.Context, tenant, runID stri
 }
 
 type fakeProtectedDecision struct {
-	step   StepProvenance
-	denied bool
+	step               StepProvenance
+	denied             bool
 	revokeOnPostflight bool
-	calls  int
+	calls              int
 }
 
 func (d *fakeProtectedDecision) VerifyProtectedStep(context.Context, admission.Principal, admission.RunSafetySnapshot, action.ActionSubmission) (StepProvenance, error) {
 	d.calls++
-	if d.revokeOnPostflight && d.calls > 1 { return StepProvenance{}, admission.ErrForbidden }
+	if d.revokeOnPostflight && d.calls > 1 {
+		return StepProvenance{}, admission.ErrForbidden
+	}
 	if d.denied {
 		return StepProvenance{}, admission.ErrForbidden
 	}
@@ -64,25 +66,29 @@ func (r *fakeActionResolver) ResolveWorkspaceWrite(context.Context, admission.Pr
 }
 
 type fakeProtectedACP struct {
-	observation admission.ProtectedWorkspaceObservation
-	denied      bool
+	observation       admission.ProtectedWorkspaceObservation
+	denied            bool
 	driftOnPostflight bool
-	calls int
+	calls             int
 }
 
 func (a *fakeProtectedACP) ObserveProtectedWorkspace(context.Context, admission.Principal, admission.RunSafetySnapshot, action.WorkspaceWrite, string) (admission.ProtectedWorkspaceObservation, error) {
 	a.calls++
-	if a.denied { return admission.ProtectedWorkspaceObservation{}, admission.ErrForbidden }
+	if a.denied {
+		return admission.ProtectedWorkspaceObservation{}, admission.ErrForbidden
+	}
 	observed := a.observation
-	if a.driftOnPostflight && a.calls > 1 { observed.PolicyRevision = "policy-v2" }
+	if a.driftOnPostflight && a.calls > 1 {
+		observed.PolicyRevision = "policy-v2"
+	}
 	return observed, nil
 }
 
 type fakeCurrentApproval struct {
-	status             string
-	rev                string
-	calls              int
-	revokeOnPostflight bool
+	status                    string
+	rev                       string
+	calls                     int
+	revokeOnPostflight        bool
 	revisionDriftOnPostflight bool
 }
 
@@ -93,23 +99,30 @@ func (c *fakeCurrentApproval) CheckCurrentApproval(_ context.Context, proof appr
 		status = "REVOKED"
 	}
 	rev := c.rev
-	if c.revisionDriftOnPostflight && c.calls > 1 { rev = "rev-4" }
+	if c.revisionDriftOnPostflight && c.calls > 1 {
+		rev = "rev-4"
+	}
 	return ApprovalState{ApprovalID: proof.ApprovalID, Scope: proof.Scope, Status: status, Revision: rev}, nil
 }
 
 type fakeRisk struct {
-	decision string
-	generation uint64
+	decision         string
+	generation       uint64
 	denyOnPostflight bool
 	bumpOnPostflight bool
-	calls int
+	calls            int
 }
+
 func (r *fakeRisk) EvaluateRisk(_ context.Context, scope approval.Scope) (RiskState, error) {
 	r.calls++
-	state := RiskState{Decision:r.decision,ActionHash:scope.ActionHash,PolicyVersion:scope.PolicyVersion,Generation:r.generation}
-	if r.denyOnPostflight && r.calls > 1 {state.Decision="DENY"}
-	if r.bumpOnPostflight && r.calls > 1 {state.Generation++}
-	return state,nil
+	state := RiskState{Decision: r.decision, ActionHash: scope.ActionHash, PolicyVersion: scope.PolicyVersion, Generation: r.generation}
+	if r.denyOnPostflight && r.calls > 1 {
+		state.Decision = "DENY"
+	}
+	if r.bumpOnPostflight && r.calls > 1 {
+		state.Generation++
+	}
+	return state, nil
 }
 
 type preflightFixture struct {
