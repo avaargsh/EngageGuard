@@ -141,7 +141,7 @@ func (g *Gate) verifiedExecutor(peer *tls.ConnectionState) bool {
 	_, err := leaf.Verify(x509.VerifyOptions{
 		Roots: roots, Intermediates: intermediates,
 		CurrentTime: time.Now(),
-		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		KeyUsages:   []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	})
 	return err == nil
 }
