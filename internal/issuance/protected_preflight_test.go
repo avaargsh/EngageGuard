@@ -54,10 +54,10 @@ func (d *fakeProtectedDecision) VerifyProtectedStep(context.Context, admission.P
 }
 
 type fakeActionResolver struct {
-	resolved          action.WorkspaceWrite
-	denied            bool
-	calls             int
-	driftOnPostflight bool
+	resolved           action.WorkspaceWrite
+	denied             bool
+	calls              int
+	driftOnPostflight  bool
 	revokeOnPostflight bool
 }
 
