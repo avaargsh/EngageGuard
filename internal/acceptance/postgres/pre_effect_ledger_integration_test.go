@@ -25,7 +25,7 @@ func TestPreEffectLedgerValidClaimAndAuditOnly(t *testing.T) {
 
 func TestPreEffectLedgerDeniesModifiedActionTenantRevokedAndUnknown(t *testing.T) {
 	for _, tc := range []struct {
-		name string
+		name   string
 		change func(context.Context, *Store, string, string, *action.WorkspaceWrite) error
 	}{
 		{"changed content", func(_ context.Context, _ *Store, _, _ string, a *action.WorkspaceWrite) error {
