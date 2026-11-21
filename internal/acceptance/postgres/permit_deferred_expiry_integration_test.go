@@ -111,7 +111,7 @@ func TestDeferredExpiryFenceRejectsLateCommitWithExactCausalEvidence(t *testing.
 }
 
 func TestPermitExpiryDeferredFenceCannotBeDisabledUndetected(t *testing.T) {
-	store, _ := seededWorkspacePermit(t)
+	store, _, _ := seededWorkspacePermit(t)
 	if _, err := store.db.Exec(
 		"ALTER TABLE guard_permits DISABLE TRIGGER guard_permit_claim_expiry_v11",
 	); err != nil {
