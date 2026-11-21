@@ -54,15 +54,23 @@ func (d *fakeProtectedDecision) VerifyProtectedStep(context.Context, admission.P
 }
 
 type fakeActionResolver struct {
-	resolved action.WorkspaceWrite
-	denied   bool
+	resolved          action.WorkspaceWrite
+	denied            bool
+	calls             int
+	driftOnPostflight bool
+	revokeOnPostflight bool
 }
 
 func (r *fakeActionResolver) ResolveWorkspaceWrite(context.Context, admission.Principal, admission.RunSafetySnapshot, action.ActionSubmission) (action.WorkspaceWrite, error) {
-	if r.denied {
+	r.calls++
+	if r.denied || (r.revokeOnPostflight && r.calls > 1) {
 		return action.WorkspaceWrite{}, admission.ErrForbidden
 	}
-	return r.resolved, nil
+	current := r.resolved
+	if r.driftOnPostflight && r.calls > 1 {
+		current.ToolBindingDigest = strings.Repeat("e", 64)
+	}
+	return current, nil
 }
 
 type fakeProtectedACP struct {
@@ -210,8 +218,8 @@ func TestProtectedPreflightRequiresIndependentFreshAuthorityAndNeverIssues(t *te
 	if err := f.gate(t).Verify(context.Background(), f.principal, f.submission, f.signed); err != nil {
 		t.Fatal(err)
 	}
-	if f.runtime.reads != 2 || f.decision.calls < 1 || f.approvals.calls < 2 {
-		t.Fatalf("missing live postflight checks: Runtime=%d Decision=%d Approval=%d", f.runtime.reads, f.decision.calls, f.approvals.calls)
+	if f.runtime.reads != 2 || f.decision.calls < 2 || f.actions.calls != 2 || f.approvals.calls < 2 {
+		t.Fatalf("missing live postflight checks: Runtime=%d Decision=%d Action=%d Approval=%d", f.runtime.reads, f.decision.calls, f.actions.calls, f.approvals.calls)
 	}
 }
 func TestProtectedPreflightRejectsStaleEvidenceRiskAndSourceDrift(t *testing.T) {
@@ -224,6 +232,8 @@ func TestProtectedPreflightRejectsStaleEvidenceRiskAndSourceDrift(t *testing.T) 
 		{"Decision mismatch raw arguments", func(f *preflightFixture) { f.decision.step.Arguments = json.RawMessage(`{"path":"other"}`) }},
 		{"Decision source denies protected write", func(f *preflightFixture) { f.decision.denied = true }},
 		{"resolver denied", func(f *preflightFixture) { f.actions.denied = true }},
+		{"resolved ToolBinding changes after first verification", func(f *preflightFixture) { f.actions.driftOnPostflight = true }},
+		{"resolved action is revoked at postflight", func(f *preflightFixture) { f.actions.revokeOnPostflight = true }},
 		{"resolver changed path without new signed approval", func(f *preflightFixture) { f.actions.resolved.RelativePath = "other.md" }},
 		{"resolver changed subject without new signed approval", func(f *preflightFixture) { f.actions.resolved.SubjectID = "attacker" }},
 		{"ACP policy revision drift", func(f *preflightFixture) { f.acp.observation.PolicyRevision = "policy-v2" }},
