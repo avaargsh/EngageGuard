@@ -273,3 +273,49 @@ func TestProtectedPreflightConstructionFailsWithMissingDependencies(t *testing.T
 		t.Fatalf("nil live revocation source accepted: %v", err)
 	}
 }
+
+
+func TestProtectedPreflightRechecksApprovalExpiryAtReturn(t *testing.T) {
+	cases := []struct {
+		name   string
+		offset time.Duration
+		deny   bool
+	}{
+		{"valid just before expiry", 59 * time.Second, false},
+		{"expires exactly at postflight", time.Minute, true},
+		{"expires during source rechecks", 61 * time.Second, true},
+		{"clock moves backwards", -2 * time.Second, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := makePreflightFixture(t)
+			clockReads := 0
+			g, err := NewGate(Dependencies{
+				Runtime: f.runtime, Decision: f.decision, Actions: f.actions,
+				ACP: f.acp, Approvals: f.approvals, Risk: f.risk,
+				ApprovalKey: f.pub,
+				Now: func() time.Time {
+					clockReads++
+					if clockReads == 1 {
+						return f.now
+					}
+					return f.now.Add(tc.offset)
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = g.Verify(context.Background(), f.principal, f.submission, f.signed)
+			if clockReads < 2 {
+				t.Fatalf("protected preflight did not re-read trusted time after source checks: calls=%d err=%v", clockReads, err)
+			}
+			if tc.deny {
+				if !errors.Is(err, ErrDenied) {
+					t.Fatalf("expired or rolled-back signed approval was accepted: err=%v", err)
+				}
+			} else if err != nil {
+				t.Fatalf("still-valid signed approval rejected: %v", err)
+			}
+		})
+	}
+}
