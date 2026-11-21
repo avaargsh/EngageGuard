@@ -274,7 +274,6 @@ func TestProtectedPreflightConstructionFailsWithMissingDependencies(t *testing.T
 	}
 }
 
-
 func TestProtectedPreflightRechecksApprovalExpiryAtReturn(t *testing.T) {
 	cases := []struct {
 		name   string
