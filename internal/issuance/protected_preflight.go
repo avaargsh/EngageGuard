@@ -265,7 +265,18 @@ func (g *Gate) Verify(ctx context.Context, p admission.Principal, sub action.Act
 	if !validProtectedStep(currentStep, after, sub) || !reflect.DeepEqual(currentStep, step) {
 		return ErrDenied
 	}
-	currentACP, err := g.deps.ACP.ObserveProtectedWorkspace(ctx, p, after, resolved, sub.Capability.Version)
+	// A live ToolBinding/Action resolver may change independently of
+	// Runtime, Decision, ACP and the approval source. Re-resolve rather
+	// than accept a previously valid workspace target or tool digest.
+	// Equality is necessary only: there is still no atomic Permit fence.
+	currentResolved, err := g.deps.Actions.ResolveWorkspaceWrite(ctx, p, after, sub)
+	if err != nil {
+		return failure("resolved WorkspaceWrite postflight", err)
+	}
+	if currentResolved.Validate() != nil || !reflect.DeepEqual(currentResolved, resolved) {
+		return ErrDenied
+	}
+	currentACP, err := g.deps.ACP.ObserveProtectedWorkspace(ctx, p, after, currentResolved, sub.Capability.Version)
 	if err != nil {
 		return failure("ACP protected catalog postflight", err)
 	}
