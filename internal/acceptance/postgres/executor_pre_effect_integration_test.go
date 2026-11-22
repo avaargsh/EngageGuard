@@ -39,12 +39,12 @@ type mutatingCurrentAuthority struct {
 }
 
 func (a *mutatingCurrentAuthority) VerifyCurrent(_ context.Context, _, _ string, _ action.WorkspaceWrite) error {
- 	a.calls++
- 	if a.calls == 2 && a.onSecond != nil {
- 		return a.onSecond()
- 	}
- 	return nil
- }
+	a.calls++
+	if a.calls == 2 && a.onSecond != nil {
+		return a.onSecond()
+	}
+	return nil
+}
 
 func signedExecutorTestPeer(t *testing.T) (*x509.Certificate, *tls.ConnectionState) {
 	t.Helper()
