@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"regexp"
 	"time"
 
 	"github.com/avaargsh/EngageGuard/internal/action"
@@ -23,17 +22,15 @@ var (
 	ErrPendingPermitUnavailable    = errors.New("Guard pending Permit database unavailable")
 )
 
-var pendingIssuerIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,127}$`)
-
 const maxPendingPermitLifetime = time.Minute
 
-// pendingPermitWrite is intentionally unexported. The issuer identity,
-// resolved action and original submission must eventually come from distinct
-// independently authenticated sources. Test fixtures alone are not authority.
+// pendingPermitWrite is intentionally unexported. Its resolved action and
+// original submission must eventually come from independent authenticated
+// sources. SQL stamps issued_by from the effective PostgreSQL current_user,
+// never a caller-provided issuer string. Test fixtures are not authority.
 type pendingPermitWrite struct {
 	Submission action.ActionSubmission
 	Resolved   action.WorkspaceWrite
-	Issuer     string
 	ExpiresAt  time.Time
 }
 
@@ -43,6 +40,8 @@ type pendingPermitWrite struct {
 // Permit IDs after a duplicate/lost ACK. It MUST NOT be exposed as an issuer
 // endpoint: this private primitive does not authenticate Approval or Decision,
 // and it cannot create an atomic distributed fence across independent sources.
+// issued_by is the SQL current_user of the session performing INSERT, not
+// an externally supplied actor name or an authenticated Approval identity.
 func (s *Store) insertPendingPermit(ctx context.Context, req pendingPermitWrite) (string, error) {
 	if s == nil || s.db == nil || ctx == nil {
 		return "", ErrPendingPermitUnavailable
@@ -62,7 +61,6 @@ func (s *Store) insertPendingPermit(ctx context.Context, req pendingPermitWrite)
 		req.Resolved.WorkspaceID != req.Submission.ResourceRef ||
 		!tenantIDPattern.MatchString(req.Resolved.TenantID) ||
 		!validDispatchUUID(req.Resolved.OperationID) ||
-		!pendingIssuerIDPattern.MatchString(req.Issuer) ||
 		req.ExpiresAt.IsZero() {
 		return "", ErrPendingPermitInvalid
 	}
@@ -129,14 +127,14 @@ func (s *Store) insertPendingPermit(ctx context.Context, req pendingPermitWrite)
 			tenant_id, operation_id, action_hash, binding_digest,
 			audience, policy_version, issued_by, issued_at, expires_at
 		)
-		SELECT $1, $2::uuid, $3, $4, $5, $6, $7, sampled.at, $8
+		SELECT $1, $2::uuid, $3, $4, $5, $6, current_user, sampled.at, $7
 		FROM sampled
-		WHERE sampled.at < $8 AND $8 <= sampled.at + interval '60 seconds'
+		WHERE sampled.at < $7 AND $7 <= sampled.at + interval '60 seconds'
 		ON CONFLICT (tenant_id, operation_id) DO NOTHING
 		RETURNING permit_id::text
 	`, req.Resolved.TenantID, req.Resolved.OperationID, hash,
 		req.Resolved.ToolBindingDigest, req.Resolved.Audience,
-		req.Resolved.PolicyVersion, req.Issuer, req.ExpiresAt).Scan(&permitID)
+		req.Resolved.PolicyVersion, req.ExpiresAt).Scan(&permitID)
 	if errors.Is(err, sql.ErrNoRows) {
 		var exists bool
 		if err := tx.QueryRowContext(ctx, `
