@@ -33,7 +33,6 @@ func pendingPermitFixture(t *testing.T) (*Store, pendingPermitWrite) {
 			WorkspaceID: "workspace-1", RelativePath: "docs/a.txt",
 			ContentDigest: strings.Repeat("b", 64),
 		},
-		Issuer:    "test-only-issuer",
 		ExpiresAt: time.Now().UTC().Add(30 * time.Second).Truncate(time.Microsecond),
 	}
 }
@@ -46,6 +45,10 @@ func TestPendingPermitInsertAcceptsOnlyExactDurableOperationAndRejectsReplay(t *
 		t.Fatalf("single pending Permit INSERT failed: id=%q err=%v", id, err)
 	}
 	var state, issuedBy, actionHash, digest string
+	var databaseActor string
+	if err := store.db.QueryRowContext(ctx, "SELECT current_user").Scan(&databaseActor); err != nil {
+		t.Fatal(err)
+	}
 	var issuedAt, expiresAt time.Time
 	err = store.db.QueryRowContext(ctx, `
 		SELECT state, issued_by, action_hash, binding_digest, issued_at, expires_at
@@ -59,7 +62,7 @@ func TestPendingPermitInsertAcceptsOnlyExactDurableOperationAndRejectsReplay(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state != "ISSUED" || issuedBy != req.Issuer || actionHash != hash ||
+	if state != "ISSUED" || issuedBy != databaseActor || actionHash != hash ||
 		digest != req.Resolved.ToolBindingDigest || !expiresAt.Equal(req.ExpiresAt) ||
 		!issuedAt.Before(expiresAt) {
 		t.Fatalf("pending Permit fields are unbound: state=%q issuer=%q actionHash=%q binding=%q expiry=%v",
@@ -131,7 +134,6 @@ func TestPendingPermitInsertFailsClosedOnUntrustedSourceAndExpiredProof(t *testi
 		{"wrong original workspace", func(r *pendingPermitWrite) { r.Submission.ResourceRef = "workspace-2" }},
 		{"expired DB permit", func(r *pendingPermitWrite) { r.ExpiresAt = time.Now().UTC().Add(-time.Second) }},
 		{"excessive lifespan", func(r *pendingPermitWrite) { r.ExpiresAt = time.Now().UTC().Add(2 * time.Minute) }},
-		{"untrusted issuer identity", func(r *pendingPermitWrite) { r.Issuer = "test-only-issuer;DROP TABLE guard_permits" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store, req := pendingPermitFixture(t)
