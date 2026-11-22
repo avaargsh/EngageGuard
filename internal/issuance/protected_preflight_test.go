@@ -192,13 +192,13 @@ func makePreflightFixture(t *testing.T) *preflightFixture {
 	}}
 	raw, err := json.Marshal(f.submission)
 	if err != nil { t.Fatal(err) }
-	digest, err := action.SubmissionDigest(raw)
+	acceptedDigest, err := action.SubmissionDigest(raw)
 	if err != nil { t.Fatal(err) }
 	f.accepted = &fakeAccepted{snapshot: postgres.AcceptedSubmission{
 		Operation: postgres.Operation{
 			TenantID: f.principal.TenantID,
 			OperationID: "22222222-2222-4222-8222-222222222222",
-			SubmissionDigest: digest,
+			SubmissionDigest: acceptedDigest,
 			Status: "ACCEPTED",
 		},
 		Raw: raw,
