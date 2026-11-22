@@ -135,6 +135,14 @@ func (g *Gate) verifiedExecutor(peer *tls.ConnectionState) bool {
 	if err != nil || !explicitClientAuthEKU(signedLeaf) {
 		return false
 	}
+	// Reject a conflicting in-memory view as well as an invalid signed DER.
+	// The caller cannot substitute a nil/mutated URI or EKU and still pass.
+	if len(leaf.URIs) != 1 || leaf.URIs[0] == nil ||
+		len(signedLeaf.URIs) != 1 || signedLeaf.URIs[0] == nil ||
+		leaf.URIs[0].String() != signedLeaf.URIs[0].String() ||
+		!reflect.DeepEqual(leaf.ExtKeyUsage, signedLeaf.ExtKeyUsage) {
+		return false
+	}
 	// A workload client needs an explicit ClientAuth EKU, exactly one
 	// signed SPIFFE URI and no alternative name forms.
 	if signedLeaf.IsCA ||
