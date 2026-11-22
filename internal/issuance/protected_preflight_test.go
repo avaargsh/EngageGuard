@@ -166,6 +166,7 @@ type preflightFixture struct {
 	submission action.ActionSubmission
 	signed     []byte
 	pub        ed25519.PublicKey
+	privateKey ed25519.PrivateKey
 	accepted   *fakeAccepted
 	now        time.Time
 }
@@ -228,6 +229,7 @@ func makePreflightFixture(t *testing.T) *preflightFixture {
 		t.Fatal(err)
 	}
 	f.pub = pub
+	f.privateKey = priv
 	ev := approval.Evidence{SchemaVersion: "engageguard.approval-evidence.v1", ApprovalID: "approval-1", Decision: "APPROVED",
 		Scope: scope, IssuedAt: f.now.Add(-time.Minute), ExpiresAt: f.now.Add(time.Minute)}
 	payload, err := json.Marshal(ev)
