@@ -34,7 +34,7 @@ func pendingPermitFixture(t *testing.T) (*Store, pendingPermitWrite) {
 			ContentDigest: strings.Repeat("b", 64),
 		},
 		Issuer: "test-only-issuer",
-		ExpiresAt: time.Now().UTC().Add(30 * time.Second),
+		ExpiresAt: time.Now().UTC().Add(30 * time.Second).Truncate(time.Microsecond),
 	}
 }
 
