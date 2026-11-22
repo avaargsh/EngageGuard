@@ -104,3 +104,84 @@ func TestPermitIssuerCannotInsertPreclaimedOrPreRevokedPermit(t *testing.T) {
 		})
 	}
 }
+
+func TestPermitV12MigrationRejectsDisabledOrDowngradedInsertFence(t *testing.T) {
+	for _, command := range []string{"DISABLE TRIGGER", "ENABLE TRIGGER"} {
+		t.Run(command, func(t *testing.T) {
+			_, db := integrationStore(t)
+			_, err := db.ExecContext(context.Background(),
+				"ALTER TABLE guard_permits "+command+" guard_permit_initial_state_v12")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := Migrate(context.Background(), db); !errors.Is(err, ErrSchemaDrift) {
+				t.Fatalf("weakened initial Permit INSERT fence accepted: %v", err)
+			}
+		})
+	}
+}
+
+func TestPermitV12UpgradeRefusesPreexistingForgedClaimOrRevocation(t *testing.T) {
+	for _, tc := range []struct {
+		name, state string
+		claimed    bool
+		revoked    bool
+	}{
+		{"orphan historical CLAIMED", "CLAIMED", true, false},
+		{"historical revoked without immutable journal", "ISSUED", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, db := integrationStore(t)
+			ctx := context.Background()
+			// Simulate an exact v11 installation with v12 unapplied.
+			// This mutates only the disposable schema, never a live database.
+			for _, sql := range []string{
+				"DROP TRIGGER guard_permit_initial_state_v12 ON guard_permits",
+				"DROP FUNCTION guard_permit_initial_state_v12()",
+				"DELETE FROM guard_schema_migrations WHERE version=12",
+			} {
+				if _, err := db.ExecContext(ctx, sql); err != nil {
+					t.Fatal(err)
+				}
+			}
+			op, created, err := store.Accept(ctx, "tenant-a", "historical-forgery", sampleSubmission())
+			if err != nil || !created {
+				t.Fatalf("accept prior operation: created=%v err=%v", created, err)
+			}
+			var claimedAt, revokedAt any
+			if tc.claimed {
+				claimedAt = time.Now().UTC()
+			}
+			if tc.revoked {
+				revokedAt = time.Now().UTC()
+			}
+			_, err = db.ExecContext(ctx, `
+				INSERT INTO guard_permits (
+					tenant_id, operation_id, action_hash, binding_digest,
+					audience, policy_version, issued_by, issued_at, expires_at,
+					state, claimed_at, revoked_at
+				) VALUES (
+					$1, $2::uuid, $3, $4, $5, $6, $7,
+					clock_timestamp()-interval '1 minute',
+					clock_timestamp()+interval '1 hour',
+					$8, $9, $10
+				)
+			`, "tenant-a", op.OperationID, strings.Repeat("a", 64),
+				strings.Repeat("b", 64), "trusted-workspace-executor",
+				"policy-test", "test-only-issuer", tc.state, claimedAt, revokedAt)
+			if err != nil {
+				t.Fatalf("fixture v11 forged row must be accepted: %v", err)
+			}
+			err = Migrate(ctx, db)
+			var pgErr *pgconn.PgError
+			if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+				t.Fatalf("v12 upgrade silently stamped historical invalid Permit: %v", err)
+			}
+			var count int
+			if err := db.QueryRowContext(ctx,
+				"SELECT count(*) FROM guard_schema_migrations").Scan(&count); err != nil || count != 11 {
+				t.Fatalf("failed v12 historical scan stamped schema: rows=%d err=%v", count, err)
+			}
+		})
+	}
+}
