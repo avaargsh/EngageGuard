@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/avaargsh/EngageGuard/internal/action"
+	"github.com/avaargsh/EngageGuard/internal/acceptance/postgres"
 	"github.com/avaargsh/EngageGuard/internal/admission"
 	"github.com/avaargsh/EngageGuard/internal/approval"
 )
@@ -86,7 +87,16 @@ type RiskAuthority interface {
 	EvaluateRisk(context.Context, approval.Scope) (RiskState, error)
 }
 
+// AcceptedSubmissionAuthority reads the source-owned immutable Guard
+// acceptance record. The record is untrusted original intent and is never
+// an issuance decision. Concrete source: PostgreSQL Store, with its digest
+// and immutable snapshot checked by Guard.
+type AcceptedSubmissionAuthority interface {
+	ReadAcceptedSubmission(context.Context, string, string) (postgres.AcceptedSubmission, error)
+}
+
 type Dependencies struct {
+	Accepted AcceptedSubmissionAuthority
 	Runtime     admission.RunSafetyAuthority
 	Decision    ProtectedDecisionAuthority
 	Actions     TrustedWorkspaceResolver
@@ -118,6 +128,7 @@ func nilDependency(v any) bool {
 
 func NewGate(d Dependencies) (*Gate, error) {
 	if nilDependency(d.Runtime) || nilDependency(d.Decision) || nilDependency(d.Actions) ||
+		nilDependency(d.Accepted) ||
 		nilDependency(d.ACP) || nilDependency(d.Approvals) || nilDependency(d.Risk) ||
 		len(d.ApprovalKey) != ed25519.PublicKeySize || d.Now == nil {
 		return nil, ErrUnavailable
@@ -163,6 +174,22 @@ func validACP(o admission.ProtectedWorkspaceObservation, policy string) bool {
 		strings.HasPrefix(o.ConfigDigest, "sha256:") && canonicalDigest.MatchString(strings.TrimPrefix(o.ConfigDigest, "sha256:"))
 }
 
+// validAcceptedSubmission checks BOTH the immutable exact-byte digest and the
+// source-authenticated identity. Comparing parsed submissions is conservative:
+// byte-different JSON arguments do not silently bind to another operation.
+func validAcceptedSubmission(rec postgres.AcceptedSubmission, tenantID, operationID string, current action.ActionSubmission) bool {
+	if rec.Operation.TenantID != tenantID || rec.Operation.OperationID != operationID ||
+		rec.Operation.Status != "ACCEPTED" || !canonicalUUID.MatchString(operationID) {
+		return false
+	}
+	digest, err := action.SubmissionDigest(rec.Raw)
+	if err != nil || digest != rec.Operation.SubmissionDigest {
+		return false
+	}
+	original, err := action.ParseActionSubmission(rec.Raw)
+	return err == nil && reflect.DeepEqual(original, current)
+}
+
 func failure(phase string, err error) error {
 	if errors.Is(err, admission.ErrForbidden) || errors.Is(err, approval.ErrApprovalRejected) {
 		return fmt.Errorf("%w: %s: %w", ErrDenied, phase, err)
@@ -180,6 +207,7 @@ func failure(phase string, err error) error {
 // Permit writer; a future executor PEP must re-check again before any effect.
 func (g *Gate) Verify(ctx context.Context, p admission.Principal, sub action.ActionSubmission, signedApproval []byte) error {
 	if g == nil || nilDependency(g.deps.Runtime) || nilDependency(g.deps.Decision) ||
+		nilDependency(g.deps.Accepted) ||
 		nilDependency(g.deps.Actions) || nilDependency(g.deps.ACP) ||
 		nilDependency(g.deps.Approvals) || nilDependency(g.deps.Risk) ||
 		len(g.deps.ApprovalKey) != ed25519.PublicKeySize || g.deps.Now == nil {
@@ -213,6 +241,15 @@ func (g *Gate) Verify(ctx context.Context, p admission.Principal, sub action.Act
 	if resolved.Validate() != nil || !canonicalUUID.MatchString(resolved.OperationID) ||
 		resolved.TenantID != p.TenantID || resolved.AgentID != run.AgentID ||
 		resolved.WorkspaceID != sub.ResourceRef {
+		return ErrDenied
+	}
+	// Bind the trusted resolved OperationID to the exact original submission
+	// accepted by Guard. Signed approval alone never establishes provenance.
+	accepted, err := g.deps.Accepted.ReadAcceptedSubmission(ctx, p.TenantID, resolved.OperationID)
+	if err != nil {
+		return failure("durable accepted submission", err)
+	}
+	if !validAcceptedSubmission(accepted, p.TenantID, resolved.OperationID, sub) {
 		return ErrDenied
 	}
 	observed, err := g.deps.ACP.ObserveProtectedWorkspace(ctx, p, run, resolved, sub.Capability.Version)
@@ -295,6 +332,16 @@ func (g *Gate) Verify(ctx context.Context, p admission.Principal, sub action.Act
 		return failure("risk postflight", err)
 	}
 	if !validRisk(currentRisk, proof.Scope) || currentRisk != risk {
+		return ErrDenied
+	}
+	// Repeat the immutable-source read after all mutable authorities. An
+	// inconsistent/different response is never a reusable permission.
+	currentAccepted, err := g.deps.Accepted.ReadAcceptedSubmission(ctx, p.TenantID, resolved.OperationID)
+	if err != nil {
+		return failure("durable accepted submission postflight", err)
+	}
+	if !validAcceptedSubmission(currentAccepted, p.TenantID, resolved.OperationID, sub) ||
+		!reflect.DeepEqual(currentAccepted, accepted) {
 		return ErrDenied
 	}
 	if err := ctx.Err(); err != nil {
