@@ -22,13 +22,13 @@ import (
 func signFixtureForResolvedOperation(t *testing.T, f *preflightFixture) {
 	t.Helper()
 	binding := approval.ExecutionBinding{
-		RunID: f.decision.step.RunID,
-		AttemptID: f.decision.step.AttemptID,
-		TurnID: f.decision.step.TurnID,
+		RunID:          f.decision.step.RunID,
+		AttemptID:      f.decision.step.AttemptID,
+		TurnID:         f.decision.step.TurnID,
 		AgentReleaseID: f.decision.step.AgentReleaseID,
-		DecisionID: f.decision.step.DecisionID,
-		PlanHash: f.decision.step.PlanHash,
-		StepID: f.decision.step.StepID,
+		DecisionID:     f.decision.step.DecisionID,
+		PlanHash:       f.decision.step.PlanHash,
+		StepID:         f.decision.step.StepID,
 	}
 	scope, err := approval.ScopeForResolvedWorkspace(f.actions.resolved, binding)
 	if err != nil {
@@ -36,11 +36,11 @@ func signFixtureForResolvedOperation(t *testing.T, f *preflightFixture) {
 	}
 	evidence := approval.Evidence{
 		SchemaVersion: "engageguard.approval-evidence.v1",
-		ApprovalID: "approval-pg-fixture",
-		Decision: "APPROVED",
-		Scope: scope,
-		IssuedAt: f.now.Add(-time.Minute),
-		ExpiresAt: f.now.Add(time.Minute),
+		ApprovalID:     "approval-pg-fixture",
+		Decision:       "APPROVED",
+		Scope:          scope,
+		IssuedAt:       f.now.Add(-time.Minute),
+		ExpiresAt:      f.now.Add(time.Minute),
 	}
 	payload, err := json.Marshal(evidence)
 	if err != nil {
@@ -49,8 +49,8 @@ func signFixtureForResolvedOperation(t *testing.T, f *preflightFixture) {
 	fingerprint := sha256.Sum256(f.pub)
 	signature := ed25519.Sign(f.privateKey, append([]byte("engageguard/approval-proof/v1\x00"), payload...))
 	f.signed, err = json.Marshal(approval.SignedEvidence{
-		KeyID: hex.EncodeToString(fingerprint[:]),
-		Payload: payload,
+		KeyID:     hex.EncodeToString(fingerprint[:]),
+		Payload:   payload,
 		Signature: signature,
 	})
 	if err != nil {
