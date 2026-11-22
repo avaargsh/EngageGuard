@@ -30,15 +30,15 @@ func (a *localCurrentAuthority) VerifyCurrent(_ context.Context, _, _ string, _ 
 	return nil
 }
 
+// mutatingCurrentAuthority represents a change in Guard-owned durable state
+// after the first successful live/ledger pair and before the final one.
+// This is still a test stub, NOT an authenticated policy authority.
+type mutatingCurrentAuthority struct {
+	calls    int
+	onSecond func() error
+}
 
- // mutatingCurrentAuthority represents a change in Guard-owned durable state
- // after the first successful live/ledger pair and before the final one.
- // This is still a test stub, NOT an authenticated policy authority.
- type mutatingCurrentAuthority struct {
- 	calls int
- 	onSecond func() error
- }
- func (a *mutatingCurrentAuthority) VerifyCurrent(_ context.Context, _, _ string, _ action.WorkspaceWrite) error {
+func (a *mutatingCurrentAuthority) VerifyCurrent(_ context.Context, _, _ string, _ action.WorkspaceWrite) error {
  	a.calls++
  	if a.calls == 2 && a.onSecond != nil {
  		return a.onSecond()
@@ -186,7 +186,7 @@ func TestExecutorNecessaryGateDeniesPostFirstLedgerRevocationAndLostACK(t *testi
 			}
 			gate, err := executorpep.NewGate(executorpep.Binding{
 				ExecutorSPIFFEID: "spiffe://platform.example/ns/sandbox/sa/executor",
-				TenantID: "tenant-a", Audience: "trusted-workspace-executor",
+				TenantID:         "tenant-a", Audience: "trusted-workspace-executor",
 				ClientRoot: root,
 			}, store, live)
 			if err != nil {
@@ -213,8 +213,7 @@ func TestExecutorNecessaryGateDeniesPostFirstLedgerRevocationAndLostACK(t *testi
 				recovered.AttemptID != intent.AttemptID || recovered.PermitID != permitID {
 				t.Fatalf("recovery lost exact committed attempt: %+v", recovered)
 			}
-			if _, err := New(store.db).ClaimAuthorizedIntent(ctx, permitID, resolved);
-				!errors.Is(err, ErrPermitAlreadyClaimed) {
+			if _, err := New(store.db).ClaimAuthorizedIntent(ctx, permitID, resolved); !errors.Is(err, ErrPermitAlreadyClaimed) {
 				t.Fatalf("recovered or revoked attempt could be claimed again: %v", err)
 			}
 			var audits int
