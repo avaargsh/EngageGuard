@@ -113,6 +113,38 @@ func VerifyPermitRoleSeparation(
 	} {
 		probes = append(probes, probe{claimerRole, "guard_permits", column, "UPDATE", false})
 	}
+	// A Permit writer needs to SELECT the exact accepted source, but must
+	// never create or mutate that source. The claimer needs no source-table
+	// privileges at all. Deny indirect writes to migration, UNKNOWN and
+	// revocation journals as well as the original operation/outbox tables.
+	// Check both whole-table and column-level INSERT/UPDATE grants.
+	for _, role := range []string{issuerRole, claimerRole} {
+		for _, table := range []string{
+			"guard_action_operations",
+			"guard_accepted_submission_snapshots",
+			"guard_outbox_events",
+			"guard_schema_migrations",
+			"guard_operation_unknown_events",
+			"guard_permit_revocations",
+		} {
+			sourceRead := role == issuerRole &&
+				(table == "guard_action_operations" || table == "guard_accepted_submission_snapshots")
+			probes = append(probes, probe{role, table, "", "SELECT", sourceRead})
+			for _, privilege := range []string{"INSERT", "UPDATE", "DELETE", "TRUNCATE"} {
+				probes = append(probes, probe{role, table, "", privilege, false})
+			}
+		}
+	}
+	// The claimer can only append Intent/Audit and update exact Permit
+	// claim columns. Any UPDATE or DELETE on the causal evidence must be
+	// rejected regardless of the database's immutable row triggers.
+	for _, table := range []string{"guard_operation_intents", "guard_execution_audit"} {
+		for _, role := range []string{issuerRole, claimerRole} {
+			for _, privilege := range []string{"UPDATE", "DELETE", "TRUNCATE"} {
+				probes = append(probes, probe{role, table, "", privilege, false})
+			}
+		}
+	}
 	for _, pr := range probes {
 		var got bool
 		var q string
