@@ -86,6 +86,11 @@ func issueTestCA(t *testing.T) testCA {
 }
 func issueTestLeaf(t *testing.T, ca testCA, client bool, identity string, omitClientEKU ...bool) tls.Certificate {
 	t.Helper()
+	return issueTestLeafUntil(t, ca, client, identity, time.Now().Add(time.Hour), omitClientEKU...)
+}
+
+func issueTestLeafUntil(t *testing.T, ca testCA, client bool, identity string, notAfter time.Time, omitClientEKU ...bool) tls.Certificate {
+	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -93,7 +98,7 @@ func issueTestLeaf(t *testing.T, ca testCA, client bool, identity string, omitCl
 	now := time.Now()
 	template := &x509.Certificate{
 		SerialNumber: big.NewInt(now.UnixNano()),
-		NotBefore:    now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
+		NotBefore:    now.Add(-time.Hour), NotAfter: notAfter,
 		KeyUsage: x509.KeyUsageDigitalSignature,
 	}
 	if client {
@@ -296,6 +301,62 @@ func TestExecutorPreEffectRejectsMutatedParsedCertificateIdentity(t *testing.T) 
 				t.Fatalf("mutated certificate reached trusted authorities: ledger=%d live=%d", ledger.calls, live.calls)
 			}
 		})
+	}
+}
+
+// expiryWaitLive is a test authority that returns successful fresh reads
+// while the executor's signed client certificate crosses its expiration.
+type expiryWaitLive struct {
+	expiresAt time.Time
+	calls     int
+}
+func (f *expiryWaitLive) VerifyCurrent(ctx context.Context, _, _ string, _ action.WorkspaceWrite) error {
+	f.calls++
+	if f.calls == 2 {
+		wait := time.Until(f.expiresAt.Add(time.Second))
+		if wait > 0 {
+			timer := time.NewTimer(wait)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+	return nil
+}
+
+func TestExecutorPreEffectDenyWhenClientCertExpiresDuringLiveChecks(t *testing.T) {
+	ca := issueTestCA(t)
+	// ASN.1 certificate validity has whole-second precision. Give the
+	// initial signed chain a few seconds of validity, then cross the real
+	// expiry deterministically during the second trusted source read.
+	expiresAt := time.Now().Add(4 * time.Second).Truncate(time.Second)
+	leaf := issueTestLeafUntil(t, ca, true, goodExecutorID, expiresAt)
+	signedLeaf, err := x509.ParseCertificate(leaf.Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	chains, err := signedLeaf.Verify(x509.VerifyOptions{
+		Roots: ca.roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	})
+	if err != nil {
+		t.Fatalf("precondition: certificate must be initially valid: %v", err)
+	}
+	peer := &tls.ConnectionState{
+		HandshakeComplete: true, Version: tls.VersionTLS13,
+		PeerCertificates: []*x509.Certificate{signedLeaf}, VerifiedChains: chains,
+	}
+	ledger := &fakeLedger{}
+	live := &expiryWaitLive{expiresAt: expiresAt}
+	g := makeGate(t, ca.cert, ledger, live)
+	err = g.Check(context.Background(), peer, testPermitID, testAttemptID, resolvedWorkspaceWrite())
+	if !errors.Is(err, ErrBlocked) {
+		t.Fatalf("client certificate expired during trusted checks; must fail closed: %v", err)
+	}
+	if ledger.calls != 2 || live.calls != 2 {
+		t.Fatalf("precondition: both authority reads must complete before expiry postflight: live=%d ledger=%d", live.calls, ledger.calls)
 	}
 }
 
