@@ -23,6 +23,7 @@ var ErrBlocked = errors.New("executor pre-effect checks blocked")
 var ErrUnavailable = errors.New("executor pre-effect authority unavailable")
 
 var identityRE = regexp.MustCompile("^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+
 // Guard-generated operation and attempt IDs must be canonical RFC 4122 variant UUIDs.
 var uuidRE = regexp.MustCompile("^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 
