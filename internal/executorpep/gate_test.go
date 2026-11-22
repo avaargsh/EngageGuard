@@ -84,7 +84,7 @@ func issueTestCA(t *testing.T) testCA {
 	pool.AddCert(cert)
 	return testCA{cert: cert, key: key, roots: pool}
 }
-func issueTestLeaf(t *testing.T, ca testCA, client bool, identity string) tls.Certificate {
+func issueTestLeaf(t *testing.T, ca testCA, client bool, identity string, omitClientEKU ...bool) tls.Certificate {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -102,7 +102,9 @@ func issueTestLeaf(t *testing.T, ca testCA, client bool, identity string) tls.Ce
 			t.Fatal(err)
 		}
 		template.URIs = []*url.URL{uri}
-		template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
+		if len(omitClientEKU) == 0 || !omitClientEKU[0] {
+			template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
+		}
 	} else {
 		template.IPAddresses = []net.IP{net.ParseIP("127.0.0.1")}
 		template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
@@ -113,9 +115,9 @@ func issueTestLeaf(t *testing.T, ca testCA, client bool, identity string) tls.Ce
 	}
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
 }
-func verifiedPeer(t *testing.T, ca testCA, identity string) *tls.ConnectionState {
+func verifiedPeer(t *testing.T, ca testCA, identity string, omitClientEKU ...bool) *tls.ConnectionState {
 	t.Helper()
-	leaf := issueTestLeaf(t, ca, true, identity)
+	leaf := issueTestLeaf(t, ca, true, identity, omitClientEKU...)
 	xleaf, err := x509.ParseCertificate(leaf.Certificate[0])
 	if err != nil {
 		t.Fatal(err)
@@ -176,6 +178,9 @@ func TestExecutorPreEffectFailClosedForIdentityOrAuthorityDrift(t *testing.T) {
 	}{
 		{"no TLS", ca.cert, nil, nil, 0, 0},
 		{"wrong executor SPIFFE", ca.cert, verifiedPeer(t, ca, "spiffe://platform.example/ns/sandbox/sa/attacker"), nil, 0, 0},
+		// Go x509.Verify permits an absent EKU as unconstrained. A protected
+		// executor must require an explicit client-auth SVID usage.
+		{"missing client-auth EKU", ca.cert, verifiedPeer(t, ca, goodExecutorID, true), nil, 0, 0},
 		{"runtime is not executor", ca.cert, verifiedPeer(t, ca, "spiffe://platform.example/ns/agents/sa/agent-runtime"), nil, 0, 0},
 		{"different pinned CA", other.cert, verifiedPeer(t, ca, goodExecutorID), nil, 0, 0},
 		{"tenant drift", ca.cert, verifiedPeer(t, ca, goodExecutorID), func(a *action.WorkspaceWrite) { a.TenantID = "tenant-b" }, 0, 0},
@@ -195,7 +200,7 @@ func TestExecutorPreEffectFailClosedForIdentityOrAuthorityDrift(t *testing.T) {
 			if err := g.Check(context.Background(), tc.peer, testPermitID, testAttemptID, a); err == nil {
 				t.Fatal("identity or live-authority drift passed necessary gate")
 			}
-			if tc.name == "no TLS" || tc.name == "wrong executor SPIFFE" || tc.name == "runtime is not executor" || tc.name == "different pinned CA" || tc.name == "tenant drift" || tc.name == "audience drift" {
+			if tc.name == "no TLS" || tc.name == "wrong executor SPIFFE" || tc.name == "missing client-auth EKU" || tc.name == "runtime is not executor" || tc.name == "different pinned CA" || tc.name == "tenant drift" || tc.name == "audience drift" {
 				if l.calls != 0 || v.calls != 0 {
 					t.Fatalf("unauthenticated caller reached sources: ledger=%d live=%d", l.calls, v.calls)
 				}
