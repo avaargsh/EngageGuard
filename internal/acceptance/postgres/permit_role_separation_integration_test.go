@@ -87,8 +87,7 @@ func TestPermitIssuerAndClaimerRoleSeparation(t *testing.T) {
 			if _, err := db.ExecContext(ctx, tc.grant); err != nil {
 				t.Fatal(err)
 			}
-			if err := VerifyPermitRoleSeparation(ctx, db, issuer, claimer);
-				!errors.Is(err, ErrPermitRoleUnsafe) {
+			if err := VerifyPermitRoleSeparation(ctx, db, issuer, claimer); !errors.Is(err, ErrPermitRoleUnsafe) {
 				t.Fatalf("dangerous Permit role grant accepted: %v", err)
 			}
 			if _, err := db.ExecContext(ctx, tc.revoke); err != nil {
