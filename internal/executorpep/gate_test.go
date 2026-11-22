@@ -310,6 +310,7 @@ type expiryWaitLive struct {
 	expiresAt time.Time
 	calls     int
 }
+
 func (f *expiryWaitLive) VerifyCurrent(ctx context.Context, _, _ string, _ action.WorkspaceWrite) error {
 	f.calls++
 	if f.calls == 2 {
