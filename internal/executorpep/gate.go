@@ -23,7 +23,8 @@ var ErrBlocked = errors.New("executor pre-effect checks blocked")
 var ErrUnavailable = errors.New("executor pre-effect authority unavailable")
 
 var identityRE = regexp.MustCompile("^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
-var uuidRE = regexp.MustCompile("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+// Guard-generated operation and attempt IDs must be canonical RFC 4122 variant UUIDs.
+var uuidRE = regexp.MustCompile("^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 
 // Binding is provisioned by the executor operator, never read from untrusted
 // model output, request bodies, forwarding headers or the TLS peer itself.
@@ -131,7 +132,7 @@ func (g *Gate) verifiedExecutor(peer *tls.ConnectionState) bool {
 	}
 	if leaf.IsCA || len(leaf.Raw) == 0 ||
 		leaf.KeyUsage&x509.KeyUsageDigitalSignature == 0 ||
-		len(leaf.URIs) != 1 || len(leaf.DNSNames) != 0 ||
+		len(leaf.URIs) != 1 || leaf.URIs[0] == nil || len(leaf.DNSNames) != 0 ||
 		len(leaf.EmailAddresses) != 0 || len(leaf.IPAddresses) != 0 ||
 		leaf.URIs[0].String() != g.binding.ExecutorSPIFFEID {
 		return false
