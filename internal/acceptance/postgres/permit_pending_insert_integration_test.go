@@ -33,7 +33,7 @@ func pendingPermitFixture(t *testing.T) (*Store, pendingPermitWrite) {
 			WorkspaceID: "workspace-1", RelativePath: "docs/a.txt",
 			ContentDigest: strings.Repeat("b", 64),
 		},
-		Issuer: "test-only-issuer",
+		Issuer:    "test-only-issuer",
 		ExpiresAt: time.Now().UTC().Add(30 * time.Second).Truncate(time.Microsecond),
 	}
 }
@@ -123,7 +123,9 @@ func TestPendingPermitInsertFailsClosedOnUntrustedSourceAndExpiredProof(t *testi
 	}{
 		{"changed original Run", func(r *pendingPermitWrite) { r.Submission.RunID = "another-run" }},
 		{"changed original Decision", func(r *pendingPermitWrite) { r.Submission.DecisionID = "another-decision" }},
-		{"changed original arguments", func(r *pendingPermitWrite) { r.Submission.Arguments = json.RawMessage(`{"path":"docs/a.txt","content":"changed"}`) }},
+		{"changed original arguments", func(r *pendingPermitWrite) {
+			r.Submission.Arguments = json.RawMessage(`{"path":"docs/a.txt","content":"changed"}`)
+		}},
 		{"wrong authenticated tenant", func(r *pendingPermitWrite) { r.Resolved.TenantID = "tenant-other" }},
 		{"wrong original operation", func(r *pendingPermitWrite) { r.Resolved.OperationID = "33333333-3333-4333-8333-333333333333" }},
 		{"wrong original workspace", func(r *pendingPermitWrite) { r.Submission.ResourceRef = "workspace-2" }},
