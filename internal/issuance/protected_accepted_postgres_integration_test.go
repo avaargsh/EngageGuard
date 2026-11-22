@@ -127,6 +127,38 @@ func TestProtectedPreflightBindsRealPostgresAcceptedOperation(t *testing.T) {
 		t.Fatalf("different durable accepted Run reused another Run's authorization: %v", err)
 	}
 
+	// Same RunID is not a blanket approval. Every immutable Plan, Step,
+	// Decision, target and argument change must map to its own signed
+	// and source-matched operation; borrowing another submission fails.
+	for i, tc := range []struct {
+		name   string
+		before string
+		after  string
+	}{
+		{"same run changed decision", `"decision_id":"decision-1"`, `"decision_id":"decision-2"`},
+		{"same run changed plan", `"plan_id":"plan-1"`, `"plan_id":"plan-2"`},
+		{"same run changed step", `"step_id":"step-1"`, `"step_id":"step-2"`},
+		{"same run changed workspace", `"resource_ref":"workspace-1"`, `"resource_ref":"workspace-2"`},
+		{"same run changed arguments", `"path":"docs/output.md"`, `"path":"docs/other.md"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			modified := bytes.Replace(raw, []byte(tc.before), []byte(tc.after), 1)
+			if bytes.Equal(modified, raw) {
+				t.Fatalf("fixture failed to modify accepted source for %s", tc.name)
+			}
+			other, created, err := store.Accept(ctx, f.principal.TenantID,
+				fmt.Sprintf("accepted-drift-%d", i), modified)
+			if err != nil || !created {
+				t.Fatalf("accept separate immutable operation: created=%v err=%v", created, err)
+			}
+			f.actions.resolved.OperationID = other.OperationID
+			signFixtureForResolvedOperation(t, f)
+			if err := g.Verify(ctx, f.principal, f.submission, f.signed); !errors.Is(err, ErrDenied) {
+				t.Fatalf("accepted %s borrowed a different immutable submission: %v", tc.name, err)
+			}
+		})
+	}
+
 	// Preflight is still necessary-only; no Permit/dispatch effect is minted.
 	var permitCount int
 	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM guard_permits").Scan(&permitCount); err != nil || permitCount != 0 {
