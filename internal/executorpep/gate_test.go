@@ -232,6 +232,38 @@ func TestExecutorPreEffectConstructorRequiresAllAuthorities(t *testing.T) {
 	}
 }
 
+
+func TestExecutorPreEffectRejectsMalformedPeerAndNonCanonicalIdentifiers(t *testing.T) {
+	ca := issueTestCA(t)
+	goodPeer := verifiedPeer(t, ca, goodExecutorID)
+	malformedPeer := verifiedPeer(t, ca, goodExecutorID)
+	// Defensive boundary: an in-process caller can supply a malformed
+	// ConnectionState. The check must fail closed, not crash the process.
+	malformedPeer.PeerCertificates[0].URIs[0] = nil
+	for _, tc := range []struct {
+		name      string
+		peer      *tls.ConnectionState
+		permitID  string
+		attemptID string
+	}{
+		{"nil SPIFFE URI must deny without panic", malformedPeer, testPermitID, testAttemptID},
+		{"zero-version permit UUID must deny", goodPeer, "00000000-0000-0000-0000-000000000000", testAttemptID},
+		{"non-RFC variant attempt UUID must deny", goodPeer, testPermitID, "10000000-0000-4000-0000-000000000002"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ledger, live := &fakeLedger{}, &fakeLive{}
+			g := makeGate(t, ca.cert, ledger, live)
+			if err := g.Check(context.Background(), tc.peer, tc.permitID, tc.attemptID,
+				resolvedWorkspaceWrite()); err == nil {
+				t.Fatal("malformed peer or non-canonical identifier passed the gate")
+			}
+			if ledger.calls != 0 || live.calls != 0 {
+				t.Fatalf("malformed request reached trusted authorities: ledger=%d live=%d", ledger.calls, live.calls)
+			}
+		})
+	}
+}
+
 func TestExecutorPreEffectRealTLS13MTLSHandshake(t *testing.T) {
 	serverCA := issueTestCA(t)
 	clientCA := issueTestCA(t)
