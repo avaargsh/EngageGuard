@@ -242,5 +242,5 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
 		return fmt.Errorf("%w: Permit v12 initial INSERT state trigger disabled or changed: %v",
 			ErrSchemaDrift, err)
 	}
-	return nil
+	return verifyPermitTriggerFunctions(ctx, tx)
 }
