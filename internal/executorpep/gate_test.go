@@ -237,6 +237,7 @@ func TestExecutorPreEffectRealTLS13MTLSHandshake(t *testing.T) {
 	clientCA := issueTestCA(t)
 	serverCert := issueTestLeaf(t, serverCA, false, "")
 	goodClient := issueTestLeaf(t, clientCA, true, goodExecutorID)
+	missingClientEKU := issueTestLeaf(t, clientCA, true, goodExecutorID, true)
 	wrongIdentity := issueTestLeaf(t, clientCA, true, "spiffe://platform.example/ns/sandbox/sa/other")
 	wrongCA := issueTestCA(t)
 	untrustedClient := issueTestLeaf(t, wrongCA, true, goodExecutorID)
@@ -273,6 +274,10 @@ func TestExecutorPreEffectRealTLS13MTLSHandshake(t *testing.T) {
 	}
 	if ledger.calls != 2 || live.calls != 2 {
 		t.Fatalf("network path skipped live checks: ledger=%d live=%d", ledger.calls, live.calls)
+	}
+	status, err = call([]tls.Certificate{missingClientEKU})
+	if err != nil || status != http.StatusForbidden {
+		t.Fatalf("client certificate without explicit ClientAuth EKU passed: status=%d err=%v", status, err)
 	}
 	status, err = call([]tls.Certificate{wrongIdentity})
 	if err != nil || status != http.StatusForbidden {
