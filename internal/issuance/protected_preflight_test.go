@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/avaargsh/EngageGuard/internal/acceptance/postgres"
 	"github.com/avaargsh/EngageGuard/internal/action"
 	"github.com/avaargsh/EngageGuard/internal/admission"
 	"github.com/avaargsh/EngageGuard/internal/approval"
-	"github.com/avaargsh/EngageGuard/internal/acceptance/postgres"
 )
 
 type fakeRuntime struct {
@@ -136,14 +136,17 @@ func (r *fakeRisk) EvaluateRisk(_ context.Context, scope approval.Scope) (RiskSt
 
 // fakeAccepted simulates Guard's source-owned immutable accepted submission.
 type fakeAccepted struct {
-	snapshot postgres.AcceptedSubmission
-	calls int
-	unavailable bool
+	snapshot           postgres.AcceptedSubmission
+	calls              int
+	unavailable        bool
 	changeOnPostflight bool
 }
+
 func (a *fakeAccepted) ReadAcceptedSubmission(_ context.Context, tenantID, operationID string) (postgres.AcceptedSubmission, error) {
 	a.calls++
-	if a.unavailable { return postgres.AcceptedSubmission{}, errors.New("accepted DB unavailable") }
+	if a.unavailable {
+		return postgres.AcceptedSubmission{}, errors.New("accepted DB unavailable")
+	}
 	out := a.snapshot
 	if a.changeOnPostflight && a.calls > 1 {
 		out.Raw = append([]byte(nil), out.Raw...)
@@ -191,15 +194,19 @@ func makePreflightFixture(t *testing.T) *preflightFixture {
 		WorkspaceID: "workspace-1", RelativePath: "docs/output.md", ContentDigest: strings.Repeat("c", 64),
 	}}
 	raw, err := json.Marshal(f.submission)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	acceptedDigest, err := action.SubmissionDigest(raw)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	f.accepted = &fakeAccepted{snapshot: postgres.AcceptedSubmission{
 		Operation: postgres.Operation{
-			TenantID: f.principal.TenantID,
-			OperationID: "22222222-2222-4222-8222-222222222222",
+			TenantID:         f.principal.TenantID,
+			OperationID:      "22222222-2222-4222-8222-222222222222",
 			SubmissionDigest: acceptedDigest,
-			Status: "ACCEPTED",
+			Status:           "ACCEPTED",
 		},
 		Raw: raw,
 	}}
@@ -365,7 +372,7 @@ func TestProtectedPreflightRequiresDurableAcceptedSubmissionAndChecksItTwice(t *
 
 func TestProtectedPreflightRejectsAcceptedOperationMismatchAndDrift(t *testing.T) {
 	for _, tc := range []struct {
-		name string
+		name   string
 		mutate func(*fakeAccepted)
 	}{
 		{"accepted record unavailable", func(a *fakeAccepted) { a.unavailable = true }},
@@ -373,10 +380,17 @@ func TestProtectedPreflightRejectsAcceptedOperationMismatchAndDrift(t *testing.T
 		{"accepted operation different ID", func(a *fakeAccepted) { a.snapshot.Operation.OperationID = "33333333-3333-4333-8333-333333333333" }},
 		{"accepted operation not accepted", func(a *fakeAccepted) { a.snapshot.Operation.Status = "UNKNOWN" }},
 		{"accepted snapshot digest changed", func(a *fakeAccepted) { a.snapshot.Operation.SubmissionDigest = strings.Repeat("0", 64) }},
-		{"accepted snapshot bytes changed", func(a *fakeAccepted) { a.snapshot.Raw = append([]byte(nil), a.snapshot.Raw...); a.snapshot.Raw = append(a.snapshot.Raw, ' ') }},
+		{"accepted snapshot bytes changed", func(a *fakeAccepted) {
+			a.snapshot.Raw = append([]byte(nil), a.snapshot.Raw...)
+			a.snapshot.Raw = append(a.snapshot.Raw, ' ')
+		}},
 		{"accepted body has different Run", func(a *fakeAccepted) {
 			a.snapshot.Raw = []byte(strings.Replace(string(a.snapshot.Raw), "11111111-1111-4111-8111-111111111111", "44444444-4444-4444-8444-444444444444", 1))
-			digest, err := action.SubmissionDigest(a.snapshot.Raw); if err != nil { panic(err) }; a.snapshot.Operation.SubmissionDigest = digest
+			digest, err := action.SubmissionDigest(a.snapshot.Raw)
+			if err != nil {
+				panic(err)
+			}
+			a.snapshot.Operation.SubmissionDigest = digest
 		}},
 		{"accepted source changes after first read", func(a *fakeAccepted) { a.changeOnPostflight = true }},
 	} {
