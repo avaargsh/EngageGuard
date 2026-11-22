@@ -17,10 +17,10 @@ import (
 // Runtime/Decision/ACP/Approval/Risk, and is deliberately not exported to an
 // API, the executor or any production authorization service.
 var (
-	ErrPermitAlreadyIssued       = errors.New("Guard operation already has a Permit")
-	ErrPendingPermitInvalid     = errors.New("Guard pending Permit input or issuance window invalid")
+	ErrPermitAlreadyIssued         = errors.New("Guard operation already has a Permit")
+	ErrPendingPermitInvalid        = errors.New("Guard pending Permit input or issuance window invalid")
 	ErrPendingPermitSourceMismatch = errors.New("Guard pending Permit not bound to exact accepted submission")
-	ErrPendingPermitUnavailable  = errors.New("Guard pending Permit database unavailable")
+	ErrPendingPermitUnavailable    = errors.New("Guard pending Permit database unavailable")
 )
 
 var pendingIssuerIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,127}$`)
