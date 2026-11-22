@@ -124,8 +124,8 @@ func TestPermitV12MigrationRejectsDisabledOrDowngradedInsertFence(t *testing.T) 
 func TestPermitV12UpgradeRefusesPreexistingForgedClaimOrRevocation(t *testing.T) {
 	for _, tc := range []struct {
 		name, state string
-		claimed    bool
-		revoked    bool
+		claimed     bool
+		revoked     bool
 	}{
 		{"orphan historical CLAIMED", "CLAIMED", true, false},
 		{"historical revoked without immutable journal", "ISSUED", false, true},
