@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -15,7 +17,7 @@ import (
 
 // The actual private pending-issue transaction must work under a separate,
 // least-privileged PostgreSQL session identity, not just a schema-owner fixture.
-// CI's disposable database uses host trust for this test-only LOGIN role.
+// CI provisions a random SCRAM password for this disposable LOGIN role.
 // This does NOT provision or authenticate production service credentials.
 func TestPendingPermitInsertAsDistinctLeastPrivilegeDatabaseIssuer(t *testing.T) {
 	owner, req := pendingPermitFixture(t)
@@ -27,10 +29,17 @@ func TestPendingPermitInsertAsDistinctLeastPrivilegeDatabaseIssuer(t *testing.T)
 	suffix := time.Now().UnixNano()
 	issuer := fmt.Sprintf("guard_pending_issuer_%d", suffix)
 	claimer := fmt.Sprintf("guard_pending_claimer_%d", suffix)
+	var passwordBytes [32]byte
+	if _, err := rand.Read(passwordBytes[:]); err != nil {
+		t.Fatal(err)
+	}
+	password := hex.EncodeToString(passwordBytes[:])
 	for _, role := range []string{issuer, claimer} {
 		attr := "NOLOGIN"
 		if role == issuer {
-			attr = "LOGIN"
+			// CI uses SCRAM TCP authentication, not local trust. This
+			// cryptographically random password exists only for this test.
+			attr = "LOGIN PASSWORD '" + password + "'"
 		}
 		if _, err := owner.db.ExecContext(ctx, "CREATE ROLE "+role+" "+attr+" NOINHERIT"); err != nil {
 			t.Fatal(err)
@@ -62,13 +71,13 @@ func TestPendingPermitInsertAsDistinctLeastPrivilegeDatabaseIssuer(t *testing.T)
 		t.Fatal(err)
 	}
 	config.User = issuer
-	config.Password = ""
+	config.Password = password
 	config.RuntimeParams["search_path"] = schema
 	issuerDB := stdlib.OpenDB(*config)
 	issuerDB.SetMaxOpenConns(2)
 	t.Cleanup(func() { issuerDB.Close() })
 	if err := issuerDB.PingContext(ctx); err != nil {
-		t.Fatalf("separate test-only LOGIN role cannot connect (CI should permit local trust): %v", err)
+		t.Fatalf("separate password-authenticated test-only LOGIN role cannot connect: %v", err)
 	}
 	var loggedIn string
 	if err := issuerDB.QueryRowContext(ctx, "SELECT current_user").Scan(&loggedIn); err != nil || loggedIn != issuer {
