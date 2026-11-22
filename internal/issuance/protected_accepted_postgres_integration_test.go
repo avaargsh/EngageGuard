@@ -36,11 +36,11 @@ func signFixtureForResolvedOperation(t *testing.T, f *preflightFixture) {
 	}
 	evidence := approval.Evidence{
 		SchemaVersion: "engageguard.approval-evidence.v1",
-		ApprovalID:     "approval-pg-fixture",
-		Decision:       "APPROVED",
-		Scope:          scope,
-		IssuedAt:       f.now.Add(-time.Minute),
-		ExpiresAt:      f.now.Add(time.Minute),
+		ApprovalID:    "approval-pg-fixture",
+		Decision:      "APPROVED",
+		Scope:         scope,
+		IssuedAt:      f.now.Add(-time.Minute),
+		ExpiresAt:     f.now.Add(time.Minute),
 	}
 	payload, err := json.Marshal(evidence)
 	if err != nil {
