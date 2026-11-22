@@ -88,6 +88,15 @@ func TestPendingPermitInsertAsDistinctLeastPrivilegeDatabaseIssuer(t *testing.T)
 	if err != nil || !validDispatchUUID(permitID) {
 		t.Fatalf("least-privilege issuance transaction did not commit: id=%q err=%v", permitID, err)
 	}
+	// The audit identity must be the effective PostgreSQL principal
+	// that actually wrote the Permit, not caller-provided Issuer text.
+	var recordedIssuer string
+	if err := owner.db.QueryRowContext(ctx,
+		"SELECT issued_by FROM guard_permits WHERE permit_id=$1::uuid", permitID).
+		Scan(&recordedIssuer); err != nil || recordedIssuer != issuer {
+		t.Fatalf("Permit audit identity can be impersonated by caller: recorded=%q dbActor=%q err=%v",
+			recordedIssuer, issuer, err)
+	}
 	if _, err := New(issuerDB).insertPendingPermit(ctx, req); !errors.Is(err, ErrPermitAlreadyIssued) {
 		t.Fatalf("least-privilege replay did not reject duplicate: %v", err)
 	}
