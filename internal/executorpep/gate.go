@@ -223,6 +223,13 @@ func (g *Gate) Check(ctx context.Context, peer *tls.ConnectionState,
 			return ErrBlocked
 		}
 	}
+	// An mTLS identity that was valid at admission can expire or be
+	// revoked by its certificate lifecycle while live authorities/ledger
+	// are read. Revalidate the signed chain at the end of this necessary
+	// inspection; a successful earlier TLS handshake is not enough.
+	if !g.verifiedExecutor(peer) {
+		return ErrBlocked
+	}
 	if err := ctx.Err(); err != nil {
 		return ErrUnavailable
 	}
