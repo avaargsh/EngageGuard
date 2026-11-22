@@ -232,7 +232,6 @@ func TestExecutorPreEffectConstructorRequiresAllAuthorities(t *testing.T) {
 	}
 }
 
-
 func TestExecutorPreEffectRejectsMalformedPeerAndNonCanonicalIdentifiers(t *testing.T) {
 	ca := issueTestCA(t)
 	goodPeer := verifiedPeer(t, ca, goodExecutorID)
