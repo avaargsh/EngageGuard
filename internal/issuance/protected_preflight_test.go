@@ -15,6 +15,7 @@ import (
 	"github.com/avaargsh/EngageGuard/internal/action"
 	"github.com/avaargsh/EngageGuard/internal/admission"
 	"github.com/avaargsh/EngageGuard/internal/approval"
+	"github.com/avaargsh/EngageGuard/internal/acceptance/postgres"
 )
 
 type fakeRuntime struct {
@@ -133,6 +134,24 @@ func (r *fakeRisk) EvaluateRisk(_ context.Context, scope approval.Scope) (RiskSt
 	return state, nil
 }
 
+// fakeAccepted simulates Guard's source-owned immutable accepted submission.
+type fakeAccepted struct {
+	snapshot postgres.AcceptedSubmission
+	calls int
+	unavailable bool
+	changeOnPostflight bool
+}
+func (a *fakeAccepted) ReadAcceptedSubmission(_ context.Context, tenantID, operationID string) (postgres.AcceptedSubmission, error) {
+	a.calls++
+	if a.unavailable { return postgres.AcceptedSubmission{}, errors.New("accepted DB unavailable") }
+	out := a.snapshot
+	if a.changeOnPostflight && a.calls > 1 {
+		out.Raw = append([]byte(nil), out.Raw...)
+		out.Raw = append(out.Raw, ' ')
+	}
+	return out, nil
+}
+
 type preflightFixture struct {
 	runtime    *fakeRuntime
 	decision   *fakeProtectedDecision
@@ -144,6 +163,7 @@ type preflightFixture struct {
 	submission action.ActionSubmission
 	signed     []byte
 	pub        ed25519.PublicKey
+	accepted   *fakeAccepted
 	now        time.Time
 }
 
@@ -169,6 +189,19 @@ func makePreflightFixture(t *testing.T) *preflightFixture {
 		OperationID: "22222222-2222-4222-8222-222222222222", CapabilityID: "workspace.write",
 		ToolBindingDigest: strings.Repeat("b", 64), PolicyVersion: "policy-v1", Audience: "workspace-executor",
 		WorkspaceID: "workspace-1", RelativePath: "docs/output.md", ContentDigest: strings.Repeat("c", 64),
+	}}
+	raw, err := json.Marshal(f.submission)
+	if err != nil { t.Fatal(err) }
+	digest, err := action.SubmissionDigest(raw)
+	if err != nil { t.Fatal(err) }
+	f.accepted = &fakeAccepted{snapshot: postgres.AcceptedSubmission{
+		Operation: postgres.Operation{
+			TenantID: f.principal.TenantID,
+			OperationID: "22222222-2222-4222-8222-222222222222",
+			SubmissionDigest: digest,
+			Status: "ACCEPTED",
+		},
+		Raw: raw,
 	}}
 	f.acp = &fakeProtectedACP{observation: admission.ProtectedWorkspaceObservation{
 		ContractSHA256: strings.Repeat("d", 64), ConfigDigest: "sha256:" + strings.Repeat("e", 64), PolicyRevision: "policy-v1",
@@ -205,7 +238,7 @@ func makePreflightFixture(t *testing.T) *preflightFixture {
 func (f *preflightFixture) gate(t *testing.T) *Gate {
 	t.Helper()
 	g, err := NewGate(Dependencies{
-		Runtime: f.runtime, Decision: f.decision, Actions: f.actions, ACP: f.acp,
+		Runtime: f.runtime, Decision: f.decision, Actions: f.actions, ACP: f.acp, Accepted: f.accepted,
 		Approvals: f.approvals, Risk: f.risk, ApprovalKey: f.pub, Now: func() time.Time { return f.now },
 	})
 	if err != nil {
@@ -264,7 +297,7 @@ func TestProtectedPreflightRejectsStaleEvidenceRiskAndSourceDrift(t *testing.T) 
 func TestProtectedPreflightConstructionFailsWithMissingDependencies(t *testing.T) {
 	f := makePreflightFixture(t)
 	g := Dependencies{Runtime: f.runtime, Decision: f.decision, Actions: f.actions, ACP: f.acp, Approvals: f.approvals,
-		Risk: f.risk, ApprovalKey: f.pub, Now: func() time.Time { return f.now }}
+		Risk: f.risk, Accepted: f.accepted, ApprovalKey: f.pub, Now: func() time.Time { return f.now }}
 	if _, err := NewGate(Dependencies{}); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("nil source accepted: %v", err)
 	}
@@ -291,7 +324,7 @@ func TestProtectedPreflightRechecksApprovalExpiryAtReturn(t *testing.T) {
 			clockReads := 0
 			g, err := NewGate(Dependencies{
 				Runtime: f.runtime, Decision: f.decision, Actions: f.actions,
-				ACP: f.acp, Approvals: f.approvals, Risk: f.risk,
+				ACP: f.acp, Accepted: f.accepted, Approvals: f.approvals, Risk: f.risk,
 				ApprovalKey: f.pub,
 				Now: func() time.Time {
 					clockReads++
@@ -316,5 +349,54 @@ func TestProtectedPreflightRechecksApprovalExpiryAtReturn(t *testing.T) {
 				t.Fatalf("still-valid signed approval rejected: %v", err)
 			}
 		})
+	}
+}
+
+func TestProtectedPreflightRequiresDurableAcceptedSubmissionAndChecksItTwice(t *testing.T) {
+	f := makePreflightFixture(t)
+	g := f.gate(t)
+	if err := g.Verify(context.Background(), f.principal, f.submission, f.signed); err != nil {
+		t.Fatalf("valid matching accepted operation blocked: %v", err)
+	}
+	if f.accepted.calls != 2 {
+		t.Fatalf("accepted submission was not checked before and after remote authorities: reads=%d", f.accepted.calls)
+	}
+}
+
+func TestProtectedPreflightRejectsAcceptedOperationMismatchAndDrift(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		mutate func(*fakeAccepted)
+	}{
+		{"accepted record unavailable", func(a *fakeAccepted) { a.unavailable = true }},
+		{"accepted operation wrong tenant", func(a *fakeAccepted) { a.snapshot.Operation.TenantID = "tenant-other" }},
+		{"accepted operation different ID", func(a *fakeAccepted) { a.snapshot.Operation.OperationID = "33333333-3333-4333-8333-333333333333" }},
+		{"accepted operation not accepted", func(a *fakeAccepted) { a.snapshot.Operation.Status = "UNKNOWN" }},
+		{"accepted snapshot digest changed", func(a *fakeAccepted) { a.snapshot.Operation.SubmissionDigest = strings.Repeat("0", 64) }},
+		{"accepted snapshot bytes changed", func(a *fakeAccepted) { a.snapshot.Raw = append([]byte(nil), a.snapshot.Raw...); a.snapshot.Raw = append(a.snapshot.Raw, ' ') }},
+		{"accepted body has different Run", func(a *fakeAccepted) {
+			a.snapshot.Raw = []byte(strings.Replace(string(a.snapshot.Raw), "11111111-1111-4111-8111-111111111111", "44444444-4444-4444-8444-444444444444", 1))
+			digest, err := action.SubmissionDigest(a.snapshot.Raw); if err != nil { panic(err) }; a.snapshot.Operation.SubmissionDigest = digest
+		}},
+		{"accepted source changes after first read", func(a *fakeAccepted) { a.changeOnPostflight = true }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := makePreflightFixture(t)
+			tc.mutate(f.accepted)
+			if err := f.gate(t).Verify(context.Background(), f.principal, f.submission, f.signed); err == nil {
+				t.Fatalf("unauthorized accepted provenance passed: %s", tc.name)
+			}
+		})
+	}
+}
+
+func TestProtectedPreflightFailClosedWithoutAcceptedSource(t *testing.T) {
+	f := makePreflightFixture(t)
+	if _, err := NewGate(Dependencies{
+		Runtime: f.runtime, Decision: f.decision, Actions: f.actions,
+		ACP: f.acp, Approvals: f.approvals, Risk: f.risk,
+		ApprovalKey: f.pub, Now: func() time.Time { return f.now },
+	}); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("missing durable acceptance source accepted by Gate: %v", err)
 	}
 }
