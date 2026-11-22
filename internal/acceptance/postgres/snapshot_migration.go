@@ -152,15 +152,32 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 	if normalized != "octet_lengthsubmission_bytes>=1ANDoctet_lengthsubmission_bytes<=65536" {
 		return fmt.Errorf("%w: weakened accepted snapshot size expression", ErrSchemaDrift)
 	}
-	// A same-named enabled trigger must still execute the exact immutable
-	// implementation, not a replaced no-op function.
+	// The shared function is used by snapshot, Permit audit, UNKNOWN and
+	// revocation immutability triggers. Its body was already checked, but
+	// function attributes must also match the safe invoker-only contract.
+	// ALTER FUNCTION preserves the trigger's function OID; reject same-OID
+	// SECURITY DEFINER, search_path/proconfig, language or signature drift.
 	var functionBody string
+	var functionAttributesSafe bool
 	err = tx.QueryRowContext(ctx, `
-		SELECT p.prosrc FROM pg_proc p
+		SELECT p.prosrc,
+		       p.prosecdef = false
+		       AND p.proleakproof = false
+		       AND p.provolatile = 'v'
+		       AND p.proisstrict = false
+		       AND p.proparallel = 'u'
+		       AND p.proconfig IS NULL
+		       AND p.prolang = (
+		           SELECT oid FROM pg_catalog.pg_language WHERE lanname='plpgsql'
+		       )
+		       AND p.pronamespace = current_schema()::regnamespace
+		       AND p.prorettype = 'pg_catalog.trigger'::regtype
+		       AND p.pronargs = 0
+		FROM pg_catalog.pg_proc p
 		WHERE p.oid=to_regprocedure('guard_reject_snapshot_mutation()')
-	`).Scan(&functionBody)
-	if err != nil || strings.TrimSpace(functionBody) != "BEGIN\n    RAISE EXCEPTION 'accepted Guard submission snapshots are immutable';\nEND;" {
-		return fmt.Errorf("%w: snapshot mutation trigger function changed: %v", ErrSchemaDrift, err)
+	`).Scan(&functionBody, &functionAttributesSafe)
+	if err != nil || !functionAttributesSafe || strings.TrimSpace(functionBody) != "BEGIN\n    RAISE EXCEPTION 'accepted Guard submission snapshots are immutable';\nEND;" {
+		return fmt.Errorf("%w: shared snapshot/audit mutation trigger function or security attributes changed: %v", ErrSchemaDrift, err)
 	}
 	// At least retain exact BYTEA type, NOT NULL, and the CHECK name/column.
 	err = tx.QueryRowContext(ctx, `
