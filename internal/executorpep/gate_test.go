@@ -263,7 +263,6 @@ func TestExecutorPreEffectRejectsMalformedPeerAndNonCanonicalIdentifiers(t *test
 	}
 }
 
-
 func TestExecutorPreEffectRejectsMutatedParsedCertificateIdentity(t *testing.T) {
 	ca := issueTestCA(t)
 	// A parsed ConnectionState is mutable by Go callers. Even if its
