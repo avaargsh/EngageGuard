@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/avaargsh/EngageGuard/internal/action"
 	"github.com/avaargsh/EngageGuard/internal/acceptance/postgres"
+	"github.com/avaargsh/EngageGuard/internal/action"
 	"github.com/avaargsh/EngageGuard/internal/admission"
 	"github.com/avaargsh/EngageGuard/internal/approval"
 )
@@ -96,7 +96,7 @@ type AcceptedSubmissionAuthority interface {
 }
 
 type Dependencies struct {
-	Accepted AcceptedSubmissionAuthority
+	Accepted    AcceptedSubmissionAuthority
 	Runtime     admission.RunSafetyAuthority
 	Decision    ProtectedDecisionAuthority
 	Actions     TrustedWorkspaceResolver
