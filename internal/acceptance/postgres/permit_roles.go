@@ -80,7 +80,7 @@ func VerifyPermitRoleSeparation(
 	// silently pass a check looking only at whole-table privileges.
 	type probe struct {
 		role, table, column, privilege string
-		want bool
+		want                           bool
 	}
 	probes := []probe{
 		{issuerRole, "guard_permits", "", "INSERT", true},
