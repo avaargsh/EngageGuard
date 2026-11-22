@@ -185,3 +185,55 @@ func TestPermitV12UpgradeRefusesPreexistingForgedClaimOrRevocation(t *testing.T)
 		})
 	}
 }
+
+func TestPermitTriggerFunctionBodyReplacementKeepsOIDButMustFailMigrate(t *testing.T) {
+	for _, functionName := range []string{
+		"guard_permit_immutable_row_v9",
+		"guard_permit_causal_transition_v10",
+		"guard_permit_claim_expiry_v11",
+		"guard_permit_initial_state_v12",
+	} {
+		t.Run(functionName, func(t *testing.T) {
+			_, db := integrationStore(t)
+			ctx := context.Background()
+			signature := functionName + "()"
+			var before, after string
+			if err := db.QueryRowContext(ctx,
+				"SELECT to_regprocedure($1)::oid::text", signature).Scan(&before); err != nil {
+				t.Fatal(err)
+			}
+			// CREATE OR REPLACE keeps the function OID and the linked trigger
+			// name intact. A catalog check that validates only tgfoid is
+			// therefore insufficient to detect the weaker trigger body.
+			_, err := db.ExecContext(ctx,
+				"CREATE OR REPLACE FUNCTION "+signature+
+					" RETURNS trigger LANGUAGE plpgsql AS $unsafe$ BEGIN RETURN NEW; END; $unsafe$")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := db.QueryRowContext(ctx,
+				"SELECT to_regprocedure($1)::oid::text", signature).Scan(&after); err != nil {
+				t.Fatal(err)
+			}
+			if before != after {
+				t.Fatalf("fixture replaced function OID: before=%s after=%s", before, after)
+			}
+			if err := Migrate(ctx, db); !errors.Is(err, ErrSchemaDrift) {
+				t.Fatalf("same-OID weakened Permit function accepted by migration: %v", err)
+			}
+		})
+	}
+}
+
+func TestPermitTriggerSecurityDefinerDriftMustFailMigrate(t *testing.T) {
+	_, db := integrationStore(t)
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx,
+		"ALTER FUNCTION guard_permit_initial_state_v12() SECURITY DEFINER")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); !errors.Is(err, ErrSchemaDrift) {
+		t.Fatalf("Permit guard function SECURITY DEFINER drift accepted: %v", err)
+	}
+}
