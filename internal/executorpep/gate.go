@@ -101,6 +101,17 @@ func NewGate(binding Binding, ledger Ledger, live LiveAuthority) (*Gate, error) 
 	return &Gate{binding: binding, ledger: ledger, live: live}, nil
 }
 
+// An unrestricted EKU (including an absent extension or ExtKeyUsageAny)
+// must not silently become an executor client identity.
+func explicitClientAuthEKU(cert *x509.Certificate) bool {
+	for _, usage := range cert.ExtKeyUsage {
+		if usage == x509.ExtKeyUsageClientAuth {
+			return true
+		}
+	}
+	return false
+}
+
 // verifiedExecutor requires a *transport-verified* TLS 1.3 peer certificate,
 // a single exact SPIFFE URI SAN, and a chain to the operator-pinned root.
 // The independently repeated certificate verification also prevents callers
@@ -112,7 +123,13 @@ func (g *Gate) verifiedExecutor(peer *tls.ConnectionState) bool {
 		return false
 	}
 	leaf := peer.PeerCertificates[0]
-	if leaf == nil || leaf.IsCA || len(leaf.Raw) == 0 ||
+	// x509.Verify treats a missing ExtendedKeyUsage as unconstrained. The
+	// executor's workload certificate must explicitly grant ClientAuth;
+	// a generic CA-signed leaf is not sufficient to enter the Guard gate.
+	if leaf == nil || !explicitClientAuthEKU(leaf) {
+		return false
+	}
+	if leaf.IsCA || len(leaf.Raw) == 0 ||
 		leaf.KeyUsage&x509.KeyUsageDigitalSignature == 0 ||
 		len(leaf.URIs) != 1 || len(leaf.DNSNames) != 0 ||
 		len(leaf.EmailAddresses) != 0 || len(leaf.IPAddresses) != 0 ||
