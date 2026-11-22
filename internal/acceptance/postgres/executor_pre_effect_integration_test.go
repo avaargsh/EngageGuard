@@ -30,6 +30,22 @@ func (a *localCurrentAuthority) VerifyCurrent(_ context.Context, _, _ string, _ 
 	return nil
 }
 
+
+ // mutatingCurrentAuthority represents a change in Guard-owned durable state
+ // after the first successful live/ledger pair and before the final one.
+ // This is still a test stub, NOT an authenticated policy authority.
+ type mutatingCurrentAuthority struct {
+ 	calls int
+ 	onSecond func() error
+ }
+ func (a *mutatingCurrentAuthority) VerifyCurrent(_ context.Context, _, _ string, _ action.WorkspaceWrite) error {
+ 	a.calls++
+ 	if a.calls == 2 && a.onSecond != nil {
+ 		return a.onSecond()
+ 	}
+ 	return nil
+ }
+
 func signedExecutorTestPeer(t *testing.T) (*x509.Certificate, *tls.ConnectionState) {
 	t.Helper()
 	now := time.Now()
@@ -135,6 +151,78 @@ func TestExecutorNecessaryGateAgainstRealPostgresClaimRevokeAndUnknown(t *testin
 				t.Fatalf("unclaimed, revoked, UNKNOWN or changed action accepted: scenario=%s err=%v", scenario, err)
 			}
 			// The gate only reads Guard state. No executor effect is possible.
+		})
+	}
+}
+
+func TestExecutorNecessaryGateDeniesPostFirstLedgerRevocationAndLostACK(t *testing.T) {
+	for _, scenario := range []string{"revoke-between-checks", "unknown-between-checks"} {
+		t.Run(scenario, func(t *testing.T) {
+			store, resolved, permitID := seededWorkspacePermit(t)
+			ctx := context.Background()
+			intent, err := store.ClaimAuthorizedIntent(ctx, permitID, resolved)
+			if err != nil {
+				t.Fatal(err)
+			}
+			root, peer := signedExecutorTestPeer(t)
+			live := &mutatingCurrentAuthority{}
+			live.onSecond = func() error {
+				switch scenario {
+				case "revoke-between-checks":
+					revoked, err := store.RevokeScopedPermit(ctx, resolved.TenantID,
+						permitID, "between-ledger-pairs", "SECURITY_RESPONSE")
+					if err != nil {
+						return err
+					}
+					if !revoked {
+						return errors.New("test precondition: permit must be revoked")
+					}
+				case "unknown-between-checks":
+					_, err := store.MarkDispatchUnknown(ctx, resolved.TenantID,
+						resolved.OperationID, intent.AttemptID, "ACK_LOST")
+					return err
+				}
+				return nil
+			}
+			gate, err := executorpep.NewGate(executorpep.Binding{
+				ExecutorSPIFFEID: "spiffe://platform.example/ns/sandbox/sa/executor",
+				TenantID: "tenant-a", Audience: "trusted-workspace-executor",
+				ClientRoot: root,
+			}, store, live)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := gate.Check(ctx, peer, permitID, intent.AttemptID,
+				resolved); !errors.Is(err, executorpep.ErrBlocked) {
+				t.Fatalf("state changed between necessary reads but passed: scenario=%s err=%v", scenario, err)
+			}
+			if live.calls != 2 {
+				t.Fatalf("did not reach final live/ledger check: calls=%d", live.calls)
+			}
+			// Recovery is an observation, not a fresh execution right.
+			recovered, err := New(store.db).GetDispatchState(ctx, resolved.TenantID,
+				resolved.OperationID, intent.AttemptID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantState, wantReason := "DISPATCHING", ""
+			if scenario == "unknown-between-checks" {
+				wantState, wantReason = "UNKNOWN", "ACK_LOST"
+			}
+			if recovered.State != wantState || recovered.Reason != wantReason ||
+				recovered.AttemptID != intent.AttemptID || recovered.PermitID != permitID {
+				t.Fatalf("recovery lost exact committed attempt: %+v", recovered)
+			}
+			if _, err := New(store.db).ClaimAuthorizedIntent(ctx, permitID, resolved);
+				!errors.Is(err, ErrPermitAlreadyClaimed) {
+				t.Fatalf("recovered or revoked attempt could be claimed again: %v", err)
+			}
+			var audits int
+			if err := store.db.QueryRowContext(ctx,
+				"SELECT count(*) FROM guard_execution_audit WHERE permit_id=$1::uuid AND attempt_id=$2::uuid AND event_type='guard.operation.dispatching.v1'",
+				permitID, intent.AttemptID).Scan(&audits); err != nil || audits != 1 {
+				t.Fatalf("immutable attempt audit duplicated or missing: count=%d err=%v", audits, err)
+			}
 		})
 	}
 }
