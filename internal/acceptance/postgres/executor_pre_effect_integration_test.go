@@ -39,8 +39,8 @@ func signedExecutorTestPeer(t *testing.T) (*x509.Certificate, *tls.ConnectionSta
 	}
 	rootTemplate := &x509.Certificate{
 		SerialNumber: big.NewInt(71),
-		Subject: pkix.Name{CommonName: "integration-only-executor-root"},
-		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(2 * time.Hour),
+		Subject:      pkix.Name{CommonName: "integration-only-executor-root"},
+		NotBefore:    now.Add(-time.Hour), NotAfter: now.Add(2 * time.Hour),
 		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
 	}
 	rootDER, err := x509.CreateCertificate(rand.Reader, rootTemplate, rootTemplate, rootKey.Public(), rootKey)
@@ -61,10 +61,10 @@ func signedExecutorTestPeer(t *testing.T) (*x509.Certificate, *tls.ConnectionSta
 	}
 	leafTemplate := &x509.Certificate{
 		SerialNumber: big.NewInt(72),
-		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
-		KeyUsage: x509.KeyUsageDigitalSignature,
+		NotBefore:    now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
+		KeyUsage:    x509.KeyUsageDigitalSignature,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		URIs: []*url.URL{uri},
+		URIs:        []*url.URL{uri},
 	}
 	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, root, leafKey.Public(), rootKey)
 	if err != nil {
@@ -97,7 +97,7 @@ func TestExecutorNecessaryGateAgainstRealPostgresClaimRevokeAndUnknown(t *testin
 			live := &localCurrentAuthority{}
 			gate, err := executorpep.NewGate(executorpep.Binding{
 				ExecutorSPIFFEID: "spiffe://platform.example/ns/sandbox/sa/executor",
-				TenantID: "tenant-a", Audience: "trusted-workspace-executor", ClientRoot: root,
+				TenantID:         "tenant-a", Audience: "trusted-workspace-executor", ClientRoot: root,
 			}, store, live)
 			if err != nil {
 				t.Fatal(err)
