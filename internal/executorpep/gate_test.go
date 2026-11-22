@@ -263,6 +263,43 @@ func TestExecutorPreEffectRejectsMalformedPeerAndNonCanonicalIdentifiers(t *test
 	}
 }
 
+
+func TestExecutorPreEffectRejectsMutatedParsedCertificateIdentity(t *testing.T) {
+	ca := issueTestCA(t)
+	// A parsed ConnectionState is mutable by Go callers. Even if its
+	// VerifiedChains slice refers to the same object, the identity and
+	// usage must come from signed DER, not from post-verification edits.
+	subjectSpoof := verifiedPeer(t, ca, "spiffe://platform.example/ns/sandbox/sa/untrusted")
+	expected, err := url.Parse(goodExecutorID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subjectSpoof.PeerCertificates[0].URIs[0] = expected
+
+	usageSpoof := verifiedPeer(t, ca, goodExecutorID, true)
+	usageSpoof.PeerCertificates[0].ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
+
+	for _, tc := range []struct {
+		name string
+		peer *tls.ConnectionState
+	}{
+		{"altered parsed SPIFFE SAN cannot impersonate signed executor", subjectSpoof},
+		{"altered parsed client-auth usage cannot impersonate signed EKU", usageSpoof},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ledger, live := &fakeLedger{}, &fakeLive{}
+			g := makeGate(t, ca.cert, ledger, live)
+			if err := g.Check(context.Background(), tc.peer, testPermitID, testAttemptID,
+				resolvedWorkspaceWrite()); err == nil {
+				t.Fatal("mutated parsed certificate was accepted despite unchanged signed DER")
+			}
+			if ledger.calls != 0 || live.calls != 0 {
+				t.Fatalf("mutated certificate reached trusted authorities: ledger=%d live=%d", ledger.calls, live.calls)
+			}
+		})
+	}
+}
+
 func TestExecutorPreEffectRealTLS13MTLSHandshake(t *testing.T) {
 	serverCA := issueTestCA(t)
 	clientCA := issueTestCA(t)
