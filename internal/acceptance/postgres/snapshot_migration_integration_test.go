@@ -202,3 +202,40 @@ func TestV3MigrationRejectsReplicaFenceDowngrade(t *testing.T) {
 		})
 	}
 }
+
+
+func TestSharedSnapshotMutationFunctionPrivilegeDriftMustFailMigrate(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ddl  string
+	}{
+		{"security definer", "ALTER FUNCTION guard_reject_snapshot_mutation() SECURITY DEFINER"},
+		{"function search_path", "ALTER FUNCTION guard_reject_snapshot_mutation() SET search_path TO pg_catalog"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := unmigratedDatabase(t)
+			ctx := context.Background()
+			if err := Migrate(ctx, db); err != nil {
+				t.Fatal(err)
+			}
+			var originalOID, changedOID string
+			if err := db.QueryRowContext(ctx,
+				"SELECT to_regprocedure('guard_reject_snapshot_mutation()')::oid::text").Scan(&originalOID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.ExecContext(ctx, tc.ddl); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.QueryRowContext(ctx,
+				"SELECT to_regprocedure('guard_reject_snapshot_mutation()')::oid::text").Scan(&changedOID); err != nil {
+				t.Fatal(err)
+			}
+			if originalOID != changedOID {
+				t.Fatalf("fixture unexpectedly changed function OID: %s vs %s", originalOID, changedOID)
+			}
+			if err := Migrate(ctx, db); !errors.Is(err, ErrSchemaDrift) {
+				t.Fatalf("shared snapshot/audit immutability function accepted privileged attribute drift: %v", err)
+			}
+		})
+	}
+}
