@@ -77,8 +77,10 @@ func (s *Store) insertPendingPermit(ctx context.Context, req pendingPermitWrite)
 	defer tx.Rollback()
 
 	// The immutable accepted tuple, its exact original bytes and the source
-	// operation identity are read from one transaction; no caller-provided
-	// submission digest or OperationID may replace this source check.
+	// operation identity are read from one SQL statement; no caller-provided
+	// submission digest or OperationID may replace this source check. Rows
+	// are immutable under migration-checked triggers; SELECT does not need
+	// UPDATE privilege or FOR SHARE, preserving source-reader least privilege.
 	var sourceStatus, sourceDigest string
 	var sourceBytes []byte
 	err = tx.QueryRowContext(ctx, `
@@ -88,7 +90,7 @@ func (s *Store) insertPendingPermit(ctx context.Context, req pendingPermitWrite)
 		  ON s.tenant_id=o.tenant_id AND s.operation_id=o.operation_id
 		 AND s.submission_key=o.submission_key AND s.submission_digest=o.submission_digest
 		WHERE o.tenant_id=$1 AND o.operation_id=$2::uuid
-		FOR SHARE OF o, s
+
 	`, req.Resolved.TenantID, req.Resolved.OperationID).
 		Scan(&sourceStatus, &sourceDigest, &sourceBytes)
 	if errors.Is(err, sql.ErrNoRows) {
