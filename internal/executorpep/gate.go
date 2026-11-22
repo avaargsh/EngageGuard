@@ -124,23 +124,30 @@ func (g *Gate) verifiedExecutor(peer *tls.ConnectionState) bool {
 		len(peer.PeerCertificates) == 0 || len(peer.VerifiedChains) == 0 {
 		return false
 	}
+	// The ConnectionState and parsed x509.Certificate fields are mutable by
+	// in-process callers. Reparse signed DER before consulting URI SAN, EKU,
+	// KeyUsage, or verifying the chain: mutated parsed fields are not proof.
 	leaf := peer.PeerCertificates[0]
-	// x509.Verify treats a missing ExtendedKeyUsage as unconstrained. The
-	// executor's workload certificate must explicitly grant ClientAuth;
-	// a generic CA-signed leaf is not sufficient to enter the Guard gate.
-	if leaf == nil || !explicitClientAuthEKU(leaf) {
+	if leaf == nil || len(leaf.Raw) == 0 {
 		return false
 	}
-	if leaf.IsCA || len(leaf.Raw) == 0 ||
-		leaf.KeyUsage&x509.KeyUsageDigitalSignature == 0 ||
-		len(leaf.URIs) != 1 || leaf.URIs[0] == nil || len(leaf.DNSNames) != 0 ||
-		len(leaf.EmailAddresses) != 0 || len(leaf.IPAddresses) != 0 ||
-		leaf.URIs[0].String() != g.binding.ExecutorSPIFFEID {
+	signedLeaf, err := x509.ParseCertificate(leaf.Raw)
+	if err != nil || !explicitClientAuthEKU(signedLeaf) {
+		return false
+	}
+	// A workload client needs an explicit ClientAuth EKU, exactly one
+	// signed SPIFFE URI and no alternative name forms.
+	if signedLeaf.IsCA ||
+		signedLeaf.KeyUsage&x509.KeyUsageDigitalSignature == 0 ||
+		len(signedLeaf.URIs) != 1 || signedLeaf.URIs[0] == nil ||
+		len(signedLeaf.DNSNames) != 0 || len(signedLeaf.EmailAddresses) != 0 ||
+		len(signedLeaf.IPAddresses) != 0 ||
+		signedLeaf.URIs[0].String() != g.binding.ExecutorSPIFFEID {
 		return false
 	}
 	transportVerified := false
 	for _, chain := range peer.VerifiedChains {
-		if len(chain) > 0 && chain[0] != nil && chain[0].Equal(leaf) &&
+		if len(chain) > 0 && chain[0] != nil && chain[0].Equal(signedLeaf) &&
 			chain[len(chain)-1] != nil && chain[len(chain)-1].Equal(g.binding.ClientRoot) {
 			transportVerified = true
 			break
@@ -153,11 +160,16 @@ func (g *Gate) verifiedExecutor(peer *tls.ConnectionState) bool {
 	roots.AddCert(g.binding.ClientRoot)
 	intermediates := x509.NewCertPool()
 	for _, cert := range peer.PeerCertificates[1:] {
-		if cert != nil {
-			intermediates.AddCert(cert)
+		if cert == nil || len(cert.Raw) == 0 {
+			return false
 		}
+		signedIntermediate, err := x509.ParseCertificate(cert.Raw)
+		if err != nil {
+			return false
+		}
+		intermediates.AddCert(signedIntermediate)
 	}
-	_, err := leaf.Verify(x509.VerifyOptions{
+	_, err = signedLeaf.Verify(x509.VerifyOptions{
 		Roots: roots, Intermediates: intermediates,
 		CurrentTime: time.Now(),
 		KeyUsages:   []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
