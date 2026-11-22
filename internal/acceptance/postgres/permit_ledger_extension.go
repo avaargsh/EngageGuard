@@ -36,6 +36,9 @@ var permitCausalFenceSchema string
 //go:embed schema_permit_v11.sql
 var permitCommitExpirySchema string
 
+//go:embed schema_permit_v12.sql
+var permitInsertStateSchema string
+
 func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) error {
 	migrations := []struct {
 		version int64
@@ -49,6 +52,7 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 		{9, permitIdentityFenceSchema},
 		{10, permitCausalFenceSchema},
 		{11, permitCommitExpirySchema},
+		{12, permitInsertStateSchema},
 	}
 	for _, item := range migrations {
 		if applied >= int(item.version) {
@@ -218,6 +222,24 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
 	`).Scan(&expiryIntact)
 	if err != nil || !expiryIntact {
 		return fmt.Errorf("%w: Permit v11 deferred expiry trigger disabled or changed: %v",
+			ErrSchemaDrift, err)
+	}
+	// The INSERT-only issuer cannot create a CLAIMED or pre-revoked row.
+	// A disabled/replaced or origin-only trigger invalidates the entire
+	// ledger at startup even when migration checksums are unchanged.
+	var initialStateIntact bool
+	err = tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_catalog.pg_trigger t
+			WHERE t.tgrelid=to_regclass('guard_permits')
+			  AND t.tgname='guard_permit_initial_state_v12'
+			  AND t.tgtype=7 AND NOT t.tgisinternal
+			  AND t.tgenabled='A'
+			  AND t.tgfoid=to_regprocedure('guard_permit_initial_state_v12()')
+		)
+	`).Scan(&initialStateIntact)
+	if err != nil || !initialStateIntact {
+		return fmt.Errorf("%w: Permit v12 initial INSERT state trigger disabled or changed: %v",
 			ErrSchemaDrift, err)
 	}
 	return nil
