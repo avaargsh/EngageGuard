@@ -203,7 +203,6 @@ func TestV3MigrationRejectsReplicaFenceDowngrade(t *testing.T) {
 	}
 }
 
-
 func TestSharedSnapshotMutationFunctionPrivilegeDriftMustFailMigrate(t *testing.T) {
 	for _, tc := range []struct {
 		name string
