@@ -121,3 +121,50 @@ func TestDecisionPlanClientRequiresPinnedCredentials(t *testing.T) {
 		t.Fatal("untrusted plaintext Decision origin accepted")
 	}
 }
+
+// A verified mTLS peer must not bypass the bounded response-body check by
+// sending unbounded response-header metadata first.
+func TestDecisionPlanClientRejectsOversizedResponseHeaders(t *testing.T) {
+	serverCert, roots := safetyServerCert(t, guardDecisionPeer)
+	clientCA, signer, clientRoots := newTestTransportCA(t)
+	cert := newTestTLSLeaf(t, clientCA, signer, true, "spiffe://platform.example/ns/guard/sa/engageguard")
+	submission := testGuardSubmission(t)
+	submission.RunID = safetyRun
+	submission.DecisionID = "dec_" + strings.Repeat("a", 64)
+	submission.Capability.ID = "sre.metrics.read"
+	submission.Capability.Version = "1.0.0"
+	submission.Arguments = json.RawMessage("{}")
+	snapshot := trustedRuntimeRun()
+	snapshot.RunID = safetyRun
+	receipt := guardStepReceipt{
+		SchemaVersion: decisionPlanSchema, RunID: snapshot.RunID,
+		DecisionID: submission.DecisionID, PlanHash: submission.PlanHash,
+		StepID: submission.StepID, RecordSHA256: strings.Repeat("c", 64),
+		BreakerEpoch: int64(snapshot.BreakerEpoch),
+		BreakerVersion: int64(snapshot.BreakerVersion), Status: "VERIFIED",
+	}
+	data, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Untrusted-Excessive-Metadata", strings.Repeat("X", 16*1024))
+		_, _ = w.Write(data)
+	}))
+	srv.TLS = &tls.Config{
+		MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{serverCert},
+		ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: clientRoots,
+	}
+	srv.StartTLS()
+	defer srv.Close()
+	client, err := NewDecisionPlanClient(srv.URL, guardDecisionPeer, snapshot.TenantID, roots, cert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.CloseIdleConnections()
+	if err := client.VerifyDecisionPlanStep(context.Background(), boundRuntime(), snapshot, submission); !errors.Is(err, ErrAuthorityUnavailable) {
+		t.Fatalf("oversized authenticated Decision response headers accepted: %v", err)
+	}
+}
