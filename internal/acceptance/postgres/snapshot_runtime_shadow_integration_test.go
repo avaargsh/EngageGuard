@@ -208,3 +208,64 @@ func TestAcceptedSubmissionRejectsMaliciousStartupSchema(t *testing.T) {
 		t.Fatalf("trusted permanent accepted source became unreadable: err=%v", err)
 	}
 }
+
+// A fully migrated alternate PostgreSQL schema has all Guard indexes and
+// v13 Permit tables, so the generic runtime relation checker alone can accept
+// it when that schema is selected at connection startup. Only the separate,
+// operator-pinned accepted-source namespace can reject this source substitution.
+func TestReadAcceptedSubmissionRejectsFullyMigratedDecoyStartupSchema(t *testing.T) {
+	store, db := integrationStore(t)
+	ctx := context.Background()
+	real, created, err := store.Accept(ctx, "tenant-a", "complete-decoy-source", sampleSubmission())
+	if err != nil || !created {
+		t.Fatalf("seed real durable source: created=%t err=%v", created, err)
+	}
+	var trusted string
+	if err := db.QueryRowContext(ctx, "SELECT pg_catalog.current_schema()").Scan(&trusted); err != nil {
+		t.Fatal(err)
+	}
+	decoy := fmt.Sprintf("guard_complete_decoy_%d", time.Now().UnixNano())
+	if _, err := db.ExecContext(ctx, "CREATE SCHEMA "+decoy); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(context.Background(), "DROP SCHEMA "+decoy+" CASCADE")
+	})
+	config, err := pgx.ParseConfig(os.Getenv("GUARD_PG_DSN"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.RuntimeParams["search_path"] = decoy
+	wrongDB := stdlib.OpenDB(*config)
+	wrongDB.SetMaxOpenConns(1)
+	wrongDB.SetMaxIdleConns(1)
+	t.Cleanup(func() { _ = wrongDB.Close() })
+	if err := Migrate(ctx, wrongDB); err != nil {
+		t.Fatalf("install independently complete decoy migration catalog: %v", err)
+	}
+	var fullyMigrated bool
+	if err := wrongDB.QueryRowContext(ctx, `
+		SELECT pg_catalog.current_schema()=$1::text
+		       AND pg_catalog.to_regclass('guard_permits') IS NOT NULL
+		       AND pg_catalog.to_regclass('guard_execution_audit') IS NOT NULL
+		       AND (SELECT max(version) FROM guard_schema_migrations) >= 13
+	`, decoy).Scan(&fullyMigrated); err != nil || !fullyMigrated {
+		t.Fatalf("test precondition: decoy is not a full v13 Guard installation: migrated=%t err=%v", fullyMigrated, err)
+	}
+	fake, created, err := New(wrongDB).Accept(ctx, "tenant-a", "complete-decoy-source", sampleSubmission())
+	if err != nil || !created || fake.OperationID == real.OperationID {
+		t.Fatalf("test precondition: decoy must contain distinct authentic-shape acceptance: op=%+v created=%t err=%v", fake, created, err)
+	}
+	pinned, err := NewWithTrustedSchema(wrongDB, trusted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := pinned.ReadAcceptedSubmission(ctx, fake.TenantID, fake.OperationID)
+	if !errors.Is(err, ErrSchemaDrift) || record.Operation.OperationID != "" || len(record.Raw) != 0 {
+		t.Fatalf("complete initial/reset schema substitution trusted: op=%+v bytes=%d err=%v", record.Operation, len(record.Raw), err)
+	}
+	original, err := store.ReadAcceptedSubmission(ctx, real.TenantID, real.OperationID)
+	if err != nil || original.Operation.OperationID != real.OperationID || len(original.Raw) == 0 {
+		t.Fatalf("real accepted source did not survive decoy: op=%+v err=%v", original.Operation, err)
+	}
+}
