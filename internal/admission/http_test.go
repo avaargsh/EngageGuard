@@ -314,3 +314,46 @@ func TestHandlerRejectsTypedNilAuthoritiesWithoutPanicking(t *testing.T) {
 		})
 	}
 }
+
+
+ // A duplicate Content-Type is ambiguous even when the first (or both)
+ // values say application/json. No Run authority lookup or Accepted write
+ // may occur for that wire request.
+func TestAdmissionRejectsAmbiguousContentTypeBeforeRunVerification(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		values []string
+		want   int
+	}{
+		{"single-json", []string{"application/json"}, http.StatusCreated},
+		{"missing", nil, http.StatusUnsupportedMediaType},
+		{"duplicate-identical", []string{"application/json", "application/json"}, http.StatusUnsupportedMediaType},
+		{"duplicate-conflicting", []string{"application/json", "text/plain"}, http.StatusUnsupportedMediaType},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resolver := &fakeResolver{principal: Principal{
+				TenantID: "tenant-a", SubjectID: "runtime-service",
+				ActorID: "agent-runtime", WorkloadID: "runtime-workload", ServiceID: "agent-runtime",
+			}}
+			verifier := &fakeVerifier{}
+			store := &fakeStore{}
+			req := httptest.NewRequest(http.MethodPost, "/v1/action-submissions", strings.NewReader(goodBody()))
+			for _, contentType := range tc.values {
+				req.Header.Add("Content-Type", contentType)
+			}
+			req.Header.Set("Idempotency-Key", "source-headers-1")
+			rec := httptest.NewRecorder()
+			NewHandler(resolver, verifier, store).ServeHTTP(rec, req)
+			if rec.Code != tc.want {
+				t.Fatalf("Content-Type values=%q accepted with HTTP %d, want %d", tc.values, rec.Code, tc.want)
+			}
+			wantCalls := 0
+			if tc.want == http.StatusCreated {
+				wantCalls = 1
+			}
+			if verifier.calls != wantCalls || store.calls != wantCalls {
+				t.Fatalf("ambiguous metadata consulted Run/store: verifier=%d store=%d want=%d", verifier.calls, store.calls, wantCalls)
+			}
+		})
+	}
+}
