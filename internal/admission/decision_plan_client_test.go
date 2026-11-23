@@ -85,6 +85,14 @@ func TestGuardDecisionClientReadsExactFreshMTLSPlanNotCallerApproval(t *testing.
 	if err := client.VerifyDecisionPlanStep(context.Background(), principal, snapshot, bad); !errors.Is(err, ErrForbidden) || count.Load() != original {
 		t.Fatalf("write tool sent to read-only Decision authority: %v", err)
 	}
+
+	// A namespace prefix is not an authorization classifier: "sre." can
+	// name a future mutating capability. Only explicitly reviewed read-only
+	// capability IDs may reach this necessary-only Decision verifier.
+	bad.Capability.ID = "sre.executor.write"
+	if err := client.VerifyDecisionPlanStep(context.Background(), principal, snapshot, bad); !errors.Is(err, ErrForbidden) || count.Load() != original {
+		t.Fatalf("unreviewed mutating SRE capability reached Decision verifier: %v", err)
+	}
 	for _, tc := range []struct {
 		status int
 		body   string
