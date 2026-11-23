@@ -138,7 +138,7 @@ func TestPermitV12UpgradeRefusesPreexistingForgedClaimOrRevocation(t *testing.T)
 			for _, sql := range []string{
 				"DROP TRIGGER guard_permit_initial_state_v12 ON guard_permits",
 				"DROP FUNCTION guard_permit_initial_state_v12()",
-				"DELETE FROM guard_schema_migrations WHERE version=12",
+				"DELETE FROM guard_schema_migrations WHERE version IN (12,13)",
 			} {
 				if _, err := db.ExecContext(ctx, sql); err != nil {
 					t.Fatal(err)
