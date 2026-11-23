@@ -76,9 +76,9 @@ func NewDecisionPlanClient(
 		return nil, ErrAuthorityUnavailable
 	}
 	tr := &http.Transport{
-		DisableKeepAlives:     true,
-		TLSHandshakeTimeout:   3 * time.Second,
-		ResponseHeaderTimeout: 5 * time.Second,
+		DisableKeepAlives:      true,
+		TLSHandshakeTimeout:    3 * time.Second,
+		ResponseHeaderTimeout:  5 * time.Second,
 		MaxResponseHeaderBytes: 8 * 1024, // authenticated metadata is also untrusted
 		TLSClientConfig: &tls.Config{
 			MinVersion:   tls.VersionTLS13,
