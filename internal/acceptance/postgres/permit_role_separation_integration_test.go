@@ -233,3 +233,84 @@ func TestPermitRoleSeparationDoesNotTrustTemporaryRelationShadow(t *testing.T) {
 		t.Fatalf("unsafe UPDATE on authoritative guard_permits hidden by pg_temp shadow: got %v, want ErrPermitRoleUnsafe", err)
 	}
 }
+
+
+// A session can switch current_schema() to a complete, writable decoy and
+// still satisfy the role checker if it trusts only schema-relative catalog
+// OIDs/grants. A role preflight must be bound to the connection's startup
+// search_path before certifying issuer/claimer privilege separation.
+func TestPermitRoleSeparationRejectsAlternateSearchPathSchema(t *testing.T) {
+	_, db := integrationStore(t)
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	ctx := context.Background()
+	var trusted string
+	if err := db.QueryRowContext(ctx, "SELECT current_schema()").Scan(&trusted); err != nil {
+		t.Fatal(err)
+	}
+	serial := time.Now().UnixNano()
+	shadow := fmt.Sprintf("guard_role_decoy_%d", serial)
+	issuer := fmt.Sprintf("guard_decoy_issuer_%d", serial)
+	claimer := fmt.Sprintf("guard_decoy_claimer_%d", serial)
+	for _, role := range []string{issuer, claimer} {
+		if _, err := db.ExecContext(ctx, "CREATE ROLE "+role+" NOLOGIN"); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			_, _ = db.ExecContext(context.Background(), "DROP OWNED BY "+role)
+			_, _ = db.ExecContext(context.Background(), "DROP ROLE "+role)
+		})
+	}
+	if _, err := db.ExecContext(ctx, "CREATE SCHEMA "+shadow); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(context.Background(), "SET search_path TO "+trusted)
+		_, _ = db.ExecContext(context.Background(), "DROP SCHEMA "+shadow+" CASCADE")
+	})
+
+	for _, relation := range []string{
+		"guard_action_operations", "guard_accepted_submission_snapshots",
+		"guard_outbox_events", "guard_schema_migrations",
+		"guard_permits", "guard_operation_intents", "guard_execution_audit",
+		"guard_operation_unknown_events", "guard_permit_revocations",
+	} {
+		var stmt string
+		if err := db.QueryRowContext(ctx,
+			"SELECT pg_catalog.format('CREATE TABLE %I.%I (LIKE %I.%I INCLUDING ALL)', $1::text,$2::text,$3::text,$2::text)",
+			shadow, relation, trusted).Scan(&stmt); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("create alternate %s: %v", relation, err)
+		}
+	}
+	for _, grant := range []string{
+		"GRANT USAGE ON SCHEMA " + shadow + " TO " + issuer + ", " + claimer,
+		"GRANT SELECT, INSERT ON " + shadow + ".guard_permits TO " + issuer,
+		"GRANT SELECT ON " + shadow + ".guard_action_operations TO " + issuer,
+		"GRANT SELECT ON " + shadow + ".guard_accepted_submission_snapshots TO " + issuer,
+		"GRANT SELECT ON " + shadow + ".guard_permits TO " + claimer,
+		"GRANT UPDATE (state, claimed_at) ON " + shadow + ".guard_permits TO " + claimer,
+		"GRANT SELECT, INSERT ON " + shadow + ".guard_operation_intents TO " + claimer,
+		"GRANT SELECT, INSERT ON " + shadow + ".guard_execution_audit TO " + claimer,
+		// The real authoritative Permit has an unsafe issuer UPDATE grant,
+		// and lacks the expected safe grants. The checker must not
+		// substitute the decoy's safe-looking role ACL instead.
+		"GRANT UPDATE (state) ON " + trusted + ".guard_permits TO " + issuer,
+	} {
+		if _, err := db.ExecContext(ctx, grant); err != nil {
+			t.Fatalf("fixture grant %q: %v", grant, err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, "SET search_path TO "+shadow); err != nil {
+		t.Fatal(err)
+	}
+	var active string
+	if err := db.QueryRowContext(ctx, "SELECT current_schema()").Scan(&active); err != nil || active != shadow {
+		t.Fatalf("alternate schema not active: %q err=%v", active, err)
+	}
+	if err := VerifyPermitRoleSeparation(ctx, db, issuer, claimer); !errors.Is(err, ErrPermitRoleUnsafe) {
+		t.Fatalf("role checker accepted safe-looking decoy while real Permit UPDATE grant is unsafe: %v", err)
+	}
+}
