@@ -73,4 +73,23 @@ func TestReadAcceptedSubmissionRejectsTempOnlyAuthoritativeSource(t *testing.T) 
 		t.Fatalf("temporary-only accepted source trusted: op=%+v bytes=%d err=%v; want ErrSchemaDrift",
 			rec.Operation, len(rec.Raw), err)
 	}
+	// After quarantining the attacker-controlled temporary objects, the
+	// same pooled session must resume reading the original durable source.
+	// This is a recovery-positive control, not permission to use temp data.
+	for _, name := range []string{"guard_accepted_submission_snapshots", "guard_action_operations"} {
+		var ddl string
+		if err := db.QueryRowContext(ctx,
+			"SELECT pg_catalog.format('DROP TABLE pg_temp.%I', $1::text)", name,
+		).Scan(&ddl); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ExecContext(ctx, ddl); err != nil {
+			t.Fatalf("remove temp-only source %s: %v", name, err)
+		}
+	}
+	clean, err := store.ReadAcceptedSubmission(ctx, "tenant-a", op.OperationID)
+	if err != nil || clean.Operation.OperationID != op.OperationID || len(clean.Raw) == 0 {
+		t.Fatalf("original accepted source did not recover: op=%+v bytes=%d err=%v",
+			clean.Operation, len(clean.Raw), err)
+	}
 }
