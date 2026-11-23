@@ -5,9 +5,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 
 	"github.com/avaargsh/EngageGuard/internal/action"
 )
+
+// Source selectors must use one canonical lower-case PostgreSQL UUID spelling.
+// PostgreSQL's UUID type accepts upper-case aliases; source identity does not.
+var acceptedSourceOperationIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // AcceptedSubmission is a recovery-only view of untrusted original intent.
 // It is NOT a resolved ActionRequest, approval, Permit or executable receipt.
@@ -47,7 +52,8 @@ func (s *Store) ReadAcceptedSubmission(ctx context.Context, tenantID, operationI
 	if s == nil || s.db == nil || ctx == nil {
 		return AcceptedSubmission{}, errors.New("Guard admission database unavailable")
 	}
-	if !tenantIDPattern.MatchString(tenantID) || operationID == "" {
+	if !tenantIDPattern.MatchString(tenantID) || len(operationID) != 36 ||
+		!acceptedSourceOperationIDPattern.MatchString(operationID) {
 		return AcceptedSubmission{}, ErrSnapshotMissing
 	}
 	if s.trustedSchema == "" {
