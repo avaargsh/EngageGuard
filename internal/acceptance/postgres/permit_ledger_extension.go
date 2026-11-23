@@ -39,6 +39,9 @@ var permitCommitExpirySchema string
 //go:embed schema_permit_v12.sql
 var permitInsertStateSchema string
 
+//go:embed schema_permit_v13.sql
+var permitCausalSchemaPinnedV13 string
+
 func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) error {
 	migrations := []struct {
 		version int64
@@ -53,6 +56,7 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 		{10, permitCausalFenceSchema},
 		{11, permitCommitExpirySchema},
 		{12, permitInsertStateSchema},
+		{13, permitCausalSchemaPinnedV13},
 	}
 	for _, item := range migrations {
 		if applied >= int(item.version) {
