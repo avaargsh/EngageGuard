@@ -140,7 +140,7 @@ func TestDecisionPlanClientRejectsOversizedResponseHeaders(t *testing.T) {
 		SchemaVersion: decisionPlanSchema, RunID: snapshot.RunID,
 		DecisionID: submission.DecisionID, PlanHash: submission.PlanHash,
 		StepID: submission.StepID, RecordSHA256: strings.Repeat("c", 64),
-		BreakerEpoch: int64(snapshot.BreakerEpoch),
+		BreakerEpoch:   int64(snapshot.BreakerEpoch),
 		BreakerVersion: int64(snapshot.BreakerVersion), Status: "VERIFIED",
 	}
 	data, err := json.Marshal(receipt)
