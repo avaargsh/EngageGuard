@@ -239,7 +239,6 @@ func TestSharedSnapshotMutationFunctionPrivilegeDriftMustFailMigrate(t *testing.
 	}
 }
 
-
 // TestGuardCatalogRejectsTemporaryShadowsThatMaskPermanentSchemaDrift proves
 // catalog verification cannot be satisfied by same-named pg_temp relations.
 // The temp copies retain the expected constraints/index while the permanent
