@@ -50,7 +50,11 @@ func integrationStore(t *testing.T) (*Store, *sql.DB) {
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("migration: %v", err)
 	}
-	return New(db), db
+	store, err := NewWithTrustedSchema(db, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store, db
 }
 
 func sampleSubmission() []byte {
