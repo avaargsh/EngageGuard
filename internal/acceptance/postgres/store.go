@@ -98,6 +98,30 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("%w: Guard migration ledger shadowed by session-local relation", ErrSchemaDrift)
 	}
 
+	// Guard migration and subsequent Store operations still use some
+	// unqualified table names. Catalog checks of the *permanent* schema
+	// cannot justify startup if the same session resolves those names to
+	// ephemeral lookalikes. Reject each shadow (including on a new schema)
+	// before reading or recording any migration/version state.
+	for _, relation := range []string{
+		"guard_action_operations", "guard_outbox_events", "guard_outbox_unpublished_idx",
+		"guard_accepted_submission_snapshots", "guard_permits",
+		"guard_operation_intents", "guard_execution_audit",
+		"guard_operation_unknown_events", "guard_permit_revocations",
+	} {
+		var shadowed bool
+		if err := tx.QueryRowContext(ctx, `
+			SELECT pg_catalog.to_regclass($1::text)
+			       IS DISTINCT FROM pg_catalog.to_regclass(
+			           pg_catalog.format('%I.%I', pg_catalog.current_schema(), $1::text))
+		`, relation).Scan(&shadowed); err != nil {
+			return fmt.Errorf("%w: inspect Guard relation %s name resolution: %v", ErrSchemaDrift, relation, err)
+		}
+		if shadowed {
+			return fmt.Errorf("%w: Guard relation %s shadowed in PostgreSQL session", ErrSchemaDrift, relation)
+		}
+	}
+
 	rows, err := tx.QueryContext(ctx, "SELECT version, checksum FROM guard_schema_migrations ORDER BY version")
 	if err != nil {
 		return fmt.Errorf("read Guard migration ledger: %w", err)
