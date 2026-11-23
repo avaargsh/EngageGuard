@@ -151,7 +151,7 @@ func TestAcceptedSubmissionRejectsMaliciousStartupSchema(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = db.ExecContext(context.Background(), "DROP SCHEMA "+decoy+" CASCADE")
 	})
-	for _, name := range []string{"guard_action_operations", "guard_accepted_submission_snapshots"} {
+	for _, name := range []string{"guard_schema_migrations", "guard_action_operations", "guard_accepted_submission_snapshots"} {
 		var ddl, dml string
 		if err := db.QueryRowContext(ctx, `
 			SELECT pg_catalog.format('CREATE TABLE %I.%I (LIKE %I.%I INCLUDING ALL)',
