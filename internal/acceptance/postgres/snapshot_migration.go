@@ -52,10 +52,10 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 	err := tx.QueryRowContext(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM pg_catalog.pg_class c
-			WHERE c.oid = pg_catalog.to_regclass('guard_accepted_submission_snapshots')
+			WHERE c.oid = pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), 'guard_accepted_submission_snapshots'))
 			  AND c.relkind = 'r' AND c.relpersistence = 'p'
 			  AND c.relnamespace = current_schema()::regnamespace
-		) AND to_regprocedure('guard_reject_snapshot_mutation()') IS NOT NULL
+		) AND pg_catalog.to_regprocedure(pg_catalog.format('%I.%I()', current_schema(), 'guard_reject_snapshot_mutation')) IS NOT NULL
 	`).Scan(&valid)
 	if err != nil || !valid {
 		return fmt.Errorf("%w: missing accepted snapshot relation/function: %v", ErrSchemaDrift, err)
@@ -78,7 +78,7 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 		err := tx.QueryRowContext(ctx, `
 			SELECT EXISTS (
 				SELECT 1 FROM pg_constraint c
-				WHERE c.conrelid=to_regclass($1) AND c.conname=$2
+				WHERE c.conrelid=pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), $1::text)) AND c.conname=$2
 				  AND c.contype::text=$3 AND c.convalidated
 				  AND NOT c.condeferrable AND NOT c.condeferred
 				  AND (
@@ -87,7 +87,7 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 				    JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.attnum
 				  ) = $4
 				  AND ($3 <> 'f' OR (
-					c.confrelid=to_regclass($5)
+					c.confrelid=pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), $5::text))
 				    AND (
 				      SELECT string_agg(a.attname,',' ORDER BY k.ord)
 				      FROM unnest(c.confkey) WITH ORDINALITY k(attnum,ord)
@@ -107,13 +107,13 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 	err = tx.QueryRowContext(ctx, `
 		SELECT EXISTS (
 		  SELECT 1 FROM pg_trigger t
-		  WHERE t.tgrelid=to_regclass('guard_accepted_submission_snapshots')
+		  WHERE t.tgrelid=pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), 'guard_accepted_submission_snapshots'))
 		    AND t.tgname='guard_snapshot_immutable_row'
 		    AND NOT t.tgisinternal AND t.tgenabled IN ('O','A')
 		    AND t.tgtype=27
 		    AND t.tgqual IS NULL
 		    AND t.tgattr::text=''
-		    AND t.tgfoid=to_regprocedure('guard_reject_snapshot_mutation()')
+		    AND t.tgfoid=pg_catalog.to_regprocedure(pg_catalog.format('%I.%I()', current_schema(), 'guard_reject_snapshot_mutation'))
 		)
 	`).Scan(&valid)
 	if err != nil || !valid {
@@ -124,13 +124,13 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 	err = tx.QueryRowContext(ctx, `
 		SELECT EXISTS (
 		  SELECT 1 FROM pg_trigger t
-		  WHERE t.tgrelid=to_regclass('guard_accepted_submission_snapshots')
+		  WHERE t.tgrelid=pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), 'guard_accepted_submission_snapshots'))
 		    AND t.tgname='guard_snapshot_immutable_truncate'
 		    AND NOT t.tgisinternal AND t.tgenabled IN ('O','A')
 		    AND t.tgtype=34
 		    AND t.tgqual IS NULL
 		    AND t.tgattr::text=''
-		    AND t.tgfoid=to_regprocedure('guard_reject_snapshot_mutation()')
+		    AND t.tgfoid=pg_catalog.to_regprocedure(pg_catalog.format('%I.%I()', current_schema(), 'guard_reject_snapshot_mutation'))
 		)
 	`).Scan(&valid)
 	if err != nil || !valid {
@@ -142,7 +142,7 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 	err = tx.QueryRowContext(ctx, `
 		SELECT pg_get_expr(c.conbin, c.conrelid)
 		FROM pg_constraint c
-		WHERE c.conrelid=to_regclass('guard_accepted_submission_snapshots')
+		WHERE c.conrelid=pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), 'guard_accepted_submission_snapshots'))
 		  AND c.conname='guard_snapshot_bytes_length_check'
 	`).Scan(&checkExpr)
 	if err != nil {
@@ -174,7 +174,7 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 		       AND p.prorettype = 'pg_catalog.trigger'::regtype
 		       AND p.pronargs = 0
 		FROM pg_catalog.pg_proc p
-		WHERE p.oid=to_regprocedure('guard_reject_snapshot_mutation()')
+		WHERE p.oid=pg_catalog.to_regprocedure(pg_catalog.format('%I.%I()', current_schema(), 'guard_reject_snapshot_mutation'))
 	`).Scan(&functionBody, &functionAttributesSafe)
 	if err != nil || !functionAttributesSafe || strings.TrimSpace(functionBody) != "BEGIN\n    RAISE EXCEPTION 'accepted Guard submission snapshots are immutable';\nEND;" {
 		return fmt.Errorf("%w: shared snapshot/audit mutation trigger function or security attributes changed: %v", ErrSchemaDrift, err)
@@ -183,7 +183,7 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 	err = tx.QueryRowContext(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM pg_attribute a
-			WHERE a.attrelid=to_regclass('guard_accepted_submission_snapshots')
+			WHERE a.attrelid=pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), 'guard_accepted_submission_snapshots'))
 			  AND a.attname='submission_bytes'
 			  AND a.atttypid='bytea'::regtype AND a.attnotnull AND NOT a.attisdropped
 		)
