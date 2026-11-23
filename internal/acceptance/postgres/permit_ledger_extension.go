@@ -10,7 +10,7 @@ import (
 )
 
 // The existing admission v1/v2/v3 migration sources and checksums are immutable.
-// These four separately versioned extensions are forward-only.
+// All v4-v10 extensions are forward-only and retain historical checksums.
 //
 //go:embed schema_permit_v4.sql
 var permitClaimSchema string
@@ -50,8 +50,7 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 		if applied >= int(item.version) {
 			continue
 		}
-		// All four extension files contain only plain DDL. Do not use
-		// this delimiter for future functions with semicolon bodies.
+		// v4-v8 use plain DDL; v9+ trigger functions contain semicolons.
 		statements := strings.Split(item.source, ";")
 		if item.version >= 9 {
 			// PL/pgSQL trigger bodies contain semicolons.
