@@ -42,8 +42,18 @@ func (s *Store) InspectPreEffectLedger(
 	if err != nil {
 		return ErrPreEffectBlocked
 	}
+	// The migration-time schema attestation cannot protect a pooled session
+	// that acquires pg_temp lookalikes later. Inspect the same physical
+	// PostgreSQL session, within the transaction used for the actual
+	// pre-effect read, before trusting any Permit/Intent/Audit relation.
+	// This remains a necessary-only observation; it does not grant effects.
+	tx, err := beginGuardRuntimeTx(ctx, s.db)
+	if err != nil {
+		return fmt.Errorf("%w: runtime Guard ledger identity: %w", ErrPreEffectUnavailable, err)
+	}
+	defer tx.Rollback()
 	var complete bool
-	err = s.db.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		WITH sampled AS MATERIALIZED (SELECT clock_timestamp() AS at)
 		SELECT EXISTS (
 			SELECT 1 FROM guard_permits p
@@ -83,6 +93,9 @@ func (s *Store) InspectPreEffectLedger(
 	}
 	if !complete {
 		return ErrPreEffectBlocked
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("%w: finish Guard pre-effect ledger inspection: %v", ErrPreEffectUnavailable, err)
 	}
 	return nil
 }
