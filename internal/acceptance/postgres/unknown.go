@@ -146,8 +146,21 @@ func (s *Store) MarkDispatchUnknown(
 	}
 	defer tx.Rollback()
 	var state, permitID, actionHash, permitState string
+	var audited bool
+	// A CLAIMED Permit and Intent alone do not prove that an actual
+	// pre-dispatch journal was committed. Require the exact immutable Audit
+	// before the first UNKNOWN write and on every same-reason replay.
+	// Otherwise a partial/forged ledger could manufacture uncertainty and
+	// cause recovery to treat an unissued dispatch as durable evidence.
 	err = tx.QueryRowContext(ctx, `
-		SELECT i.state, i.permit_id::text, i.action_hash, p.state
+		SELECT i.state, i.permit_id::text, i.action_hash, p.state,
+		       EXISTS (
+		           SELECT 1 FROM guard_execution_audit a
+		           WHERE a.tenant_id=i.tenant_id AND a.operation_id=i.operation_id
+		             AND a.permit_id=i.permit_id AND a.attempt_id=i.attempt_id
+		             AND a.action_hash=i.action_hash
+		             AND a.event_type='guard.operation.dispatching.v1'
+		       )
 		FROM guard_operation_intents i
 		JOIN guard_permits p
 		  ON p.tenant_id=i.tenant_id AND p.operation_id=i.operation_id
@@ -155,14 +168,14 @@ func (s *Store) MarkDispatchUnknown(
 		WHERE i.tenant_id=$1 AND i.operation_id=$2::uuid
 		  AND i.attempt_id=$3::uuid
 		FOR UPDATE OF i
-	`, tenant, operationID, attemptID).Scan(&state, &permitID, &actionHash, &permitState)
+	`, tenant, operationID, attemptID).Scan(&state, &permitID, &actionHash, &permitState, &audited)
 	if errors.Is(err, sql.ErrNoRows) {
 		return empty, ErrDispatchNotFound
 	}
 	if err != nil {
 		return empty, fmt.Errorf("lock Guard dispatch attempt: %w", err)
 	}
-	if permitState != "CLAIMED" {
+	if permitState != "CLAIMED" || !audited {
 		return empty, ErrUnknownConflict
 	}
 	if state == "UNKNOWN" {
