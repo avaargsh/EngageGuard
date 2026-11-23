@@ -3,9 +3,21 @@ package postgres
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 )
+
+// Source-recovery views require an operator-pinned schema. Recreated Stores
+// must receive the same independently provisioned namespace as the original.
+func recreatePinnedSnapshotStore(t *testing.T, original *Store, db *sql.DB) *Store {
+	t.Helper()
+	recreated, err := NewWithTrustedSchema(db, original.trustedSchema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return recreated
+}
 
 func TestAcceptedSubmissionSnapshotSurvivesRecreationAndReplay(t *testing.T) {
 	store, db := integrationStore(t)
@@ -15,7 +27,7 @@ func TestAcceptedSubmissionSnapshotSurvivesRecreationAndReplay(t *testing.T) {
 	if err != nil || !created {
 		t.Fatalf("first acceptance: created=%v err=%v", created, err)
 	}
-	restarted := New(db)
+	restarted := recreatePinnedSnapshotStore(t, store, db)
 	recovered, err := restarted.ReadAcceptedSubmission(ctx, "tenant-a", first.OperationID)
 	if err != nil {
 		t.Fatalf("read after store recreation: %v", err)
@@ -49,7 +61,7 @@ func TestAcceptedSnapshotIsImmutableInDatabase(t *testing.T) {
 			t.Fatalf("mutation of original snapshot succeeded: %s", sql)
 		}
 	}
-	recovered, err := New(db).ReadAcceptedSubmission(ctx, "tenant-a", op.OperationID)
+	recovered, err := recreatePinnedSnapshotStore(t, store, db).ReadAcceptedSubmission(ctx, "tenant-a", op.OperationID)
 	if err != nil || !bytes.Equal(recovered.Raw, sampleSubmission()) {
 		t.Fatalf("database mutation changed accepted intent: err=%v", err)
 	}
@@ -84,7 +96,7 @@ func TestAcceptedSubmissionSnapshotTruncateDenied(t *testing.T) {
 	if _, err := db.ExecContext(ctx, "TRUNCATE guard_accepted_submission_snapshots"); err == nil {
 		t.Fatal("TRUNCATE bypassed immutable accepted submission retention")
 	}
-	recovered, err := New(db).ReadAcceptedSubmission(ctx, "tenant-a", op.OperationID)
+	recovered, err := recreatePinnedSnapshotStore(t, store, db).ReadAcceptedSubmission(ctx, "tenant-a", op.OperationID)
 	if err != nil || !bytes.Equal(recovered.Raw, sampleSubmission()) {
 		t.Fatalf("TRUNCATE damaged retained accepted intent: %v", err)
 	}
