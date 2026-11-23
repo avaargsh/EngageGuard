@@ -47,10 +47,16 @@ func TestPreEffectInspectionRejectsPostMigrationTemporaryLedgerShadows(t *testin
 		t.Fatalf("executor pre-effect read trusted pg_temp Permit/Intent/Audit over revoked permanent Permit: %v; want ErrPreEffectUnavailable and ErrSchemaDrift", err)
 	}
 
-	var permanentRevoked bool
+	var qualifiedSQL string
 	if err := store.db.QueryRowContext(ctx, `
-		SELECT revoked_at IS NOT NULL FROM public.guard_permits WHERE permit_id=$1::uuid
-	`, permitID).Scan(&permanentRevoked); err != nil || !permanentRevoked {
+		SELECT pg_catalog.format(
+			'SELECT revoked_at IS NOT NULL FROM %I.guard_permits WHERE permit_id=$1::uuid',
+			pg_catalog.current_schema())
+	`).Scan(&qualifiedSQL); err != nil {
+		t.Fatal(err)
+	}
+	var permanentRevoked bool
+	if err := store.db.QueryRowContext(ctx, qualifiedSQL, permitID).Scan(&permanentRevoked); err != nil || !permanentRevoked {
 		t.Fatalf("permanent Permit revocation lost during shadow fixture: revoked=%t err=%v", permanentRevoked, err)
 	}
 }
