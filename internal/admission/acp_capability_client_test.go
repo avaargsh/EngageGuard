@@ -79,6 +79,12 @@ func TestACPCapabilityClientRequiresLiveExactReleaseAndTLSIdentity(t *testing.T)
 		t.Fatalf("fresh actual mTLS capability denied: %v", err)
 	}
 	baseCalls := calls.Load()
+	mutating := submission
+	mutating.Capability.ID = "sre.executor.write"
+	if err := client.VerifyCapabilityAccess(context.Background(), principal, snap, mutating); !errors.Is(err, ErrForbidden) || calls.Load() != baseCalls {
+		t.Fatalf("unreviewed mutating SRE capability reached ACP authority: %v calls=%d want=%d",
+			err, calls.Load(), baseCalls)
+	}
 	foreign := principal
 	foreign.TenantID = "foreign"
 	if err := client.VerifyCapabilityAccess(context.Background(), foreign, snap, submission); !errors.Is(err, ErrForbidden) || calls.Load() != baseCalls {
@@ -121,3 +127,45 @@ func TestACPCapabilityClientRequiresLiveExactReleaseAndTLSIdentity(t *testing.T)
 		t.Fatalf("wrong ACP peer accepted: %v", err)
 	}
 }
+
+// A correctly authenticated ACP server may still return unbounded headers.
+ // Enforce transport bounds before reading the otherwise valid 4KiB receipt.
+ func TestACPCapabilityClientRejectsOversizedResponseHeaders(t *testing.T) {
+ 	serverCert, roots := safetyServerCert(t, acpCapabilityPeer)
+ 	ca, signer, clientRoots := newTestTransportCA(t)
+ 	cert := newTestTLSLeaf(t, ca, signer, true, "spiffe://platform.example/ns/guard/sa/engageguard")
+ 	snap := trustedRuntimeRun()
+ 	snap.RunID = safetyRun
+ 	submission := testGuardSubmission(t)
+ 	submission.RunID = safetyRun
+ 	submission.Capability = action.ActionCapabilitySelector{ID: "sre.metrics.read", Version: "1.0.0"}
+ 	submission.Arguments = json.RawMessage("{}")
+ 	receipt := acpCapabilityReceipt{
+ 		SchemaVersion: acpCapabilitySchema, RunID: safetyRun,
+ 		AgentID: snap.AgentID, AgentReleaseID: snap.AgentReleaseID,
+ 		SessionID: snap.SessionID, CapabilityID: submission.Capability.ID,
+ 		CapabilityVersion: submission.Capability.Version,
+ 		ContractSHA256: strings.Repeat("a", 64), PolicyRevision: "policy-1",
+ 		ResourceRef: submission.ResourceRef, Status: "VERIFIED",
+ 	}
+ 	body, err := json.Marshal(receipt)
+ 	if err != nil { t.Fatal(err) }
+ 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+ 		w.Header().Set("Content-Type", "application/json")
+ 		w.Header().Set("Cache-Control", "no-store")
+ 		w.Header().Set("X-Untrusted-Excessive-Metadata", strings.Repeat("X", 16*1024))
+ 		_, _ = w.Write(body)
+ 	}))
+ 	srv.TLS = &tls.Config{MinVersion: tls.VersionTLS13,
+ 		ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: clientRoots,
+ 		Certificates: []tls.Certificate{serverCert}}
+ 	srv.StartTLS()
+ 	defer srv.Close()
+ 	client, err := NewACPCapabilityClient(srv.URL, acpCapabilityPeer, snap.TenantID, roots, cert)
+ 	if err != nil { t.Fatal(err) }
+ 	defer client.CloseIdleConnections()
+ 	if err := client.VerifyCapabilityAccess(context.Background(), boundRuntime(), snap, submission); !errors.Is(err, ErrAuthorityUnavailable) {
+ 		t.Fatalf("oversized authenticated ACP response headers accepted: %v", err)
+ 	}
+ }
+
