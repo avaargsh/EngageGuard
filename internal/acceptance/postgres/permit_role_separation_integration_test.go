@@ -234,7 +234,6 @@ func TestPermitRoleSeparationDoesNotTrustTemporaryRelationShadow(t *testing.T) {
 	}
 }
 
-
 // A session can switch current_schema() to a complete, writable decoy and
 // still satisfy the role checker if it trusts only schema-relative catalog
 // OIDs/grants. A role preflight must be bound to the connection's startup
