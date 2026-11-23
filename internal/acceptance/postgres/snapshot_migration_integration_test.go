@@ -340,3 +340,62 @@ func TestGuardCatalogRejectsTemporaryShadowsThatMaskPermanentSchemaDrift(t *test
 		t.Fatalf("temporary copies masked damaged permanent Guard schema: got %v, want ErrSchemaDrift", err)
 	}
 }
+
+
+// TestSnapshotAndPermitCatalogPinRealSchemaAgainstTemporaryShadows ensures
+// catalog attestations inspect permanent authoritative tables even when a
+// session owns pg_temp tables with the same names. The checks must also detect
+// actual schema drift after the temporary tables are introduced.
+func TestSnapshotAndPermitCatalogPinRealSchemaAgainstTemporaryShadows(t *testing.T) {
+	db := unmigratedDatabase(t)
+	ctx := context.Background()
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+
+	for _, query := range []string{
+		"CREATE TEMP TABLE guard_accepted_submission_snapshots (shadow integer)",
+		"CREATE TEMP TABLE guard_permits (shadow integer)",
+	} {
+		if _, err := tx.ExecContext(ctx, query); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var shadowed bool
+	if err := tx.QueryRowContext(ctx,
+		"SELECT pg_catalog.to_regclass('guard_permits') = pg_catalog.to_regclass('pg_temp.guard_permits')",
+	).Scan(&shadowed); err != nil || !shadowed {
+		t.Fatalf("temp shadow not active: %t, %v", shadowed, err)
+	}
+
+	if err := verifySnapshotCatalog(ctx, tx); err != nil {
+		t.Fatalf("valid permanent snapshot catalog masked by pg_temp: %v", err)
+	}
+	if err := verifyPermitLedgerCatalog(ctx, tx); err != nil {
+		t.Fatalf("valid permanent Permit catalog masked by pg_temp: %v", err)
+	}
+
+	for _, query := range []string{
+		"SELECT pg_catalog.format('ALTER TABLE %I.guard_accepted_submission_snapshots DROP CONSTRAINT guard_snapshot_operation_binding_fk', current_schema())",
+		"SELECT pg_catalog.format('ALTER TABLE %I.guard_permits DISABLE TRIGGER guard_permit_initial_state_v12', current_schema())",
+	} {
+		var ddl string
+		if err := tx.QueryRowContext(ctx, query).Scan(&ddl); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.ExecContext(ctx, ddl); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := verifySnapshotCatalog(ctx, tx); !errors.Is(err, ErrSchemaDrift) {
+		t.Fatalf("damaged permanent snapshot catalog was accepted through temp shadow: %v", err)
+	}
+	if err := verifyPermitLedgerCatalog(ctx, tx); !errors.Is(err, ErrSchemaDrift) {
+		t.Fatalf("damaged permanent Permit catalog was accepted through temp shadow: %v", err)
+	}
+}
