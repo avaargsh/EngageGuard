@@ -16,6 +16,7 @@ import (
 // a substitute for an independently authenticated Permit issuer.
 func TestPermitIssuerAndClaimerRoleSeparation(t *testing.T) {
 	_, db := integrationStore(t)
+	restrictPublicDatabaseTempForPermitTest(t, db)
 	ctx := context.Background()
 	var schema string
 	if err := db.QueryRowContext(ctx, "SELECT current_schema()").Scan(&schema); err != nil {
