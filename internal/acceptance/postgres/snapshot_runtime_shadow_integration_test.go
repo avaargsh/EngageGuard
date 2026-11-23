@@ -2,6 +2,12 @@ package postgres
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"errors"
 	"testing"
 )
@@ -120,5 +126,75 @@ func TestReadAcceptedSubmissionRejectsPostMigrationUnloggedSource(t *testing.T) 
 				t.Fatalf("post-migration crash-unsafe %s accepted: record=%+v err=%v", table, value.Operation, err)
 			}
 		})
+	}
+}
+
+// The initial search_path can itself be a complete attacker-writable
+// lookalike schema. A stable session.reset_val is not a deployment trust
+// anchor. The accepted-source API must refuse a database Store that has no
+// independently configured authoritative schema identity.
+func TestAcceptedSubmissionRejectsMaliciousStartupSchema(t *testing.T) {
+	store, db := integrationStore(t)
+	ctx := context.Background()
+	op, created, err := store.Accept(ctx, "tenant-a", "startup-schema-source", sampleSubmission())
+	if err != nil || !created {
+		t.Fatalf("seed original accepted operation: created=%t err=%v", created, err)
+	}
+	var trustedSchema string
+	if err := db.QueryRowContext(ctx, "SELECT pg_catalog.current_schema()").Scan(&trustedSchema); err != nil {
+		t.Fatal(err)
+	}
+	decoy := fmt.Sprintf("guard_startup_decoy_%d", time.Now().UnixNano())
+	if _, err := db.ExecContext(ctx, "CREATE SCHEMA "+decoy); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(context.Background(), "DROP SCHEMA "+decoy+" CASCADE")
+	})
+	for _, name := range []string{"guard_action_operations", "guard_accepted_submission_snapshots"} {
+		var ddl, dml string
+		if err := db.QueryRowContext(ctx, `
+			SELECT pg_catalog.format('CREATE TABLE %I.%I (LIKE %I.%I INCLUDING ALL)',
+				$1::text, $2::text, $3::text, $2::text),
+			       pg_catalog.format('INSERT INTO %I.%I SELECT * FROM %I.%I',
+				$1::text, $2::text, $3::text, $2::text)
+		`, decoy, name, trustedSchema).Scan(&ddl, &dml); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ExecContext(ctx, ddl); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ExecContext(ctx, dml); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dsn := os.Getenv("GUARD_PG_DSN")
+	config, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.RuntimeParams["search_path"] = decoy
+	wrongDB := stdlib.OpenDB(*config)
+	wrongDB.SetMaxOpenConns(1)
+	wrongDB.SetMaxIdleConns(1)
+	t.Cleanup(func() { _ = wrongDB.Close() })
+	var active, reset string
+	if err := wrongDB.QueryRowContext(ctx, `
+		SELECT pg_catalog.current_schema(),
+		       (SELECT reset_val FROM pg_catalog.pg_settings WHERE name='search_path')
+	`).Scan(&active, &reset); err != nil || active != decoy || reset != decoy {
+		t.Fatalf("test requires malicious initial/reset schema: current=%q reset=%q err=%v", active, reset, err)
+	}
+	// A default Store without an independently pinned schema may serve
+	// ordinary admission writes but must not attest accepted-source bytes.
+	rec, err := New(wrongDB).ReadAcceptedSubmission(ctx, "tenant-a", op.OperationID)
+	if !errors.Is(err, ErrSchemaDrift) || len(rec.Raw) != 0 {
+		t.Fatalf("untrusted startup schema accepted forged original source: op=%+v err=%v", rec.Operation, err)
+	}
+	// Positive control: the trusted Store continues to read the original
+	// immutable bytes from the separately provisioned schema.
+	original, err := store.ReadAcceptedSubmission(ctx, "tenant-a", op.OperationID)
+	if err != nil || len(original.Raw) == 0 {
+		t.Fatalf("trusted permanent accepted source became unreadable: err=%v", err)
 	}
 }
