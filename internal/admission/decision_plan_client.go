@@ -10,7 +10,6 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/avaargsh/EngageGuard/internal/action"
@@ -131,8 +130,12 @@ func (c *DecisionPlanClient) VerifyDecisionPlanStep(
 	}
 	// This first compatible version only verifies read-only SRE observations.
 	// Plan candidates do not bind arbitrary tool argument payloads yet.
+	// Prefix membership is not a read-only authorization: an SRE-namespaced
+	// selector could name a mutating action. This v1 client only admits the
+	// explicitly reviewed read-only observation capability. Any expansion
+	// requires a trusted capability catalog and its own negative test.
 	if !bytes.Equal(submission.Arguments, []byte("{}")) ||
-		!strings.HasPrefix(submission.Capability.ID, "sre.") {
+		submission.Capability.ID != "sre.metrics.read" {
 		return ErrForbidden
 	}
 	const maxUint = uint64(^uint64(0) >> 1)
