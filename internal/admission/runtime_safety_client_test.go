@@ -152,6 +152,7 @@ func TestRuntimeSafetyClientRejectsMissingServerAuthEKU(t *testing.T) {
 		t.Fatal("server handler received privileged safety read with missing serverAuth EKU")
 	}
 }
+
 // Response BODY limits do not bound HTTP header allocation. A peer with a
 // valid certificate cannot send arbitrarily large header metadata to Guard.
 func TestRuntimeSafetyClientRejectsOversizedResponseHeaders(t *testing.T) {
@@ -165,10 +166,10 @@ func TestRuntimeSafetyClientRejectsOversizedResponseHeaders(t *testing.T) {
 		_, _ = w.Write([]byte(`{"schema_version":"runtime.run-safety.v1","tenant_id":"tenant-1","run_id":"` + safetyRun + `","agent_id":"agent-1","agent_release_id":"release-1","session_id":"session-1","status":"RUNNING","breaker_state":"CLOSED","breaker_epoch":1,"breaker_version":1}`))
 	}))
 	srv.TLS = &tls.Config{
-		MinVersion: tls.VersionTLS13,
+		MinVersion:   tls.VersionTLS13,
 		Certificates: []tls.Certificate{serverCert},
-		ClientAuth: tls.RequireAndVerifyClientCert,
-		ClientCAs: clientRoots,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    clientRoots,
 	}
 	srv.StartTLS()
 	defer srv.Close()
@@ -181,4 +182,3 @@ func TestRuntimeSafetyClientRejectsOversizedResponseHeaders(t *testing.T) {
 		t.Fatalf("oversized HTTP response headers were accepted by safety authority: %v", err)
 	}
 }
-
