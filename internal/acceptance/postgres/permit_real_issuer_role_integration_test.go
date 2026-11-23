@@ -21,6 +21,7 @@ import (
 // This does NOT provision or authenticate production service credentials.
 func TestPendingPermitInsertAsDistinctLeastPrivilegeDatabaseIssuer(t *testing.T) {
 	owner, req := pendingPermitFixture(t)
+	restrictPublicDatabaseTempForPermitTest(t, owner.db)
 	ctx := context.Background()
 	var schema string
 	if err := owner.db.QueryRowContext(ctx, "SELECT current_schema()").Scan(&schema); err != nil {
