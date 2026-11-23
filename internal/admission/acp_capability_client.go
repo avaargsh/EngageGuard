@@ -10,7 +10,6 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/avaargsh/EngageGuard/internal/action"
@@ -68,9 +67,10 @@ func NewACPCapabilityClient(origin, expectedSPIFFE, tenant string, roots *x509.C
 		return nil, ErrAuthorityUnavailable
 	}
 	transport := &http.Transport{
-		DisableKeepAlives:     true,
-		TLSHandshakeTimeout:   3 * time.Second,
-		ResponseHeaderTimeout: 5 * time.Second,
+		DisableKeepAlives:      true,
+		TLSHandshakeTimeout:    3 * time.Second,
+		ResponseHeaderTimeout:  5 * time.Second,
+		MaxResponseHeaderBytes: 8 * 1024, // bound authenticated but untrusted response metadata
 		TLSClientConfig: &tls.Config{
 			MinVersion:   tls.VersionTLS13,
 			RootCAs:      roots.Clone(),
@@ -125,7 +125,7 @@ func (c *ACPCapabilityClient) VerifyCapabilityAccess(
 		return ErrForbidden
 	}
 	if !bytes.Equal(submission.Arguments, []byte("{}")) ||
-		!strings.HasPrefix(submission.Capability.ID, "sre.") {
+		!submission.Capability.ID != "sre.metrics.read" {
 		return ErrForbidden
 	}
 	payload := acpCapabilityRequest{
