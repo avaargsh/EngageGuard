@@ -52,7 +52,7 @@ func (s *Store) ClaimAuthorizedIntent(ctx context.Context, permitID string, reso
 	if err != nil {
 		return DispatchIntent{}, fmt.Errorf("%w: %v", ErrPermitMismatch, err)
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	tx, err := beginGuardRuntimeTx(ctx, s.db)
 	if err != nil {
 		return DispatchIntent{}, fmt.Errorf("begin Permit claim: %w", err)
 	}
@@ -120,6 +120,28 @@ func (s *Store) ClaimAuthorizedIntent(ctx context.Context, permitID string, reso
 		VALUES ($1,$2::uuid,$3::uuid,$4::uuid,'guard.operation.dispatching.v1',$5)
 	`, resolved.TenantID, resolved.OperationID, permitID, intent.AttemptID, hash); err != nil {
 		return DispatchIntent{}, fmt.Errorf("persist pre-dispatch audit intent: %w", err)
+	}
+	// The Permit can expire while we persist Intent and Audit (for example,
+	// an audit INSERT blocked on storage or a trigger). Recheck using the
+	// PostgreSQL clock after all journal writes and immediately before commit.
+	// This is a necessary, fail-closed late check, NOT a strict commit-time
+	// database constraint: a deferred SQL fence and executor PEP are still
+	// required before a real protected effect is authorized.
+	var stillFresh bool
+	err = tx.QueryRowContext(ctx, `
+		SELECT expires_at > clock_timestamp() AND revoked_at IS NULL
+		FROM guard_permits
+		WHERE tenant_id=$1 AND operation_id=$2::uuid AND permit_id=$3::uuid
+		FOR UPDATE
+	`, resolved.TenantID, resolved.OperationID, permitID).Scan(&stillFresh)
+	if errors.Is(err, sql.ErrNoRows) {
+		return DispatchIntent{}, ErrPermitUnavailable
+	}
+	if err != nil {
+		return DispatchIntent{}, fmt.Errorf("recheck Permit expiry after audit: %w", err)
+	}
+	if !stillFresh {
+		return DispatchIntent{}, ErrPermitUnavailable
 	}
 	if err := tx.Commit(); err != nil {
 		return DispatchIntent{}, fmt.Errorf("commit Permit claim + intent + audit: %w", err)

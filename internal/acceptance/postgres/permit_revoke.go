@@ -40,7 +40,7 @@ func (s *Store) RevokeScopedPermit(ctx context.Context, tenant, permitID, eviden
 			return false, ErrPermitUnavailable
 		}
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	tx, err := beginGuardRuntimeTx(ctx, s.db)
 	if err != nil {
 		return false, fmt.Errorf("begin Permit revocation: %w", err)
 	}
