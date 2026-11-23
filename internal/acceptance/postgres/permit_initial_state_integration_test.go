@@ -237,3 +237,55 @@ func TestPermitTriggerSecurityDefinerDriftMustFailMigrate(t *testing.T) {
 		t.Fatalf("Permit guard function SECURITY DEFINER drift accepted: %v", err)
 	}
 }
+
+// A same-named, same-function, ENABLE ALWAYS trigger can still be ineffective:
+// WHEN (false) prevents the trigger body from executing. The catalog verifier
+// must reject such conditions on every Permit state transition fence.
+func TestPermitMigrationRejectsAlwaysEnabledButConditionedStateTriggers(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		trigger string
+		create  string
+	}{
+		{
+			"causal claim or revoke at COMMIT", "guard_permit_causal_transition_v10",
+			"CREATE CONSTRAINT TRIGGER guard_permit_causal_transition_v10 " +
+				"AFTER UPDATE ON guard_permits DEFERRABLE INITIALLY DEFERRED " +
+				"FOR EACH ROW WHEN (false) EXECUTE FUNCTION guard_permit_causal_transition_v10()",
+		},
+		{
+			"Permit expiry at COMMIT", "guard_permit_claim_expiry_v11",
+			"CREATE CONSTRAINT TRIGGER guard_permit_claim_expiry_v11 " +
+				"AFTER UPDATE ON guard_permits DEFERRABLE INITIALLY DEFERRED " +
+				"FOR EACH ROW WHEN (false) EXECUTE FUNCTION guard_permit_claim_expiry_v11()",
+		},
+		{
+			"Permit initial INSERT fence", "guard_permit_initial_state_v12",
+			"CREATE TRIGGER guard_permit_initial_state_v12 " +
+				"BEFORE INSERT ON guard_permits FOR EACH ROW " +
+				"WHEN (false) EXECUTE FUNCTION guard_permit_initial_state_v12()",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, db := integrationStore(t)
+			ctx := context.Background()
+			for _, ddl := range []string{
+				"DROP TRIGGER " + tc.trigger + " ON guard_permits",
+				tc.create,
+				"ALTER TABLE guard_permits ENABLE ALWAYS TRIGGER " + tc.trigger,
+			} {
+				if _, err := db.ExecContext(ctx, ddl); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var enabled string
+			var conditioned bool
+			if err := db.QueryRowContext(ctx, "SELECT tgenabled::text, tgqual IS NOT NULL FROM pg_catalog.pg_trigger WHERE tgname=$1 AND tgrelid='guard_permits'::regclass", tc.trigger).Scan(&enabled, &conditioned); err != nil || enabled != "A" || !conditioned {
+				t.Fatalf("invalid conditioned-trigger fixture: %s conditioned=%t err=%v", enabled, conditioned, err)
+			}
+			if err := Migrate(ctx, db); !errors.Is(err, ErrSchemaDrift) {
+				t.Fatalf("conditioned Permit state trigger accepted: %v", err)
+			}
+		})
+	}
+}
