@@ -10,22 +10,9 @@ import (
 	"github.com/avaargsh/EngageGuard/internal/action"
 )
 
-// Source selectors must be one canonical lower-case PostgreSQL UUID spelling.
-// PostgreSQL accepts alternate forms, including upper-case aliases, but the
-// accepted-source trust boundary must not normalize caller-controlled IDs.
-var acceptedSourceOperationIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}package postgres
-
-import (
-	"context"
-	"database/sql"
-	"errors"
-	"fmt"
-	"regexp"
-
-	"github.com/avaargsh/EngageGuard/internal/action"
-)
-
-)
+// Source selectors must use one canonical lower-case PostgreSQL UUID spelling.
+// PostgreSQL's UUID type accepts upper-case aliases; source identity does not.
+var acceptedSourceOperationIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // AcceptedSubmission is a recovery-only view of untrusted original intent.
 // It is NOT a resolved ActionRequest, approval, Permit or executable receipt.
