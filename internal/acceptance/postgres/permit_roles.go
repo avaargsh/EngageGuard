@@ -85,6 +85,22 @@ func VerifyPermitRoleSeparation(
 		return unsafe("role membership permits cross-role escalation", err)
 	}
 
+	// PostgreSQL commonly grants TEMPORARY on newly created databases to
+	// PUBLIC. A role can therefore create pg_temp lookalikes without any
+	// CREATE privilege on the Guard schema. Database-level CREATE also
+	// permits a new writable schema and a startup search_path redirection.
+	// These privileges (including those inherited from PUBLIC/other roles)
+	// are incompatible with protected issuer/claimer database identities.
+	for _, role := range []string{issuerRole, claimerRole} {
+		var canTemp, canCreateDatabaseSchema bool
+		err = conn.QueryRowContext(ctx, `
+			SELECT pg_catalog.has_database_privilege($1::name, pg_catalog.current_database(), 'TEMPORARY'),
+			       pg_catalog.has_database_privilege($1::name, pg_catalog.current_database(), 'CREATE')
+		`, role).Scan(&canTemp, &canCreateDatabaseSchema)
+		if err != nil || canTemp || canCreateDatabaseSchema {
+			return unsafe("role can create temporary relations or database schemas", err)
+		}
+	}
 	// Each role must use the schema but must not create a shadow relation or
 	// function in the namespace that holds the trusted Permit ledger.
 	for _, role := range []string{issuerRole, claimerRole} {
