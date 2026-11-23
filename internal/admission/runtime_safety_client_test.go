@@ -152,3 +152,33 @@ func TestRuntimeSafetyClientRejectsMissingServerAuthEKU(t *testing.T) {
 		t.Fatal("server handler received privileged safety read with missing serverAuth EKU")
 	}
 }
+// Response BODY limits do not bound HTTP header allocation. A peer with a
+// valid certificate cannot send arbitrarily large header metadata to Guard.
+func TestRuntimeSafetyClientRejectsOversizedResponseHeaders(t *testing.T) {
+	serverCert, roots := safetyServerCert(t, safetyPeer)
+	clientCA, signer, clientRoots := newTestTransportCA(t)
+	cert := newTestTLSLeaf(t, clientCA, signer, true, "spiffe://platform.example/ns/guard/sa/engageguard")
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Untrusted-Excessive-Metadata", strings.Repeat("X", 16*1024))
+		_, _ = w.Write([]byte(`{"schema_version":"runtime.run-safety.v1","tenant_id":"tenant-1","run_id":"` + safetyRun + `","agent_id":"agent-1","agent_release_id":"release-1","session_id":"session-1","status":"RUNNING","breaker_state":"CLOSED","breaker_epoch":1,"breaker_version":1}`))
+	}))
+	srv.TLS = &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		Certificates: []tls.Certificate{serverCert},
+		ClientAuth: tls.RequireAndVerifyClientCert,
+		ClientCAs: clientRoots,
+	}
+	srv.StartTLS()
+	defer srv.Close()
+	client, err := NewRuntimeRunSafetyClient(srv.URL, safetyPeer, safetyTenant, roots, cert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.CloseIdleConnections()
+	if _, err := client.GetRunSafetySnapshot(context.Background(), safetyTenant, safetyRun); !errors.Is(err, ErrAuthorityUnavailable) {
+		t.Fatalf("oversized HTTP response headers were accepted by safety authority: %v", err)
+	}
+}
+
