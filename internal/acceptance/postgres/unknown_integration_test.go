@@ -108,16 +108,19 @@ func TestMarkDispatchUnknownRejectsClaimedAttemptMissingImmutableAudit(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Corrupt only this isolated test schema with a privileged fixture. SET
-	// LOCAL is automatically reset on COMMIT, leaving application sessions
-	// with their normal trigger enforcement for the attempted transition.
+	// Corrupt only this isolated test schema using a privileged migration
+	// session. Audit immutability is ENABLE ALWAYS; replica mode cannot
+	// bypass it. Disable that one row trigger inside the same transaction,
+	// then restore ENABLE ALWAYS before COMMIT. Runtime roles must never
+	// have this DDL privilege.
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, "SET LOCAL session_replication_role = 'replica'"); err != nil {
-		t.Fatalf("test-only PostgreSQL corruption fixture requires superuser: %v", err)
+	if _, err := tx.ExecContext(ctx,
+		"ALTER TABLE guard_execution_audit DISABLE TRIGGER guard_execution_audit_immutable_row"); err != nil {
+		t.Fatal(err)
 	}
 	result, err := tx.ExecContext(ctx,
 		"DELETE FROM guard_execution_audit WHERE tenant_id=$1 AND attempt_id=$2::uuid",
@@ -127,6 +130,10 @@ func TestMarkDispatchUnknownRejectsClaimedAttemptMissingImmutableAudit(t *testin
 	}
 	if affected, err := result.RowsAffected(); err != nil || affected != 1 {
 		t.Fatalf("fixture did not delete exactly one audit row: affected=%d err=%v", affected, err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		"ALTER TABLE guard_execution_audit ENABLE ALWAYS TRIGGER guard_execution_audit_immutable_row"); err != nil {
+		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
