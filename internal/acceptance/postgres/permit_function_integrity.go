@@ -65,7 +65,7 @@ func verifyPermitTriggerFunctions(ctx context.Context, tx *sql.Tx) error {
 			       AND p.prorettype = 'pg_catalog.trigger'::regtype
 			       AND p.pronargs = 0
 			FROM pg_catalog.pg_proc p
-			WHERE p.oid = to_regprocedure($1)
+			WHERE p.oid = pg_catalog.to_regprocedure(pg_catalog.format('%I.%s', current_schema(), $1::text))
 		`, item.name+"()").Scan(&actual, &attributesSafe)
 		if err != nil || !attributesSafe || actual != expected {
 			return fmt.Errorf("%w: Permit trigger function %s definition or security attributes drifted: %v",
