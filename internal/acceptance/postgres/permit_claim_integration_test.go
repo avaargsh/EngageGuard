@@ -90,6 +90,40 @@ func TestClaimRejectsMalformedPermitIDBeforeDatabaseCast(t *testing.T) {
 	}
 }
 
+// A resolved OperationID is part of the trusted action identity. Reject
+// malformed/noncanonical UUIDs before PostgreSQL's ::uuid coercion can
+// return driver-specific 22P02 or normalize an alternate representation.
+func TestClaimRejectsMalformedOperationIDBeforeDatabaseCast(t *testing.T) {
+	store, resolved, permitID := seededWorkspacePermit(t)
+	for _, bad := range []string{
+		"not-a-uuid",
+		strings.ToUpper(resolved.OperationID),
+		resolved.OperationID + "' OR TRUE",
+	} {
+		t.Run(bad, func(t *testing.T) {
+			untrusted := resolved
+			untrusted.OperationID = bad
+			if _, err := store.ClaimAuthorizedIntent(context.Background(), permitID, untrusted); !errors.Is(err, ErrPermitMismatch) {
+				t.Fatalf("malformed OperationID error=%v, want ErrPermitMismatch before SQL UUID cast", err)
+			}
+		})
+	}
+	var state string
+	if err := store.db.QueryRow("SELECT state FROM guard_permits WHERE permit_id=$1::uuid", permitID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "ISSUED" {
+		t.Fatalf("malformed OperationID changed Permit state: %s", state)
+	}
+	var intents int
+	if err := store.db.QueryRow("SELECT count(*) FROM guard_operation_intents").Scan(&intents); err != nil {
+		t.Fatal(err)
+	}
+	if intents != 0 {
+		t.Fatalf("malformed OperationID created %d intents", intents)
+	}
+}
+
 func TestClaimPermitAndIntentAreAtomicAndOneTimeUnderConcurrency(t *testing.T) {
 	store, resolved, permitID := seededWorkspacePermit(t)
 	const clients = 16
