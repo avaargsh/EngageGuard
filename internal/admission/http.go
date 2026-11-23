@@ -100,7 +100,14 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthenticated", http.StatusUnauthorized)
 		return
 	}
-	contentType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	// Header.Get ignores additional values; do not let ambiguous wire
+	// metadata reach RunVerifier or the accepted-intent writer.
+	contentTypes := r.Header.Values("Content-Type")
+	if len(contentTypes) != 1 {
+		http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
+		return
+	}
+	contentType, _, err := mime.ParseMediaType(contentTypes[0])
 	if err != nil || contentType != "application/json" {
 		http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
 		return
