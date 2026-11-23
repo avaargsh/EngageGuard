@@ -341,7 +341,6 @@ func TestGuardCatalogRejectsTemporaryShadowsThatMaskPermanentSchemaDrift(t *test
 	}
 }
 
-
 // TestSnapshotAndPermitCatalogPinRealSchemaAgainstTemporaryShadows ensures
 // catalog attestations inspect permanent authoritative tables even when a
 // session owns pg_temp tables with the same names. The checks must also detect
