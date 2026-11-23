@@ -77,9 +77,10 @@ func NewRuntimeRunSafetyClient(origin, expectedSPIFFE, tenant string, roots *x50
 				return ErrAuthorityUnavailable
 			},
 		},
-		DisableKeepAlives:     true, // require fresh cert verification on each read
-		TLSHandshakeTimeout:   3 * time.Second,
-		ResponseHeaderTimeout: 3 * time.Second,
+		DisableKeepAlives:      true, // require fresh cert verification on each read
+		MaxResponseHeaderBytes: maxSafetyResponse, // bound authenticated peer metadata allocation
+		TLSHandshakeTimeout:    3 * time.Second,
+		ResponseHeaderTimeout:  3 * time.Second,
 	}
 	return &RuntimeRunSafetyClient{
 		origin: strings.TrimSuffix(u.String(), "/"),
