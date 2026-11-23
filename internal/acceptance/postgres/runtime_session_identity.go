@@ -20,6 +20,28 @@ func beginGuardRuntimeTx(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Do not use current_schema() alone as the trust anchor: a writable
+	// schema with complete cloned Guard tables and indexes satisfies all
+	// relative OID comparisons after SET search_path. Pin this session to
+	// the search_path that PostgreSQL would restore on RESET (provisioned
+	// by the connection/role at startup). Deployment still must secure
+	// that configuration and prohibit writable path components.
+	var startupPathIntact bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_catalog.pg_settings s
+			WHERE s.name = 'search_path'
+			  AND s.setting = s.reset_val
+			  AND pg_catalog.current_schema() IS NOT NULL
+		)
+	`).Scan(&startupPathIntact); err != nil {
+		_ = tx.Rollback()
+		return nil, fmt.Errorf("%w: inspect PostgreSQL startup search_path: %v", ErrSchemaDrift, err)
+	}
+	if !startupPathIntact {
+		_ = tx.Rollback()
+		return nil, fmt.Errorf("%w: runtime PostgreSQL search_path diverged from connection baseline", ErrSchemaDrift)
+	}
 	// All relations belong to the PostgreSQL schema selected by the
 	// deployment connection. pg_temp implicitly takes search precedence
 	// for relations even when it does not appear in search_path.
