@@ -121,7 +121,6 @@ func TestRuntimeSafetyClientRequiresAuthenticFreshExactBinding(t *testing.T) {
 	}
 }
 
-
 // A chain-valid server certificate without an explicit serverAuth EKU is
 // unconstrained under ordinary Go x509 verification; Guard must still deny it.
 func TestRuntimeSafetyClientRejectsMissingServerAuthEKU(t *testing.T) {
