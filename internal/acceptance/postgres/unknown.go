@@ -44,6 +44,11 @@ func (s *Store) GetDispatchState(ctx context.Context, tenant, operationID, attem
 	if !tenantIDPattern.MatchString(tenant) || !validDispatchUUID(operationID) || !validDispatchUUID(attemptID) {
 		return value, ErrDispatchNotFound
 	}
+	tx, err := beginGuardRuntimeTx(ctx, s.db)
+	if err != nil {
+		return value, fmt.Errorf("begin Guard dispatch inspection: %w", err)
+	}
+	defer tx.Rollback()
 	var reason sql.NullString
 	var claimed, audited bool
 	// An Intent row alone is not a committed dispatch attempt. Read the
@@ -51,7 +56,7 @@ func (s *Store) GetDispatchState(ctx context.Context, tenant, operationID, attem
 	// so recovery never promotes an orphan/fabricated Intent into evidence.
 	// This is local ledger integrity only; it is NOT a provider receipt,
 	// trusted issuance proof, or permission to retry any effect.
-	err := s.db.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		SELECT i.tenant_id, i.operation_id::text, i.permit_id::text,
 		       i.attempt_id::text, i.action_hash, i.state, e.reason,
 		       EXISTS (
@@ -94,6 +99,9 @@ func (s *Store) GetDispatchState(ctx context.Context, tenant, operationID, attem
 		(value.State == "DISPATCHING" && value.Reason != "") {
 		return DispatchState{}, ErrUnknownConflict
 	}
+	if err := tx.Commit(); err != nil {
+		return DispatchState{}, fmt.Errorf("commit Guard dispatch inspection: %w", err)
+	}
 	return value, nil
 }
 
@@ -132,7 +140,7 @@ func (s *Store) MarkDispatchUnknown(
 	if !validUnknownReason(reason) {
 		return empty, ErrUnknownCause
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	tx, err := beginGuardRuntimeTx(ctx, s.db)
 	if err != nil {
 		return empty, fmt.Errorf("begin Guard UNKNOWN journal: %w", err)
 	}
