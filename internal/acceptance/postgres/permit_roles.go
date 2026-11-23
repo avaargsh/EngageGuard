@@ -55,7 +55,7 @@ func VerifyPermitRoleSeparation(
 	}
 	var shared bool
 	err = db.QueryRowContext(ctx, `
-		SELECT pg_has_role($1::name,$2::name,'MEMBER')
+		SELECT pg_catalog.pg_has_role($1::name,$2::name,'MEMBER')
 		    OR pg_has_role($2::name,$1::name,'MEMBER')
 	`, issuerRole, claimerRole).Scan(&shared)
 	if err != nil || shared {
@@ -67,8 +67,8 @@ func VerifyPermitRoleSeparation(
 	for _, role := range []string{issuerRole, claimerRole} {
 		var usage, canCreate bool
 		err = db.QueryRowContext(ctx, `
-			SELECT has_schema_privilege($1::name, current_schema(), 'USAGE'),
-			       has_schema_privilege($1::name, current_schema(), 'CREATE')
+			SELECT pg_catalog.has_schema_privilege($1::name, current_schema(), 'USAGE'),
+			       pg_catalog.has_schema_privilege($1::name, current_schema(), 'CREATE')
 		`, role).Scan(&usage, &canCreate)
 		if err != nil || !usage || canCreate {
 			return unsafe("schema usage/creation privileges", err)
@@ -145,17 +145,22 @@ func VerifyPermitRoleSeparation(
 			}
 		}
 	}
+	// Resolve every relation explicitly inside current_schema(). Unqualified
+	// to_regclass($2) searches pg_temp first, even when pg_temp is absent from
+	// search_path; a same-named temporary table could otherwise mask unsafe
+	// grants on the authoritative Guard ledger. Keep privilege functions in
+	// pg_catalog too, so caller-controlled search_path cannot shadow them.
 	for _, pr := range probes {
 		var got bool
 		var q string
 		if pr.column != "" {
-			q = "SELECT has_column_privilege($1::name,to_regclass($2),$3::name,$4::text)"
+			q = "SELECT pg_catalog.has_column_privilege($1::name, pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), $2)), $3::name, $4::text)"
 			err = db.QueryRowContext(ctx, q, pr.role, pr.table, pr.column, pr.privilege).Scan(&got)
 		} else if pr.privilege == "INSERT" || pr.privilege == "UPDATE" {
-			q = "SELECT has_any_column_privilege($1::name,to_regclass($2),$3::text)"
+			q = "SELECT pg_catalog.has_any_column_privilege($1::name, pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), $2)), $3::text)"
 			err = db.QueryRowContext(ctx, q, pr.role, pr.table, pr.privilege).Scan(&got)
 		} else {
-			q = "SELECT has_table_privilege($1::name,to_regclass($2),$3::text)"
+			q = "SELECT pg_catalog.has_table_privilege($1::name, pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), $2)), $3::text)"
 			err = db.QueryRowContext(ctx, q, pr.role, pr.table, pr.privilege).Scan(&got)
 		}
 		if err != nil || got != pr.want {
