@@ -193,15 +193,15 @@ func TestDecisionPlanClientRejectsAmbiguousResponseHeaders(t *testing.T) {
 	submission.Capability.Version = "1.0.0"
 	submission.Arguments = json.RawMessage("{}")
 	receipt := guardStepReceipt{
-		SchemaVersion: decisionPlanSchema,
-		RunID: snapshot.RunID,
-		DecisionID: submission.DecisionID,
-		PlanHash: submission.PlanHash,
-		StepID: submission.StepID,
-		RecordSHA256: strings.Repeat("c", 64),
-		BreakerEpoch: int64(snapshot.BreakerEpoch),
+		SchemaVersion:  decisionPlanSchema,
+		RunID:          snapshot.RunID,
+		DecisionID:     submission.DecisionID,
+		PlanHash:       submission.PlanHash,
+		StepID:         submission.StepID,
+		RecordSHA256:   strings.Repeat("c", 64),
+		BreakerEpoch:   int64(snapshot.BreakerEpoch),
 		BreakerVersion: int64(snapshot.BreakerVersion),
-		Status: "VERIFIED",
+		Status:         "VERIFIED",
 	}
 	payload, err := json.Marshal(receipt)
 	if err != nil {
