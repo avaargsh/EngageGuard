@@ -58,3 +58,33 @@ func TestMigrationRejectsPermanentChecksumDriftBehindTempLedgerShadow(t *testing
 		t.Fatalf("permanent v13 checksum drift concealed by pg_temp ledger: got %v, want ErrSchemaDrift", err)
 	}
 }
+
+// The migration transaction also checks permanent Permit, Intent and Audit
+// catalogs. Those checks must not declare startup healthy while ordinary
+// unqualified SQL in the *same session* would resolve to temporary lookalikes.
+// No forged provider-side effect is attempted by this regression.
+func TestMigrationRejectsSessionTemporaryProtectedLedgerShadows(t *testing.T) {
+	for _, name := range []string{
+		"guard_permits", "guard_operation_intents", "guard_execution_audit",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, db := integrationStore(t)
+			db.SetMaxOpenConns(1)
+			db.SetMaxIdleConns(1)
+			ctx := context.Background()
+			if _, err := db.ExecContext(ctx, "CREATE TEMP TABLE "+name+" (shadow integer)"); err != nil {
+				t.Fatal(err)
+			}
+			var active bool
+			if err := db.QueryRowContext(ctx,
+				"SELECT pg_catalog.to_regclass($1) = pg_catalog.to_regclass('pg_temp.' || $1)",
+				name,
+			).Scan(&active); err != nil || !active {
+				t.Fatalf("temporary relation not active: %s, shadowed=%t, err=%v", name, active, err)
+			}
+			if err := Migrate(ctx, db); !errors.Is(err, ErrSchemaDrift) {
+				t.Fatalf("accepted %s temporary shadow despite permanent catalog attestation: %v", name, err)
+			}
+		})
+	}
+}
