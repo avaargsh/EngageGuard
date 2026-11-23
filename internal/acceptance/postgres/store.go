@@ -370,9 +370,28 @@ type Operation struct {
 	Status           string
 }
 
-type Store struct{ db *sql.DB }
+type Store struct {
+	db            *sql.DB
+	trustedSchema string
+}
 
+// New is retained for admission-only callers. ReadAcceptedSubmission
+// deliberately fails closed unless its Store is configured with an explicit
+// independently provisioned schema via NewWithTrustedSchema.
 func New(db *sql.DB) *Store { return &Store{db: db} }
+
+var trustedSchemaPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
+
+// NewWithTrustedSchema pins the authoritative Guard source namespace from
+// trusted operator configuration (never a request, model output or a SELECT
+// current_schema() on the borrowed runtime DB connection).
+func NewWithTrustedSchema(db *sql.DB, schema string) (*Store, error) {
+	if db == nil || !trustedSchemaPattern.MatchString(schema) ||
+		strings.HasPrefix(schema, "pg_") || schema == "information_schema" {
+		return nil, ErrSchemaDrift
+	}
+	return &Store{db: db, trustedSchema: schema}, nil
+}
 
 // Accept must receive tenantID from a trusted authenticated principal, never
 // from the untrusted ActionSubmission. Exactly one operation and one outbox
