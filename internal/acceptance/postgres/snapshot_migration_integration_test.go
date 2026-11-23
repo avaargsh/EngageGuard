@@ -238,3 +238,106 @@ func TestSharedSnapshotMutationFunctionPrivilegeDriftMustFailMigrate(t *testing.
 		})
 	}
 }
+
+
+// TestGuardCatalogRejectsTemporaryShadowsThatMaskPermanentSchemaDrift proves
+// catalog verification cannot be satisfied by same-named pg_temp relations.
+// The temp copies retain the expected constraints/index while the permanent
+// tables are deliberately damaged; only schema-pinned inspection rejects it.
+func TestGuardCatalogRejectsTemporaryShadowsThatMaskPermanentSchemaDrift(t *testing.T) {
+	db := unmigratedDatabase(t)
+	ctx := context.Background()
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+
+	var ddl string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT pg_catalog.format(
+			'CREATE TEMP TABLE guard_action_operations (LIKE %I.guard_action_operations INCLUDING ALL)',
+			current_schema()
+		)
+	`).Scan(&ddl); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, ddl); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.QueryRowContext(ctx, `
+		SELECT pg_catalog.format(
+			'CREATE TEMP TABLE guard_outbox_events (LIKE %I.guard_outbox_events INCLUDING ALL)',
+			current_schema()
+		)
+	`).Scan(&ddl); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, ddl); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		ALTER TABLE pg_temp.guard_outbox_events
+		DROP CONSTRAINT IF EXISTS guard_outbox_operation_fk
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		ALTER TABLE pg_temp.guard_outbox_events
+		ADD CONSTRAINT guard_outbox_operation_fk
+		FOREIGN KEY (tenant_id, operation_id)
+		REFERENCES pg_temp.guard_action_operations (tenant_id, operation_id)
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DROP INDEX IF EXISTS pg_temp.guard_outbox_unpublished_idx
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		CREATE INDEX guard_outbox_unpublished_idx
+		ON pg_temp.guard_outbox_events (occurred_at, event_id)
+	`); err != nil {
+		t.Fatal(err)
+	}
+
+	// Damage the authoritative schema after copying its good catalog into
+	// pg_temp. An unqualified to_regclass() verifier will inspect the copies
+	// and incorrectly report a healthy Guard schema.
+	for _, query := range []string{
+		`SELECT pg_catalog.format(
+			'ALTER TABLE %I.guard_action_operations DROP CONSTRAINT guard_action_operations_submission_digest_check',
+			current_schema()
+		)`,
+		`SELECT pg_catalog.format(
+			'ALTER TABLE %I.guard_outbox_events DROP CONSTRAINT guard_outbox_operation_fk',
+			current_schema()
+		)`,
+		`SELECT pg_catalog.format(
+			'DROP INDEX %I.guard_outbox_unpublished_idx',
+			current_schema()
+		)`,
+	} {
+		if err := tx.QueryRowContext(ctx, query).Scan(&ddl); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.ExecContext(ctx, ddl); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var shadowed bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT pg_catalog.to_regclass('guard_action_operations')
+		    = pg_catalog.to_regclass('pg_temp.guard_action_operations')
+	`).Scan(&shadowed); err != nil || !shadowed {
+		t.Fatalf("test did not establish pg_temp relation shadow: shadowed=%t err=%v", shadowed, err)
+	}
+	if err := verifyGuardCatalog(ctx, tx); !errors.Is(err, ErrSchemaDrift) {
+		t.Fatalf("temporary copies masked damaged permanent Guard schema: got %v, want ErrSchemaDrift", err)
+	}
+}
