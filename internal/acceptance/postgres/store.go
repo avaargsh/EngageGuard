@@ -81,6 +81,23 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("%w: Guard migration ledger is not a permanent ordinary table", ErrSchemaDrift)
 	}
 
+	// A temporary relation with this name shadows every subsequent
+	// unqualified migration ledger SELECT/INSERT in the same PostgreSQL
+	// session, even though the permanent table passed the durability check.
+	// Reject the session before reading or stamping migration history.
+	// This must remain fail-closed rather than relying only on a permanent
+	// pg_class entry, because TEMP implicitly precedes current_schema().
+	var ledgerNameUnshadowed bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT pg_catalog.to_regclass('guard_schema_migrations') =
+		       pg_catalog.to_regclass(pg_catalog.format('%I.%I', pg_catalog.current_schema(), 'guard_schema_migrations'))
+	`).Scan(&ledgerNameUnshadowed); err != nil {
+		return fmt.Errorf("%w: inspect Guard migration ledger name resolution: %v", ErrSchemaDrift, err)
+	}
+	if !ledgerNameUnshadowed {
+		return fmt.Errorf("%w: Guard migration ledger shadowed by session-local relation", ErrSchemaDrift)
+	}
+
 	rows, err := tx.QueryContext(ctx, "SELECT version, checksum FROM guard_schema_migrations ORDER BY version")
 	if err != nil {
 		return fmt.Errorf("read Guard migration ledger: %w", err)
