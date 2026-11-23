@@ -125,7 +125,7 @@ func (c *ACPCapabilityClient) VerifyCapabilityAccess(
 		return ErrForbidden
 	}
 	if !bytes.Equal(submission.Arguments, []byte("{}")) ||
-		!submission.Capability.ID != "sre.metrics.read" {
+		submission.Capability.ID != "sre.metrics.read" {
 		return ErrForbidden
 	}
 	payload := acpCapabilityRequest{
