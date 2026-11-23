@@ -45,9 +45,27 @@ func (s *Store) GetDispatchState(ctx context.Context, tenant, operationID, attem
 		return value, ErrDispatchNotFound
 	}
 	var reason sql.NullString
+	var claimed, audited bool
+	// A standalone Intent is not proof of a committed dispatch. Bind the
+	// CLAIMED Permit and exact immutable dispatch Audit in the same query,
+	// without trusting a caller-supplied state or permitting redispatch.
 	err := s.db.QueryRowContext(ctx, `
 		SELECT i.tenant_id, i.operation_id::text, i.permit_id::text,
-		       i.attempt_id::text, i.action_hash, i.state, e.reason
+		       i.attempt_id::text, i.action_hash, i.state, e.reason,
+		       EXISTS (
+		           SELECT 1 FROM guard_permits p
+		           WHERE p.tenant_id=i.tenant_id AND p.operation_id=i.operation_id
+		             AND p.permit_id=i.permit_id AND p.action_hash=i.action_hash
+		             AND p.binding_digest=i.binding_digest AND p.state='CLAIMED'
+		             AND p.claimed_at IS NOT NULL
+		       ),
+		       EXISTS (
+		           SELECT 1 FROM guard_execution_audit a
+		           WHERE a.tenant_id=i.tenant_id AND a.operation_id=i.operation_id
+		             AND a.permit_id=i.permit_id AND a.attempt_id=i.attempt_id
+		             AND a.action_hash=i.action_hash
+		             AND a.event_type='guard.operation.dispatching.v1'
+		       )
 		FROM guard_operation_intents i
 		LEFT JOIN guard_operation_unknown_events e
 		  ON e.tenant_id=i.tenant_id AND e.attempt_id=i.attempt_id
@@ -55,6 +73,7 @@ func (s *Store) GetDispatchState(ctx context.Context, tenant, operationID, attem
 	`, tenant, operationID, attemptID).Scan(
 		&value.TenantID, &value.OperationID, &value.PermitID,
 		&value.AttemptID, &value.ActionHash, &value.State, &reason,
+		&claimed, &audited,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return DispatchState{}, ErrDispatchNotFound
@@ -64,6 +83,9 @@ func (s *Store) GetDispatchState(ctx context.Context, tenant, operationID, attem
 	}
 	if reason.Valid {
 		value.Reason = reason.String
+	}
+	if !claimed || !audited {
+		return DispatchState{}, ErrUnknownConflict
 	}
 	if value.State != "DISPATCHING" && value.State != "UNKNOWN" ||
 		(value.State == "UNKNOWN" && !validUnknownReason(value.Reason)) ||
@@ -114,8 +136,18 @@ func (s *Store) MarkDispatchUnknown(
 	}
 	defer tx.Rollback()
 	var state, permitID, actionHash, permitState string
+	var audited bool
+	// Recheck the exact original immutable Audit under the locked Attempt
+	// before creating UNKNOWN or acknowledging a same-reason UNKNOWN replay.
 	err = tx.QueryRowContext(ctx, `
-		SELECT i.state, i.permit_id::text, i.action_hash, p.state
+		SELECT i.state, i.permit_id::text, i.action_hash, p.state,
+		       EXISTS (
+		           SELECT 1 FROM guard_execution_audit a
+		           WHERE a.tenant_id=i.tenant_id AND a.operation_id=i.operation_id
+		             AND a.permit_id=i.permit_id AND a.attempt_id=i.attempt_id
+		             AND a.action_hash=i.action_hash
+		             AND a.event_type='guard.operation.dispatching.v1'
+		       )
 		FROM guard_operation_intents i
 		JOIN guard_permits p
 		  ON p.tenant_id=i.tenant_id AND p.operation_id=i.operation_id
@@ -123,14 +155,14 @@ func (s *Store) MarkDispatchUnknown(
 		WHERE i.tenant_id=$1 AND i.operation_id=$2::uuid
 		  AND i.attempt_id=$3::uuid
 		FOR UPDATE OF i
-	`, tenant, operationID, attemptID).Scan(&state, &permitID, &actionHash, &permitState)
+	`, tenant, operationID, attemptID).Scan(&state, &permitID, &actionHash, &permitState, &audited)
 	if errors.Is(err, sql.ErrNoRows) {
 		return empty, ErrDispatchNotFound
 	}
 	if err != nil {
 		return empty, fmt.Errorf("lock Guard dispatch attempt: %w", err)
 	}
-	if permitState != "CLAIMED" {
+	if permitState != "CLAIMED" || !audited {
 		return empty, ErrUnknownConflict
 	}
 	if state == "UNKNOWN" {
