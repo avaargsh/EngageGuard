@@ -165,7 +165,11 @@ func TestComposedRunVerifierRequiresDecisionAndACPAuthority(t *testing.T) {
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("got %v; expected %v", err, tc.want)
 			}
-			if reader.calls != 1 || decision.calls != tc.decisionCalls || capability.calls != tc.capabilityCalls {
+			wantReadCalls := 1
+			if tc.want == nil {
+				wantReadCalls = 2
+			}
+			if reader.calls != wantReadCalls || decision.calls != tc.decisionCalls || capability.calls != tc.capabilityCalls {
 				t.Fatalf("invalid authority invocation order: read=%d decision=%d capability=%d",
 					reader.calls, decision.calls, capability.calls)
 			}
@@ -198,7 +202,7 @@ func TestComposedRunVerifierReplayRevalidatesRunBreakerBeforeAccept(t *testing.T
 	reader.snapshot.BreakerState = "OPEN"
 	denied := exercise(handler, "guard-authority-key", goodBody())
 	if denied.Code != http.StatusForbidden || store.calls != 1 ||
-		reader.calls != 2 || decision.calls != 1 || capability.calls != 1 {
+		reader.calls != 3 || decision.calls != 1 || capability.calls != 1 {
 		t.Fatalf("replay bypassed current Run breaker: status=%d writes=%d calls=%d/%d/%d",
 			denied.Code, store.calls, reader.calls, decision.calls, capability.calls)
 	}
