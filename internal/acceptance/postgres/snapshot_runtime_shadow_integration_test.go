@@ -93,3 +93,32 @@ func TestReadAcceptedSubmissionRejectsTempOnlyAuthoritativeSource(t *testing.T) 
 			clean.Operation, len(clean.Raw), err)
 	}
 }
+
+// A schema verified at startup can be weakened later without changing
+// its relation OIDs or name resolution. Crash-unsafe accepted evidence or
+// a crash-unsafe migration ledger must never be used as a source authority.
+func TestReadAcceptedSubmissionRejectsPostMigrationUnloggedSource(t *testing.T) {
+	for _, table := range []string{
+		"guard_accepted_submission_snapshots",
+		"guard_schema_migrations",
+	} {
+		t.Run(table, func(t *testing.T) {
+			store, db := integrationStore(t)
+			ctx := context.Background()
+			op, created, err := store.Accept(ctx, "tenant-a", "unlogged-source", sampleSubmission())
+			if err != nil || !created {
+				t.Fatalf("seed accepted submission: created=%t err=%v", created, err)
+			}
+			if _, err := store.ReadAcceptedSubmission(ctx, op.TenantID, op.OperationID); err != nil {
+				t.Fatalf("read original permanent source: %v", err)
+			}
+			if _, err := db.ExecContext(ctx, "ALTER TABLE "+table+" SET UNLOGGED"); err != nil {
+				t.Fatalf("test-only migration-role drift fixture: %v", err)
+			}
+			value, err := store.ReadAcceptedSubmission(ctx, op.TenantID, op.OperationID)
+			if !errors.Is(err, ErrSchemaDrift) || value.Operation.OperationID != "" || len(value.Raw) != 0 {
+				t.Fatalf("post-migration crash-unsafe %s accepted: record=%+v err=%v", table, value.Operation, err)
+			}
+		})
+	}
+}
