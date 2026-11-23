@@ -68,7 +68,7 @@ func (s *Store) insertPendingPermit(ctx context.Context, req pendingPermitWrite)
 	if err != nil {
 		return "", ErrPendingPermitInvalid
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	tx, err := beginGuardRuntimeTx(ctx, s.db)
 	if err != nil {
 		return "", fmt.Errorf("%w: begin source-bound Permit transaction: %v", ErrPendingPermitUnavailable, err)
 	}
