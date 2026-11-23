@@ -44,12 +44,19 @@ func (s *Store) GetDispatchState(ctx context.Context, tenant, operationID, attem
 	if !tenantIDPattern.MatchString(tenant) || !validDispatchUUID(operationID) || !validDispatchUUID(attemptID) {
 		return value, ErrDispatchNotFound
 	}
+	tx, err := beginGuardRuntimeTx(ctx, s.db)
+	if err != nil {
+		return value, fmt.Errorf("begin Guard dispatch inspection: %w", err)
+	}
+	defer tx.Rollback()
 	var reason sql.NullString
 	var claimed, audited bool
-	// A standalone Intent is not proof of a committed dispatch. Bind the
-	// CLAIMED Permit and exact immutable dispatch Audit in the same query,
-	// without trusting a caller-supplied state or permitting redispatch.
-	err := s.db.QueryRowContext(ctx, `
+	// An Intent row alone is not a committed dispatch attempt. Read the
+	// claimed Permit and exact immutable audit in the SAME database snapshot,
+	// so recovery never promotes an orphan/fabricated Intent into evidence.
+	// This is local ledger integrity only; it is NOT a provider receipt,
+	// trusted issuance proof, or permission to retry any effect.
+	err = tx.QueryRowContext(ctx, `
 		SELECT i.tenant_id, i.operation_id::text, i.permit_id::text,
 		       i.attempt_id::text, i.action_hash, i.state, e.reason,
 		       EXISTS (
@@ -92,6 +99,9 @@ func (s *Store) GetDispatchState(ctx context.Context, tenant, operationID, attem
 		(value.State == "DISPATCHING" && value.Reason != "") {
 		return DispatchState{}, ErrUnknownConflict
 	}
+	if err := tx.Commit(); err != nil {
+		return DispatchState{}, fmt.Errorf("commit Guard dispatch inspection: %w", err)
+	}
 	return value, nil
 }
 
@@ -130,15 +140,18 @@ func (s *Store) MarkDispatchUnknown(
 	if !validUnknownReason(reason) {
 		return empty, ErrUnknownCause
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	tx, err := beginGuardRuntimeTx(ctx, s.db)
 	if err != nil {
 		return empty, fmt.Errorf("begin Guard UNKNOWN journal: %w", err)
 	}
 	defer tx.Rollback()
 	var state, permitID, actionHash, permitState string
 	var audited bool
-	// Recheck the exact original immutable Audit under the locked Attempt
-	// before creating UNKNOWN or acknowledging a same-reason UNKNOWN replay.
+	// A CLAIMED Permit and Intent alone do not prove that an actual
+	// pre-dispatch journal was committed. Require the exact immutable Audit
+	// before the first UNKNOWN write and on every same-reason replay.
+	// Otherwise a partial/forged ledger could manufacture uncertainty and
+	// cause recovery to treat an unissued dispatch as durable evidence.
 	err = tx.QueryRowContext(ctx, `
 		SELECT i.state, i.permit_id::text, i.action_hash, p.state,
 		       EXISTS (

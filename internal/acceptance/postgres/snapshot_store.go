@@ -5,9 +5,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 
 	"github.com/avaargsh/EngageGuard/internal/action"
 )
+
+// Source selectors must use one canonical lower-case PostgreSQL UUID spelling.
+// PostgreSQL's UUID type accepts upper-case aliases; source identity does not.
+var acceptedSourceOperationIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // AcceptedSubmission is a recovery-only view of untrusted original intent.
 // It is NOT a resolved ActionRequest, approval, Permit or executable receipt.
@@ -47,21 +52,22 @@ func (s *Store) ReadAcceptedSubmission(ctx context.Context, tenantID, operationI
 	if s == nil || s.db == nil || ctx == nil {
 		return AcceptedSubmission{}, errors.New("Guard admission database unavailable")
 	}
-	if !tenantIDPattern.MatchString(tenantID) || operationID == "" {
+	if !tenantIDPattern.MatchString(tenantID) || len(operationID) != 36 ||
+		!acceptedSourceOperationIDPattern.MatchString(operationID) {
 		return AcceptedSubmission{}, ErrSnapshotMissing
 	}
+	// Bind trusted acceptance evidence to a checked physical PostgreSQL
+	// session. A pool can acquire pg_temp Operation/Snapshot lookalikes
+	// after migration and must never return a temporary ACCEPTED source
+	// as evidence for protected Permit issuance.
+	tx, err := beginGuardRuntimeTx(ctx, s.db)
+	if err != nil {
+		return AcceptedSubmission{}, fmt.Errorf("inspect Guard accepted source relation identity: %w", err)
+	}
+	defer tx.Rollback()
 	if s.trustedSchema == "" {
 		return AcceptedSubmission{}, fmt.Errorf("%w: authoritative accepted-source schema not configured", ErrSchemaDrift)
 	}
-	// Do not trust a pooled session solely because Migrate authenticated
-	// another session at startup. Bind source identity checks and the
-	// accepted bytes read to ONE physical PostgreSQL transaction. The
-	// v1-v3 admission-only schema has no Permit/Executor tables.
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
-	if err != nil {
-		return AcceptedSubmission{}, fmt.Errorf("begin Guard accepted source inspection: %w", err)
-	}
-	defer tx.Rollback()
 	var safe bool
 	err = tx.QueryRowContext(ctx, `
 		SELECT EXISTS (
@@ -117,7 +123,7 @@ func (s *Store) ReadAcceptedSubmission(ctx context.Context, tenantID, operationI
 		return AcceptedSubmission{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return AcceptedSubmission{}, fmt.Errorf("commit Guard accepted source inspection: %w", err)
+		return AcceptedSubmission{}, fmt.Errorf("finish Guard accepted submission read: %w", err)
 	}
 	return out, nil
 }
