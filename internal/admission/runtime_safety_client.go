@@ -77,7 +77,7 @@ func NewRuntimeRunSafetyClient(origin, expectedSPIFFE, tenant string, roots *x50
 				return ErrAuthorityUnavailable
 			},
 		},
-		DisableKeepAlives:      true, // require fresh cert verification on each read
+		DisableKeepAlives:      true,              // require fresh cert verification on each read
 		MaxResponseHeaderBytes: maxSafetyResponse, // bound authenticated peer metadata allocation
 		TLSHandshakeTimeout:    3 * time.Second,
 		ResponseHeaderTimeout:  3 * time.Second,
