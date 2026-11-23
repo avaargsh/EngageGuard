@@ -233,10 +233,10 @@ func TestRuntimeSafetyClientRejectsAmbiguousResponseHeaders(t *testing.T) {
 	good := `{"schema_version":"runtime.run-safety.v1","tenant_id":"tenant-1","run_id":"` +
 		safetyRun + `","agent_id":"agent-1","agent_release_id":"release-1","session_id":"session-1","status":"RUNNING","breaker_state":"CLOSED","breaker_epoch":1,"breaker_version":1}`
 	cases := []struct {
-		name string
-		contentTypes []string
+		name          string
+		contentTypes  []string
 		cacheControls []string
-		valid bool
+		valid         bool
 	}{
 		{"single-canonical", []string{"application/json"}, []string{"no-store"}, true},
 		{"duplicate-identical-type", []string{"application/json", "application/json"}, []string{"no-store"}, false},
@@ -257,10 +257,10 @@ func TestRuntimeSafetyClientRejectsAmbiguousResponseHeaders(t *testing.T) {
 		_, _ = w.Write([]byte(good))
 	}))
 	srv.TLS = &tls.Config{
-		MinVersion: tls.VersionTLS13,
+		MinVersion:   tls.VersionTLS13,
 		Certificates: []tls.Certificate{serverCert},
-		ClientAuth: tls.RequireAndVerifyClientCert,
-		ClientCAs: clientRoots,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    clientRoots,
 	}
 	srv.StartTLS()
 	defer srv.Close()
