@@ -67,7 +67,14 @@ func NewRuntimeRunSafetyClient(origin, expectedSPIFFE, tenant string, roots *x50
 					!time.Now().Before(leaf.NotAfter) {
 					return ErrAuthorityUnavailable
 				}
-				return nil
+				// Go x509 treats a missing EKU as unrestricted. This authority
+				// demands an explicit serverAuth purpose in the signed leaf.
+				for _, eku := range leaf.ExtKeyUsage {
+					if eku == x509.ExtKeyUsageServerAuth {
+						return nil
+					}
+				}
+				return ErrAuthorityUnavailable
 			},
 		},
 		DisableKeepAlives:     true, // require fresh cert verification on each read
