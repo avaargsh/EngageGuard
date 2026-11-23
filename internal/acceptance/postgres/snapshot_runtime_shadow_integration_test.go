@@ -2,14 +2,14 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
-	"errors"
-	"testing"
 )
 
 // A migration/initial role audit does not bind a subsequent pooled session.
@@ -190,6 +190,16 @@ func TestAcceptedSubmissionRejectsMaliciousStartupSchema(t *testing.T) {
 	rec, err := New(wrongDB).ReadAcceptedSubmission(ctx, "tenant-a", op.OperationID)
 	if !errors.Is(err, ErrSchemaDrift) || len(rec.Raw) != 0 {
 		t.Fatalf("untrusted startup schema accepted forged original source: op=%+v err=%v", rec.Operation, err)
+	}
+	// Even a valid configured Store must reject the adversarial connection:
+	// its startup/reset path is a complete-looking permanent clone, but
+	// differs from the independently provisioned authoritative namespace.
+	pinnedWrong, err := NewWithTrustedSchema(wrongDB, trustedSchema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record, err := pinnedWrong.ReadAcceptedSubmission(ctx, "tenant-a", op.OperationID); !errors.Is(err, ErrSchemaDrift) || len(record.Raw) != 0 {
+		t.Fatalf("operator-pinned trusted schema bypassed by decoy startup path: op=%+v err=%v", record.Operation, err)
 	}
 	// Positive control: the trusted Store continues to read the original
 	// immutable bytes from the separately provisioned schema.
