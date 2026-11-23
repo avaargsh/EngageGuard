@@ -222,7 +222,6 @@ func TestRuntimeSafetyClientRejectsServerWithoutDigitalSignatureKeyUsage(t *test
 	}
 }
 
-
 // A cryptographically authenticated Runtime peer is not authority to send
 // ambiguous HTTP response metadata. Duplicate Content-Type/Cache-Control
 // values must fail closed even when the first header is acceptable.
