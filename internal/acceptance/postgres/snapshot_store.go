@@ -44,16 +44,25 @@ func readAcceptedBytesTx(ctx context.Context, tx *sql.Tx, op Operation) error {
 // tenant scope. Callers MUST separately reverify Run/Plan/Step authorization;
 // restoring this record never authorizes any external side effect.
 func (s *Store) ReadAcceptedSubmission(ctx context.Context, tenantID, operationID string) (AcceptedSubmission, error) {
-	if s == nil || s.db == nil {
+	if s == nil || s.db == nil || ctx == nil {
 		return AcceptedSubmission{}, errors.New("Guard admission database unavailable")
 	}
 	if !tenantIDPattern.MatchString(tenantID) || operationID == "" {
 		return AcceptedSubmission{}, ErrSnapshotMissing
 	}
+	// Bind trusted acceptance evidence to a checked physical PostgreSQL
+	// session. A pool can acquire pg_temp Operation/Snapshot lookalikes
+	// after migration and must never return a temporary ACCEPTED source
+	// as evidence for protected Permit issuance.
+	tx, err := beginGuardRuntimeTx(ctx, s.db)
+	if err != nil {
+		return AcceptedSubmission{}, fmt.Errorf("inspect Guard accepted source relation identity: %w", err)
+	}
+	defer tx.Rollback()
 	var out AcceptedSubmission
 	out.Operation.TenantID = tenantID
 	out.Operation.OperationID = operationID
-	err := s.db.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		SELECT o.submission_key, o.submission_digest, o.status, s.submission_bytes
 		FROM guard_action_operations o
 		JOIN guard_accepted_submission_snapshots s
@@ -73,6 +82,9 @@ func (s *Store) ReadAcceptedSubmission(ctx context.Context, tenantID, operationI
 	}
 	if err := verifyOriginalSubmission(out.Raw, out.Operation.SubmissionDigest); err != nil {
 		return AcceptedSubmission{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return AcceptedSubmission{}, fmt.Errorf("finish Guard accepted submission read: %w", err)
 	}
 	return out, nil
 }
