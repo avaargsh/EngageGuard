@@ -134,6 +134,8 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
 			return fmt.Errorf("%w: invalid Permit relation %s: %v", ErrSchemaDrift, pair.name, err)
 		}
 	}
+	// A WHEN predicate can skip an ENABLE ALWAYS trigger, even when deferred;
+	// UPDATE OF can narrow its firing columns. Require no tgqual/tgattr.
 	// Checksums alone cannot prove the actual database still enforces
 	// immutable evidence. Reject disabled, replacement or origin-only
 	// triggers (including disabled triggers after a privileged DDL change).
@@ -151,6 +153,7 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
 					WHERE t.tgrelid = pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), $1::text))
 					  AND t.tgname = $2
 					  AND t.tgenabled = 'A'
+					  AND t.tgqual IS NULL AND t.tgattr::text=''
 					  AND NOT t.tgisinternal
 					  AND t.tgtype = $3
 					  AND t.tgfoid = pg_catalog.to_regprocedure(pg_catalog.format('%I.%I()', current_schema(), 'guard_reject_snapshot_mutation'))
@@ -176,6 +179,7 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
 			  WHERE t.tgrelid=pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), 'guard_permits'))
 			    AND t.tgname=$1 AND t.tgtype=$2
 			    AND NOT t.tgisinternal AND t.tgenabled='A'
+			    AND t.tgqual IS NULL AND t.tgattr::text=''
 			    AND t.tgfoid=pg_catalog.to_regprocedure(pg_catalog.format('%I.%s', current_schema(), $3::text))
 			)
 			`, expected.name, expected.tgtype, expected.function).Scan(&intact)
@@ -195,6 +199,7 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
 			  AND t.tgname = 'guard_permit_causal_transition_v10'
 			  AND t.tgtype = 17
 			  AND NOT t.tgisinternal AND t.tgenabled = 'A'
+			  AND t.tgqual IS NULL AND t.tgattr::text=''
 			  AND t.tgdeferrable AND t.tginitdeferred
 			  AND t.tgconstraint <> 0
 			  AND t.tgfoid = pg_catalog.to_regprocedure(pg_catalog.format('%I.%I()', current_schema(), 'guard_permit_causal_transition_v10'))
@@ -215,6 +220,7 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
 			  AND t.tgname='guard_permit_claim_expiry_v11'
 			  AND t.tgtype=17 AND NOT t.tgisinternal
 			  AND t.tgenabled='A'
+			  AND t.tgqual IS NULL AND t.tgattr::text=''
 			  AND t.tgdeferrable AND t.tginitdeferred
 			  AND t.tgconstraint <> 0
 			  AND t.tgfoid=pg_catalog.to_regprocedure(pg_catalog.format('%I.%I()', current_schema(), 'guard_permit_claim_expiry_v11'))
@@ -235,6 +241,7 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
 			  AND t.tgname='guard_permit_initial_state_v12'
 			  AND t.tgtype=7 AND NOT t.tgisinternal
 			  AND t.tgenabled='A'
+			  AND t.tgqual IS NULL AND t.tgattr::text=''
 			  AND t.tgfoid=pg_catalog.to_regprocedure(pg_catalog.format('%I.%I()', current_schema(), 'guard_permit_initial_state_v12'))
 		)
 	`).Scan(&initialStateIntact)
