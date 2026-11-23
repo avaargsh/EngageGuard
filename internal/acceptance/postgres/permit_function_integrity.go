@@ -8,7 +8,7 @@ import (
 )
 
 // expectedPermitFunctionBody extracts the literal function body from the
-// versioned migration source shipped with this binary. The exact v9-v12
+// versioned migration source shipped with this binary. The exact v9-v13
 // sources/checksums remain immutable; PostgreSQL retains the dollar-quoted
 // body verbatim in pg_proc.prosrc.
 //
@@ -18,6 +18,9 @@ import (
 func expectedPermitFunctionBody(source, name string) (string, error) {
 	const delimiter = "$guard$"
 	prefix := "CREATE FUNCTION " + name + "() RETURNS trigger\nLANGUAGE plpgsql AS " + delimiter
+	if strings.Contains(source, "CREATE OR REPLACE FUNCTION "+name+"() RETURNS trigger") {
+		prefix = "CREATE OR REPLACE FUNCTION " + name + "() RETURNS trigger\nLANGUAGE plpgsql AS " + delimiter
+	}
 	if strings.Count(source, prefix) != 1 {
 		return "", fmt.Errorf("missing or ambiguous trusted Permit function source %s", name)
 	}
@@ -33,14 +36,14 @@ func expectedPermitFunctionBody(source, name string) (string, error) {
 // verifyPermitTriggerFunctions is a startup/migration catalog attestation,
 // not a live atomic DDL/effect fence and not an authorization decision.
 // It detects same-OID body replacement and unsafe function attributes for
-// all Permit state-transition constraints (v9-v12).
+// all Permit state-transition constraints (v9-v13).
 func verifyPermitTriggerFunctions(ctx context.Context, tx *sql.Tx) error {
 	for _, item := range []struct {
 		name   string
 		source string
 	}{
 		{"guard_permit_immutable_row_v9", permitIdentityFenceSchema},
-		{"guard_permit_causal_transition_v10", permitCausalFenceSchema},
+		{"guard_permit_causal_transition_v10", permitCausalSchemaPinnedV13},
 		{"guard_permit_claim_expiry_v11", permitCommitExpirySchema},
 		{"guard_permit_initial_state_v12", permitInsertStateSchema},
 	} {
