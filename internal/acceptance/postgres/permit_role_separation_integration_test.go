@@ -146,7 +146,6 @@ func TestPermitIssuerAndClaimerRoleSeparation(t *testing.T) {
 	}
 }
 
-
 // TestPermitRoleSeparationDoesNotTrustTemporaryRelationShadow reproduces a
 // PostgreSQL pg_temp name-resolution bypass. Unqualified to_regclass('guard_permits')
 // resolves a same-named temporary relation before the authoritative table. The
