@@ -30,6 +30,9 @@ var permitEvidenceFenceSchema string
 //go:embed schema_permit_v9.sql
 var permitIdentityFenceSchema string
 
+//go:embed schema_permit_v10.sql
+var permitCausalCommitSchema string
+
 func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) error {
 	migrations := []struct {
 		version int64
@@ -41,6 +44,7 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 		{7, permitRevocationSchema},
 		{8, permitEvidenceFenceSchema},
 		{9, permitIdentityFenceSchema},
+		{10, permitCausalCommitSchema},
 	}
 	for _, item := range migrations {
 		if applied >= int(item.version) {
@@ -49,7 +53,7 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 		// All four extension files contain only plain DDL. Do not use
 		// this delimiter for future functions with semicolon bodies.
 		statements := strings.Split(item.source, ";")
-		if item.version == 9 {
+		if item.version >= 9 {
 			// PL/pgSQL trigger bodies contain semicolons.
 			statements = strings.Split(item.source, "-- statement break")
 		}
@@ -170,6 +174,74 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
 		if err != nil || !intact {
 			return fmt.Errorf("%w: Permit v9 write-once trigger %s disabled or changed: %v", ErrSchemaDrift, expected.name, err)
 		}
+	}
+	// A function name or migration checksum is not an enforcement gate.
+	// Verify both initially deferred, enabled-always constraint triggers
+	// still invoke the original v10 source function, not a substitute.
+	for _, trigger := range []struct {
+		table, name string
+	}{
+		{"guard_permits", "guard_permit_causal_commit_v10"},
+		{"guard_operation_intents", "guard_intent_causal_commit_v10"},
+	} {
+		var intact bool
+		err := tx.QueryRowContext(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_catalog.pg_trigger t
+				WHERE t.tgrelid=to_regclass($1)
+				  AND t.tgname=$2 AND t.tgtype=21
+				  AND t.tgenabled='A' AND NOT t.tgisinternal
+				  AND t.tgdeferrable AND t.tginitdeferred
+				  AND t.tgfoid=to_regprocedure('guard_claim_causal_commit_v10()')
+			)
+		`, trigger.table, trigger.name).Scan(&intact)
+		if err != nil || !intact {
+			return fmt.Errorf("%w: Guard v10 deferred causal trigger %s invalid: %v",
+				ErrSchemaDrift, trigger.name, err)
+		}
+	}
+	// Constraint triggers are not retroactive. Validate already-committed
+	// data again at every startup; migration v10 itself also rejects drift.
+	var consistent bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT NOT EXISTS (
+			SELECT 1 FROM guard_permits p WHERE p.state='CLAIMED'
+			  AND NOT EXISTS (
+				SELECT 1 FROM guard_operation_intents i
+				JOIN guard_execution_audit a
+				  ON a.tenant_id=i.tenant_id
+				 AND a.operation_id=i.operation_id
+				 AND a.permit_id=i.permit_id
+				 AND a.attempt_id=i.attempt_id
+				 AND a.action_hash=i.action_hash
+				 AND a.event_type='guard.operation.dispatching.v1'
+				WHERE i.tenant_id=p.tenant_id
+				  AND i.operation_id=p.operation_id
+				  AND i.permit_id=p.permit_id
+				  AND i.action_hash=p.action_hash
+				  AND i.binding_digest=p.binding_digest
+			  )
+		) AND NOT EXISTS (
+			SELECT 1 FROM guard_operation_intents i WHERE NOT EXISTS (
+				SELECT 1 FROM guard_permits p
+				JOIN guard_execution_audit a
+				  ON a.tenant_id=i.tenant_id
+				 AND a.operation_id=i.operation_id
+				 AND a.permit_id=i.permit_id
+				 AND a.attempt_id=i.attempt_id
+				 AND a.action_hash=i.action_hash
+				 AND a.event_type='guard.operation.dispatching.v1'
+				WHERE p.tenant_id=i.tenant_id
+				  AND p.operation_id=i.operation_id
+				  AND p.permit_id=i.permit_id
+				  AND p.action_hash=i.action_hash
+				  AND p.binding_digest=i.binding_digest
+				  AND p.state='CLAIMED'
+			)
+		)
+	`).Scan(&consistent); err != nil || !consistent {
+		return fmt.Errorf("%w: Guard v10 claimed Permit/Intent/Audit graph corrupt: %v",
+			ErrSchemaDrift, err)
 	}
 	return nil
 }
