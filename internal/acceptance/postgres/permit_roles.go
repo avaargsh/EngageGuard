@@ -42,8 +42,31 @@ func VerifyPermitRoleSeparation(
 		return unsafe("invalid or identical database roles", nil)
 	}
 
+	// Audit one physical session end-to-end. Checking privileges on different
+	// pooled connections can combine contradictory search_path/schema views.
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return unsafe("acquire dedicated role-audit PostgreSQL connection", err)
+	}
+	defer conn.Close()
+	// A complete lookalike Permit schema with apparently safe grants must
+	// never replace the configured schema after a session-level SET search_path.
+	// The deployment connection baseline is necessary, but the caller must
+	// independently protect that baseline against untrusted configuration.
+	var pathIntact bool
+	err = conn.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_catalog.pg_settings s
+			WHERE s.name='search_path'
+			  AND s.setting=s.reset_val
+			  AND pg_catalog.current_schema() IS NOT NULL
+		)
+	`).Scan(&pathIntact)
+	if err != nil || !pathIntact {
+		return unsafe("role audit search_path differs from connection baseline", err)
+	}
 	var issuerSafe, claimerSafe bool
-	err := db.QueryRowContext(ctx, `
+	err = conn.QueryRowContext(ctx, `
 		SELECT
 			COALESCE((SELECT NOT (rolsuper OR rolcreaterole OR rolreplication OR rolbypassrls OR rolcreatedb)
 				FROM pg_catalog.pg_roles WHERE rolname=$1), false),
@@ -54,9 +77,9 @@ func VerifyPermitRoleSeparation(
 		return unsafe("missing or privileged database role", err)
 	}
 	var shared bool
-	err = db.QueryRowContext(ctx, `
+	err = conn.QueryRowContext(ctx, `
 		SELECT pg_catalog.pg_has_role($1::name,$2::name,'MEMBER')
-		    OR pg_has_role($2::name,$1::name,'MEMBER')
+		    OR pg_catalog.pg_has_role($2::name,$1::name,'MEMBER')
 	`, issuerRole, claimerRole).Scan(&shared)
 	if err != nil || shared {
 		return unsafe("role membership permits cross-role escalation", err)
@@ -66,7 +89,7 @@ func VerifyPermitRoleSeparation(
 	// function in the namespace that holds the trusted Permit ledger.
 	for _, role := range []string{issuerRole, claimerRole} {
 		var usage, canCreate bool
-		err = db.QueryRowContext(ctx, `
+		err = conn.QueryRowContext(ctx, `
 			SELECT pg_catalog.has_schema_privilege($1::name, current_schema(), 'USAGE'),
 			       pg_catalog.has_schema_privilege($1::name, current_schema(), 'CREATE')
 		`, role).Scan(&usage, &canCreate)
@@ -155,13 +178,13 @@ func VerifyPermitRoleSeparation(
 		var q string
 		if pr.column != "" {
 			q = "SELECT pg_catalog.has_column_privilege($1::name, pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), $2::text)), $3::name, $4::text)"
-			err = db.QueryRowContext(ctx, q, pr.role, pr.table, pr.column, pr.privilege).Scan(&got)
+			err = conn.QueryRowContext(ctx, q, pr.role, pr.table, pr.column, pr.privilege).Scan(&got)
 		} else if pr.privilege == "INSERT" || pr.privilege == "UPDATE" {
 			q = "SELECT pg_catalog.has_any_column_privilege($1::name, pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), $2::text)), $3::text)"
-			err = db.QueryRowContext(ctx, q, pr.role, pr.table, pr.privilege).Scan(&got)
+			err = conn.QueryRowContext(ctx, q, pr.role, pr.table, pr.privilege).Scan(&got)
 		} else {
 			q = "SELECT pg_catalog.has_table_privilege($1::name, pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), $2::text)), $3::text)"
-			err = db.QueryRowContext(ctx, q, pr.role, pr.table, pr.privilege).Scan(&got)
+			err = conn.QueryRowContext(ctx, q, pr.role, pr.table, pr.privilege).Scan(&got)
 		}
 		if err != nil || got != pr.want {
 			return unsafe(fmt.Sprintf("unexpected %s %s.%s privilege for %s", pr.privilege, pr.table, pr.column, pr.role), err)
