@@ -96,3 +96,58 @@ func TestUnknownAuditFailureRollsBackStateTransition(t *testing.T) {
 		t.Fatalf("journal failure left partial state transition: %+v %v", state, err)
 	}
 }
+
+// Even a CLAIMED Permit must not turn a fabricated or damaged Intent into
+// durable UNKNOWN evidence when its exact immutable dispatch audit is absent.
+// A test-only superuser mutation simulates persistent ledger corruption;
+// ordinary runtime roles must never be allowed to bypass immutable triggers.
+func TestMarkDispatchUnknownRejectsClaimedAttemptMissingImmutableAudit(t *testing.T) {
+	store, resolved, permitID := seededWorkspacePermit(t)
+	ctx := context.Background()
+	intent, err := store.ClaimAuthorizedIntent(ctx, permitID, resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Corrupt only this isolated test schema with a privileged fixture. SET
+	// LOCAL is automatically reset on COMMIT, leaving application sessions
+	// with their normal trigger enforcement for the attempted transition.
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "SET LOCAL session_replication_role = 'replica'"); err != nil {
+		t.Fatalf("test-only PostgreSQL corruption fixture requires superuser: %v", err)
+	}
+	result, err := tx.ExecContext(ctx,
+		"DELETE FROM guard_execution_audit WHERE tenant_id=$1 AND attempt_id=$2::uuid",
+		resolved.TenantID, intent.AttemptID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if affected, err := result.RowsAffected(); err != nil || affected != 1 {
+		t.Fatalf("fixture did not delete exactly one audit row: affected=%d err=%v", affected, err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetDispatchState(ctx, resolved.TenantID, resolved.OperationID, intent.AttemptID); !errors.Is(err, ErrUnknownConflict) {
+		t.Fatalf("corrupt attempt was treated as inspected dispatch: %v", err)
+	}
+	if state, err := store.MarkDispatchUnknown(ctx, resolved.TenantID, resolved.OperationID,
+		intent.AttemptID, "ACK_LOST"); !errors.Is(err, ErrUnknownConflict) || state.AttemptID != "" {
+		t.Fatalf("missing immutable dispatch audit admitted UNKNOWN: state=%+v err=%v", state, err)
+	}
+	var state string
+	if err := store.db.QueryRowContext(ctx,
+		"SELECT state FROM guard_operation_intents WHERE tenant_id=$1 AND attempt_id=$2::uuid",
+		resolved.TenantID, intent.AttemptID).Scan(&state); err != nil || state != "DISPATCHING" {
+		t.Fatalf("rejected UNKNOWN mutated durable attempt: state=%q err=%v", state, err)
+	}
+	var events int
+	if err := store.db.QueryRowContext(ctx,
+		"SELECT count(*) FROM guard_operation_unknown_events WHERE tenant_id=$1 AND attempt_id=$2::uuid",
+		resolved.TenantID, intent.AttemptID).Scan(&events); err != nil || events != 0 {
+		t.Fatalf("rejected UNKNOWN forged a durable event: events=%d err=%v", events, err)
+	}
+}
