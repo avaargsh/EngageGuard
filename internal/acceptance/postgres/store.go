@@ -70,7 +70,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	if err := tx.QueryRowContext(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM pg_catalog.pg_class c
-			WHERE c.oid = pg_catalog.to_regclass('guard_schema_migrations')
+			WHERE c.oid = pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), 'guard_schema_migrations'))
 			  AND c.relkind = 'r' AND c.relpersistence = 'p'
 			  AND c.relnamespace = current_schema()::regnamespace
 		)
@@ -128,9 +128,9 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	if len(applied) == 0 {
 		var unmanaged bool
 		if err := tx.QueryRowContext(ctx, `
-			SELECT to_regclass('guard_action_operations') IS NOT NULL
-			    OR to_regclass('guard_outbox_events') IS NOT NULL
-			    OR to_regclass('guard_accepted_submission_snapshots') IS NOT NULL
+			SELECT pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), 'guard_action_operations')) IS NOT NULL
+			    OR pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), 'guard_outbox_events')) IS NOT NULL
+			    OR pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), 'guard_accepted_submission_snapshots')) IS NOT NULL
 		`).Scan(&unmanaged); err != nil {
 			return fmt.Errorf("inspect unversioned Guard relations: %w", err)
 		}
@@ -203,7 +203,7 @@ func verifyGuardCatalog(ctx context.Context, tx *sql.Tx) error {
 		"guard_action_operations", "guard_outbox_events", "guard_outbox_unpublished_idx",
 	} {
 		var exists bool
-		if err := tx.QueryRowContext(ctx, "SELECT to_regclass($1) IS NOT NULL", relation).Scan(&exists); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), $1::text)) IS NOT NULL", relation).Scan(&exists); err != nil {
 			return fmt.Errorf("%w: inspect relation %s: %v", ErrSchemaDrift, relation, err)
 		}
 		if !exists {
@@ -232,25 +232,25 @@ func verifyGuardCatalog(ctx context.Context, tx *sql.Tx) error {
 		}
 		err := tx.QueryRowContext(ctx, `
 			SELECT EXISTS (
-				SELECT 1 FROM pg_constraint AS c
-				WHERE c.conrelid = to_regclass($1)
+				SELECT 1 FROM pg_catalog.pg_constraint AS c
+				WHERE c.conrelid = pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), $1::text))
 					AND c.conname = $2
 					AND c.contype::text = $3
 					AND c.convalidated
 					AND NOT c.condeferrable
 					AND NOT c.condeferred
 					AND (
-						SELECT string_agg(att.attname, ',' ORDER BY keys.ord)
-						FROM unnest(c.conkey) WITH ORDINALITY AS keys(attnum, ord)
-						JOIN pg_attribute AS att
+						SELECT pg_catalog.string_agg(att.attname, ',' ORDER BY keys.ord)
+						FROM pg_catalog.unnest(c.conkey) WITH ORDINALITY AS keys(attnum, ord)
+						JOIN pg_catalog.pg_attribute AS att
 						  ON att.attrelid = c.conrelid AND att.attnum = keys.attnum
 					) = $4
 					AND ($3 <> 'f' OR (
-						c.confrelid = to_regclass($5)
+						c.confrelid = pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), $5::text))
 						AND (
-							SELECT string_agg(att.attname, ',' ORDER BY keys.ord)
-							FROM unnest(c.confkey) WITH ORDINALITY AS keys(attnum, ord)
-							JOIN pg_attribute AS att
+							SELECT pg_catalog.string_agg(att.attname, ',' ORDER BY keys.ord)
+							FROM pg_catalog.unnest(c.confkey) WITH ORDINALITY AS keys(attnum, ord)
+							JOIN pg_catalog.pg_attribute AS att
 							  ON att.attrelid = c.confrelid AND att.attnum = keys.attnum
 						) = $6
 					))
@@ -279,12 +279,12 @@ func verifyGuardCatalog(ctx context.Context, tx *sql.Tx) error {
 				('guard_outbox_events','guard_outbox_events_event_type_check',
 				 '(event_type = ''guard.submission.recorded.v1''::text)')
 		) AS expected(table_name, constraint_name, check_expr)
-		JOIN pg_constraint c
-		  ON c.conrelid = to_regclass(expected.table_name)
+		JOIN pg_catalog.pg_constraint c
+		  ON c.conrelid = pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), expected.table_name))
 		 AND c.conname = expected.constraint_name
 		 AND c.contype = 'c'
 		 AND c.convalidated
-		 AND pg_get_expr(c.conbin,c.conrelid) = expected.check_expr
+		 AND pg_catalog.pg_get_expr(c.conbin,c.conrelid) = expected.check_expr
 	`).Scan(&validCheckExpressions); err != nil {
 		return fmt.Errorf("%w: inspect Guard CHECK definitions: %v", ErrSchemaDrift, err)
 	}
@@ -294,20 +294,20 @@ func verifyGuardCatalog(ctx context.Context, tx *sql.Tx) error {
 	var usableIndex bool
 	if err := tx.QueryRowContext(ctx, `
 		SELECT EXISTS (
-			SELECT 1 FROM pg_index AS i
-			JOIN pg_class AS idx ON idx.oid = i.indexrelid
-			JOIN pg_am AS am ON am.oid = idx.relam
-			WHERE i.indrelid = to_regclass('guard_outbox_events')
-			  AND idx.oid = to_regclass('guard_outbox_unpublished_idx')
+			SELECT 1 FROM pg_catalog.pg_index AS i
+			JOIN pg_catalog.pg_class AS idx ON idx.oid = i.indexrelid
+			JOIN pg_catalog.pg_am AS am ON am.oid = idx.relam
+			WHERE i.indrelid = pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), 'guard_outbox_events'))
+			  AND idx.oid = pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), 'guard_outbox_unpublished_idx'))
 			  AND i.indisvalid AND i.indisready AND i.indislive
 			  AND NOT i.indisunique AND NOT i.indisprimary
 			  AND i.indnkeyatts = 2 AND i.indnatts = 2
 			  AND i.indexprs IS NULL AND i.indpred IS NULL
 			  AND am.amname = 'btree'
 			  AND (
-				SELECT string_agg(att.attname, ',' ORDER BY keys.ord)
-				FROM unnest(i.indkey) WITH ORDINALITY AS keys(attnum, ord)
-				JOIN pg_attribute AS att
+				SELECT pg_catalog.string_agg(att.attname, ',' ORDER BY keys.ord)
+				FROM pg_catalog.unnest(i.indkey) WITH ORDINALITY AS keys(attnum, ord)
+				JOIN pg_catalog.pg_attribute AS att
 				  ON att.attrelid = i.indrelid AND att.attnum = keys.attnum
 			  ) = 'occurred_at,event_id'
 		)
