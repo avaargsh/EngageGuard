@@ -70,7 +70,7 @@ func (s *Store) insertPendingPermit(ctx context.Context, req pendingPermitWrite)
 	}
 	tx, err := beginGuardRuntimeTx(ctx, s.db)
 	if err != nil {
-		return "", fmt.Errorf("%w: begin source-bound Permit transaction: %v", ErrPendingPermitUnavailable, err)
+		return "", fmt.Errorf("%w: begin source-bound Permit transaction: %w", ErrPendingPermitUnavailable, err)
 	}
 	defer tx.Rollback()
 
