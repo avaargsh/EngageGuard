@@ -30,6 +30,11 @@ func safetyServerCert(t *testing.T, identity string) (tls.Certificate, *x509.Cer
 
 func safetyServerCertWithEKU(t *testing.T, identity string, usage []x509.ExtKeyUsage) (tls.Certificate, *x509.CertPool) {
 	t.Helper()
+	return safetyServerCertWithKeyUsage(t, identity, usage, x509.KeyUsageDigitalSignature)
+}
+
+func safetyServerCertWithKeyUsage(t *testing.T, identity string, usage []x509.ExtKeyUsage, keyUsage x509.KeyUsage) (tls.Certificate, *x509.CertPool) {
+	t.Helper()
 	ca, signer, roots := newTestTransportCA(t)
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -41,7 +46,7 @@ func safetyServerCertWithEKU(t *testing.T, identity string, usage []x509.ExtKeyU
 	}
 	leaf := &x509.Certificate{
 		SerialNumber: big.NewInt(300), NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
-		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: usage,
+		KeyUsage: keyUsage, ExtKeyUsage: usage,
 		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}, URIs: []*url.URL{uri},
 	}
 	der, err := x509.CreateCertificate(rand.Reader, leaf, ca, &key.PublicKey, signer)
@@ -180,5 +185,39 @@ func TestRuntimeSafetyClientRejectsOversizedResponseHeaders(t *testing.T) {
 	defer client.CloseIdleConnections()
 	if _, err := client.GetRunSafetySnapshot(context.Background(), safetyTenant, safetyRun); !errors.Is(err, ErrAuthorityUnavailable) {
 		t.Fatalf("oversized HTTP response headers were accepted by safety authority: %v", err)
+	}
+}
+
+// TLS 1.3 peers have to sign their handshake. A CA-valid, SPIFFE-matched
+// server certificate with ServerAuth EKU but no digitalSignature KeyUsage
+// must never authorize a Runtime safety read, even if the peer has the key.
+func TestRuntimeSafetyClientRejectsServerWithoutDigitalSignatureKeyUsage(t *testing.T) {
+	serverCert, roots := safetyServerCertWithKeyUsage(t, safetyPeer,
+		[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, x509.KeyUsageKeyEncipherment)
+	clientCA, signer, clientRoots := newTestTransportCA(t)
+	clientCert := newTestTLSLeaf(t, clientCA, signer, true, "spiffe://platform.example/ns/guard/sa/engageguard")
+	var reached atomic.Bool
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached.Store(true)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write([]byte(`{"schema_version":"runtime.run-safety.v1","tenant_id":"tenant-1","run_id":"` + safetyRun + `","agent_id":"agent-1","agent_release_id":"release-1","session_id":"session-1","status":"RUNNING","breaker_state":"CLOSED","breaker_epoch":1,"breaker_version":1}`))
+	}))
+	srv.TLS = &tls.Config{
+		MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{serverCert},
+		ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: clientRoots,
+	}
+	srv.StartTLS()
+	defer srv.Close()
+	client, err := NewRuntimeRunSafetyClient(srv.URL, safetyPeer, safetyTenant, roots, clientCert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.CloseIdleConnections()
+	if _, err := client.GetRunSafetySnapshot(context.Background(), safetyTenant, safetyRun); !errors.Is(err, ErrAuthorityUnavailable) {
+		t.Fatalf("Runtime server cert without digitalSignature KeyUsage admitted: %v", err)
+	}
+	if reached.Load() {
+		t.Fatal("server handler served a safety read using a non-signing certificate")
 	}
 }

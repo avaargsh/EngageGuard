@@ -64,7 +64,8 @@ func NewRuntimeRunSafetyClient(origin, expectedSPIFFE, tenant string, roots *x50
 				leaf := state.PeerCertificates[0]
 				if leaf == nil || leaf.IsCA || len(leaf.URIs) != 1 || leaf.URIs[0] == nil ||
 					leaf.URIs[0].String() != expectedSPIFFE || time.Now().Before(leaf.NotBefore) ||
-					!time.Now().Before(leaf.NotAfter) {
+					!time.Now().Before(leaf.NotAfter) ||
+					leaf.KeyUsage&x509.KeyUsageDigitalSignature == 0 {
 					return ErrAuthorityUnavailable
 				}
 				// Go x509 treats a missing EKU as unrestricted. This authority
