@@ -67,16 +67,23 @@ func (s *Store) ReadAcceptedSubmission(ctx context.Context, tenantID, operationI
 		      AND pg_catalog.current_schema() IS NOT NULL
 		) AND COALESCE((
 		    SELECT pg_catalog.bool_and(
+		        c.oid IS NOT NULL
+		        AND c.relkind = 'r' AND c.relpersistence = 'p'
+		        AND c.relnamespace = pg_catalog.current_schema()::regnamespace
+		        AND m.oid IS NOT NULL AND c.relowner = m.relowner
+		        AND pg_catalog.to_regclass(r.name) = c.oid
+		    )
+		    FROM (VALUES ('guard_schema_migrations'),
+		                 ('guard_action_operations'),
+		                 ('guard_accepted_submission_snapshots')) AS r(name)
+		    LEFT JOIN pg_catalog.pg_class c ON c.oid =
 		        pg_catalog.to_regclass(
 		            pg_catalog.format('%I.%I',pg_catalog.current_schema(),r.name)
-		        ) IS NOT NULL
-		        AND pg_catalog.to_regclass(r.name) =
-		            pg_catalog.to_regclass(
-		                pg_catalog.format('%I.%I',pg_catalog.current_schema(),r.name)
-		            )
-		    )
-		    FROM (VALUES ('guard_action_operations'),
-		                 ('guard_accepted_submission_snapshots')) AS r(name)
+		        )
+		    LEFT JOIN pg_catalog.pg_class m ON m.oid =
+		        pg_catalog.to_regclass(
+		            pg_catalog.format('%I.%I',pg_catalog.current_schema(),'guard_schema_migrations')
+		        )
 		), false)
 	`).Scan(&safe)
 	if err != nil || !safe {
