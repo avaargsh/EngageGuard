@@ -115,6 +115,8 @@ func (c *RuntimeRunSafetyClient) GetRunSafetySnapshot(ctx context.Context, tenan
 		return empty, ErrAuthorityUnavailable
 	}
 	req.Header.Set("Accept", "application/json")
+	// Never let Go's default transport silently decompress authority bytes.
+	req.Header.Set("Accept-Encoding", "identity")
 	req.Header.Set("Cache-Control", "no-store")
 	res, err := c.http.Do(req)
 	if err != nil {
@@ -130,6 +132,9 @@ func (c *RuntimeRunSafetyClient) GetRunSafetySnapshot(ctx context.Context, tenan
 	}
 	// Header.Get only returns the first field. A valid mTLS peer must not
 	// supply conflicting or duplicated HTTP representation/cache metadata.
+	if res.Uncompressed || len(res.Header.Values("Content-Encoding")) != 0 {
+		return empty, ErrAuthorityUnavailable
+	}
 	contentTypes := res.Header.Values("Content-Type")
 	cacheControls := res.Header.Values("Cache-Control")
 	if len(contentTypes) != 1 || len(cacheControls) != 1 ||
