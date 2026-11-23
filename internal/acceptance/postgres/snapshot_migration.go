@@ -52,10 +52,10 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 	err := tx.QueryRowContext(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM pg_catalog.pg_class c
-			WHERE c.oid = pg_catalog.to_regclass('guard_accepted_submission_snapshots')
+			WHERE c.oid = pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), 'guard_accepted_submission_snapshots'))
 			  AND c.relkind = 'r' AND c.relpersistence = 'p'
 			  AND c.relnamespace = current_schema()::regnamespace
-		) AND to_regprocedure('guard_reject_snapshot_mutation()') IS NOT NULL
+		) AND pg_catalog.to_regprocedure(pg_catalog.format('%I.%I()', current_schema(), 'guard_reject_snapshot_mutation')) IS NOT NULL
 	`).Scan(&valid)
 	if err != nil || !valid {
 		return fmt.Errorf("%w: missing accepted snapshot relation/function: %v", ErrSchemaDrift, err)
@@ -78,7 +78,7 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 		err := tx.QueryRowContext(ctx, `
 			SELECT EXISTS (
 				SELECT 1 FROM pg_constraint c
-				WHERE c.conrelid=to_regclass($1) AND c.conname=$2
+				WHERE c.conrelid=pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), $1::text)) AND c.conname=$2
 				  AND c.contype::text=$3 AND c.convalidated
 				  AND NOT c.condeferrable AND NOT c.condeferred
 				  AND (
@@ -87,7 +87,7 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 				    JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.attnum
 				  ) = $4
 				  AND ($3 <> 'f' OR (
-					c.confrelid=to_regclass($5)
+					c.confrelid=pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), $5::text))
 				    AND (
 				      SELECT string_agg(a.attname,',' ORDER BY k.ord)
 				      FROM unnest(c.confkey) WITH ORDINALITY k(attnum,ord)
@@ -107,13 +107,13 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 	err = tx.QueryRowContext(ctx, `
 		SELECT EXISTS (
 		  SELECT 1 FROM pg_trigger t
-		  WHERE t.tgrelid=to_regclass('guard_accepted_submission_snapshots')
+		  WHERE t.tgrelid=pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), 'guard_accepted_submission_snapshots'))
 		    AND t.tgname='guard_snapshot_immutable_row'
 		    AND NOT t.tgisinternal AND t.tgenabled IN ('O','A')
 		    AND t.tgtype=27
 		    AND t.tgqual IS NULL
 		    AND t.tgattr::text=''
-		    AND t.tgfoid=to_regprocedure('guard_reject_snapshot_mutation()')
+		    AND t.tgfoid=pg_catalog.to_regprocedure(pg_catalog.format('%I.%I()', current_schema(), 'guard_reject_snapshot_mutation'))
 		)
 	`).Scan(&valid)
 	if err != nil || !valid {
@@ -124,13 +124,13 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 	err = tx.QueryRowContext(ctx, `
 		SELECT EXISTS (
 		  SELECT 1 FROM pg_trigger t
-		  WHERE t.tgrelid=to_regclass('guard_accepted_submission_snapshots')
+		  WHERE t.tgrelid=pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), 'guard_accepted_submission_snapshots'))
 		    AND t.tgname='guard_snapshot_immutable_truncate'
 		    AND NOT t.tgisinternal AND t.tgenabled IN ('O','A')
 		    AND t.tgtype=34
 		    AND t.tgqual IS NULL
 		    AND t.tgattr::text=''
-		    AND t.tgfoid=to_regprocedure('guard_reject_snapshot_mutation()')
+		    AND t.tgfoid=pg_catalog.to_regprocedure(pg_catalog.format('%I.%I()', current_schema(), 'guard_reject_snapshot_mutation'))
 		)
 	`).Scan(&valid)
 	if err != nil || !valid {
@@ -142,7 +142,7 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 	err = tx.QueryRowContext(ctx, `
 		SELECT pg_get_expr(c.conbin, c.conrelid)
 		FROM pg_constraint c
-		WHERE c.conrelid=to_regclass('guard_accepted_submission_snapshots')
+		WHERE c.conrelid=pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), 'guard_accepted_submission_snapshots'))
 		  AND c.conname='guard_snapshot_bytes_length_check'
 	`).Scan(&checkExpr)
 	if err != nil {
@@ -152,21 +152,38 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 	if normalized != "octet_lengthsubmission_bytes>=1ANDoctet_lengthsubmission_bytes<=65536" {
 		return fmt.Errorf("%w: weakened accepted snapshot size expression", ErrSchemaDrift)
 	}
-	// A same-named enabled trigger must still execute the exact immutable
-	// implementation, not a replaced no-op function.
+	// The shared function is used by snapshot, Permit audit, UNKNOWN and
+	// revocation immutability triggers. Its body was already checked, but
+	// function attributes must also match the safe invoker-only contract.
+	// ALTER FUNCTION preserves the trigger's function OID; reject same-OID
+	// SECURITY DEFINER, search_path/proconfig, language or signature drift.
 	var functionBody string
+	var functionAttributesSafe bool
 	err = tx.QueryRowContext(ctx, `
-		SELECT p.prosrc FROM pg_proc p
-		WHERE p.oid=to_regprocedure('guard_reject_snapshot_mutation()')
-	`).Scan(&functionBody)
-	if err != nil || strings.TrimSpace(functionBody) != "BEGIN\n    RAISE EXCEPTION 'accepted Guard submission snapshots are immutable';\nEND;" {
-		return fmt.Errorf("%w: snapshot mutation trigger function changed: %v", ErrSchemaDrift, err)
+		SELECT p.prosrc,
+		       p.prosecdef = false
+		       AND p.proleakproof = false
+		       AND p.provolatile = 'v'
+		       AND p.proisstrict = false
+		       AND p.proparallel = 'u'
+		       AND p.proconfig IS NULL
+		       AND p.prolang = (
+		           SELECT oid FROM pg_catalog.pg_language WHERE lanname='plpgsql'
+		       )
+		       AND p.pronamespace = current_schema()::regnamespace
+		       AND p.prorettype = 'pg_catalog.trigger'::regtype
+		       AND p.pronargs = 0
+		FROM pg_catalog.pg_proc p
+		WHERE p.oid=pg_catalog.to_regprocedure(pg_catalog.format('%I.%I()', current_schema(), 'guard_reject_snapshot_mutation'))
+	`).Scan(&functionBody, &functionAttributesSafe)
+	if err != nil || !functionAttributesSafe || strings.TrimSpace(functionBody) != "BEGIN\n    RAISE EXCEPTION 'accepted Guard submission snapshots are immutable';\nEND;" {
+		return fmt.Errorf("%w: shared snapshot/audit mutation trigger function or security attributes changed: %v", ErrSchemaDrift, err)
 	}
 	// At least retain exact BYTEA type, NOT NULL, and the CHECK name/column.
 	err = tx.QueryRowContext(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM pg_attribute a
-			WHERE a.attrelid=to_regclass('guard_accepted_submission_snapshots')
+			WHERE a.attrelid=pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), 'guard_accepted_submission_snapshots'))
 			  AND a.attname='submission_bytes'
 			  AND a.atttypid='bytea'::regtype AND a.attnotnull AND NOT a.attisdropped
 		)
