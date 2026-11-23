@@ -154,13 +154,13 @@ func VerifyPermitRoleSeparation(
 		var got bool
 		var q string
 		if pr.column != "" {
-			q = "SELECT pg_catalog.has_column_privilege($1::name, pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), $2)), $3::name, $4::text)"
+			q = "SELECT pg_catalog.has_column_privilege($1::name, pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), $2::text)), $3::name, $4::text)"
 			err = db.QueryRowContext(ctx, q, pr.role, pr.table, pr.column, pr.privilege).Scan(&got)
 		} else if pr.privilege == "INSERT" || pr.privilege == "UPDATE" {
-			q = "SELECT pg_catalog.has_any_column_privilege($1::name, pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), $2)), $3::text)"
+			q = "SELECT pg_catalog.has_any_column_privilege($1::name, pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), $2::text)), $3::text)"
 			err = db.QueryRowContext(ctx, q, pr.role, pr.table, pr.privilege).Scan(&got)
 		} else {
-			q = "SELECT pg_catalog.has_table_privilege($1::name, pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), $2)), $3::text)"
+			q = "SELECT pg_catalog.has_table_privilege($1::name, pg_catalog.to_regclass(pg_catalog.format('%I.%I', current_schema(), $2::text)), $3::text)"
 			err = db.QueryRowContext(ctx, q, pr.role, pr.table, pr.privilege).Scan(&got)
 		}
 		if err != nil || got != pr.want {
