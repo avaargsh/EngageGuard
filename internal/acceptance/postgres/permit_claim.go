@@ -44,7 +44,7 @@ func (s *Store) ClaimAuthorizedIntent(ctx context.Context, permitID string, reso
 	if s == nil || s.db == nil {
 		return DispatchIntent{}, errors.New("Guard database unavailable")
 	}
-	if permitID == "" || !tenantIDPattern.MatchString(resolved.TenantID) {
+	if !validDispatchUUID(permitID) || !tenantIDPattern.MatchString(resolved.TenantID) {
 		return DispatchIntent{}, ErrPermitMismatch
 	}
 	hash, err := action.Hash(resolved)
