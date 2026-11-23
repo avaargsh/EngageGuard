@@ -392,7 +392,7 @@ func (s *Store) Accept(ctx context.Context, tenantID, submissionKey string, raw 
 		return Operation{}, false, err
 	}
 
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	tx, err := beginGuardRuntimeTx(ctx, s.db)
 	if err != nil {
 		return Operation{}, false, fmt.Errorf("begin submission acceptance: %w", err)
 	}
