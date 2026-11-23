@@ -95,7 +95,12 @@ func TestProtectedPreflightBindsRealPostgresAcceptedOperation(t *testing.T) {
 	if err := postgres.Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	store := postgres.New(db)
+	// The accepted source is tied to the independently provisioned test schema,
+	// not to a borrowed database session's search_path.
+	store, err := postgres.NewWithTrustedSchema(db, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
 	f := makePreflightFixture(t)
 	raw := append([]byte(nil), f.accepted.snapshot.Raw...)
 	op, created, err := store.Accept(ctx, f.principal.TenantID, "accepted-original", raw)
