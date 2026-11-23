@@ -315,10 +315,9 @@ func TestHandlerRejectsTypedNilAuthoritiesWithoutPanicking(t *testing.T) {
 	}
 }
 
-
- // A duplicate Content-Type is ambiguous even when the first (or both)
- // values say application/json. No Run authority lookup or Accepted write
- // may occur for that wire request.
+// A duplicate Content-Type is ambiguous even when the first (or both)
+// values say application/json. No Run authority lookup or Accepted write
+// may occur for that wire request.
 func TestAdmissionRejectsAmbiguousContentTypeBeforeRunVerification(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
