@@ -176,3 +176,88 @@ func TestDecisionPlanClientRejectsOversizedResponseHeaders(t *testing.T) {
 		t.Fatalf("oversized authenticated Decision response headers accepted: %v", err)
 	}
 }
+
+// A verified mTLS Decision authority must not make ambiguous HTTP response
+// headers into an accepted Plan verification receipt. The first value alone
+// is not an authoritative representation or freshness policy.
+func TestDecisionPlanClientRejectsAmbiguousResponseHeaders(t *testing.T) {
+	serverCert, roots := safetyServerCert(t, guardDecisionPeer)
+	clientCA, signer, clientRoots := newTestTransportCA(t)
+	clientCert := newTestTLSLeaf(t, clientCA, signer, true, "spiffe://platform.example/ns/guard/sa/engageguard")
+	snapshot := trustedRuntimeRun()
+	snapshot.RunID = safetyRun
+	submission := testGuardSubmission(t)
+	submission.RunID = safetyRun
+	submission.DecisionID = "dec_" + strings.Repeat("a", 64)
+	submission.Capability.ID = "sre.metrics.read"
+	submission.Capability.Version = "1.0.0"
+	submission.Arguments = json.RawMessage("{}")
+	receipt := guardStepReceipt{
+		SchemaVersion: decisionPlanSchema,
+		RunID: snapshot.RunID,
+		DecisionID: submission.DecisionID,
+		PlanHash: submission.PlanHash,
+		StepID: submission.StepID,
+		RecordSHA256: strings.Repeat("c", 64),
+		BreakerEpoch: int64(snapshot.BreakerEpoch),
+		BreakerVersion: int64(snapshot.BreakerVersion),
+		Status: "VERIFIED",
+	}
+	payload, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name          string
+		contentTypes  []string
+		cacheControls []string
+		valid         bool
+	}{
+		{"single-canonical", []string{"application/json"}, []string{"no-store"}, true},
+		{"duplicate-identical-type", []string{"application/json", "application/json"}, []string{"no-store"}, false},
+		{"duplicate-conflicting-type", []string{"application/json", "text/plain"}, []string{"no-store"}, false},
+		{"duplicate-identical-cache", []string{"application/json"}, []string{"no-store", "no-store"}, false},
+		{"duplicate-conflicting-cache", []string{"application/json"}, []string{"no-store", "public"}, false},
+	}
+	var selected atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		current := cases[int(selected.Load())]
+		for _, value := range current.contentTypes {
+			w.Header().Add("Content-Type", value)
+		}
+		for _, value := range current.cacheControls {
+			w.Header().Add("Cache-Control", value)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(payload)
+	}))
+	srv.TLS = &tls.Config{
+		MinVersion:   tls.VersionTLS13,
+		Certificates: []tls.Certificate{serverCert},
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    clientRoots,
+	}
+	srv.StartTLS()
+	defer srv.Close()
+	client, err := NewDecisionPlanClient(srv.URL, guardDecisionPeer, snapshot.TenantID, roots, clientCert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.CloseIdleConnections()
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			selected.Store(int32(i))
+			err := client.VerifyDecisionPlanStep(context.Background(), boundRuntime(), snapshot, submission)
+			if tc.valid {
+				if err != nil {
+					t.Fatalf("single canonical Decision receipt rejected: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, ErrAuthorityUnavailable) {
+				t.Fatalf("ambiguous Decision receipt metadata accepted: content-type=%q cache-control=%q err=%v",
+					tc.contentTypes, tc.cacheControls, err)
+			}
+		})
+	}
+}
