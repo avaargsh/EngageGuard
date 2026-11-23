@@ -58,6 +58,38 @@ func seededWorkspacePermitWithExpiry(t *testing.T, expiresAt time.Time) (*Store,
 	return store, resolved, permitID
 }
 
+// Malformed external Permit selectors must be denied using a stable,
+// fail-closed domain error, before PostgreSQL attempts a UUID cast.
+// No attempt or audit may be created for a rejected selector.
+func TestClaimRejectsMalformedPermitIDBeforeDatabaseCast(t *testing.T) {
+	store, resolved, permitID := seededWorkspacePermit(t)
+	for _, bad := range []string{
+		"not-a-uuid",
+		"6A9FF43E-366E-451B-8C7F-37F5870B0EF3",
+		"6a9ff43e-366e-451b-8c7f-37f5870b0ef3' OR TRUE",
+	} {
+		t.Run(bad, func(t *testing.T) {
+			if _, err := store.ClaimAuthorizedIntent(context.Background(), bad, resolved); !errors.Is(err, ErrPermitMismatch) {
+				t.Fatalf("malformed Permit ID error=%v, want ErrPermitMismatch before SQL UUID cast", err)
+			}
+		})
+	}
+	var state string
+	if err := store.db.QueryRow("SELECT state FROM guard_permits WHERE permit_id=$1::uuid", permitID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "ISSUED" {
+		t.Fatalf("malformed Permit ID changed issued Permit state: %s", state)
+	}
+	var count int
+	if err := store.db.QueryRow("SELECT count(*) FROM guard_operation_intents").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("malformed Permit ID created %d dispatch attempts", count)
+	}
+}
+
 func TestClaimPermitAndIntentAreAtomicAndOneTimeUnderConcurrency(t *testing.T) {
 	store, resolved, permitID := seededWorkspacePermit(t)
 	const clients = 16
