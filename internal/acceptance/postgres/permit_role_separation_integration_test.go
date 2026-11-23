@@ -145,3 +145,92 @@ func TestPermitIssuerAndClaimerRoleSeparation(t *testing.T) {
 		})
 	}
 }
+
+
+// TestPermitRoleSeparationDoesNotTrustTemporaryRelationShadow reproduces a
+// PostgreSQL pg_temp name-resolution bypass. Unqualified to_regclass('guard_permits')
+// resolves a same-named temporary relation before the authoritative table. The
+// checker must inspect the relation in current_schema(), not the session shadow.
+func TestPermitRoleSeparationDoesNotTrustTemporaryRelationShadow(t *testing.T) {
+	_, db := integrationStore(t)
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	ctx := context.Background()
+	var schema string
+	if err := db.QueryRowContext(ctx, "SELECT current_schema()").Scan(&schema); err != nil {
+		t.Fatal(err)
+	}
+	serial := time.Now().UnixNano()
+	issuer := fmt.Sprintf("guard_shadow_issuer_%d", serial)
+	claimer := fmt.Sprintf("guard_shadow_claimer_%d", serial)
+	for _, role := range []string{issuer, claimer} {
+		if _, err := db.ExecContext(ctx, "CREATE ROLE "+role+" NOLOGIN"); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			_, _ = db.ExecContext(context.Background(), "DROP OWNED BY "+role)
+			_, _ = db.ExecContext(context.Background(), "DROP ROLE "+role)
+		})
+	}
+	for _, grant := range []string{
+		"GRANT USAGE ON SCHEMA " + schema + " TO " + issuer + ", " + claimer,
+		"GRANT SELECT, INSERT ON " + schema + ".guard_permits TO " + issuer,
+		"GRANT SELECT ON " + schema + ".guard_action_operations TO " + issuer,
+		"GRANT SELECT ON " + schema + ".guard_accepted_submission_snapshots TO " + issuer,
+		"GRANT SELECT ON " + schema + ".guard_permits TO " + claimer,
+		"GRANT UPDATE (state, claimed_at) ON " + schema + ".guard_permits TO " + claimer,
+		"GRANT SELECT, INSERT ON " + schema + ".guard_operation_intents TO " + claimer,
+		"GRANT SELECT, INSERT ON " + schema + ".guard_execution_audit TO " + claimer,
+		"GRANT UPDATE (state) ON " + schema + ".guard_permits TO " + issuer,
+	} {
+		if _, err := db.ExecContext(ctx, grant); err != nil {
+			t.Fatalf("fixture grant %q: %v", grant, err)
+		}
+	}
+
+	// Pin the pool to one physical session so VerifyPermitRoleSeparation
+	// necessarily reuses the session that owns this temporary shadow table.
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = conn.ExecContext(ctx, `
+		CREATE TEMP TABLE guard_permits (
+			permit_id uuid, tenant_id text, operation_id uuid, action_hash text,
+			binding_digest text, audience text, policy_version text, issued_by text,
+			issued_at timestamptz, expires_at timestamptz, revoked_at timestamptz,
+			state text, claimed_at timestamptz
+		)
+	`)
+	if err != nil {
+		conn.Close()
+		t.Fatal(err)
+	}
+	for _, grant := range []string{
+		"GRANT SELECT, INSERT ON pg_temp.guard_permits TO " + issuer,
+		"GRANT SELECT ON pg_temp.guard_permits TO " + claimer,
+		"GRANT UPDATE (state, claimed_at) ON pg_temp.guard_permits TO " + claimer,
+	} {
+		if _, err := conn.ExecContext(ctx, grant); err != nil {
+			conn.Close()
+			t.Fatalf("temporary shadow grant %q: %v", grant, err)
+		}
+	}
+	var shadowed bool
+	if err := conn.QueryRowContext(ctx,
+		"SELECT to_regclass('guard_permits') = to_regclass('pg_temp.guard_permits')",
+	).Scan(&shadowed); err != nil || !shadowed {
+		conn.Close()
+		t.Fatalf("test did not establish pg_temp relation shadow: shadowed=%t err=%v", shadowed, err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// The authoritative table has an unsafe issuer UPDATE grant, while the
+	// temp shadow exposes only the expected safe grants. A checker that probes
+	// the shadow instead of the authoritative relation will incorrectly pass.
+	if err := VerifyPermitRoleSeparation(ctx, db, issuer, claimer); !errors.Is(err, ErrPermitRoleUnsafe) {
+		t.Fatalf("unsafe UPDATE on authoritative guard_permits hidden by pg_temp shadow: got %v, want ErrPermitRoleUnsafe", err)
+	}
+}
