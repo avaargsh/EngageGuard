@@ -385,7 +385,7 @@ type expiryWaitLive struct {
 	calls     int
 }
 
-func (f *expiryWaitLive) VerifyCurrent(ctx context.Context, _, _ string, _ action.WorkspaceWrite) error {
+func (f *expiryWaitLive) VerifyCurrent(ctx context.Context, _, _, _ string, _ action.WorkspaceWrite) error {
 	f.calls++
 	if f.calls == 2 {
 		wait := time.Until(f.expiresAt.Add(time.Second))
