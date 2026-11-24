@@ -203,7 +203,6 @@ func TestPermitDraftIsOpaqueToCallers(t *testing.T) {
 	}
 }
 
-
 func TestTrustedIssuerPreservesDenialAndConflictClassification(t *testing.T) {
 	now := time.Date(2026, 11, 24, 5, 40, 0, 0, time.UTC)
 	a := resolvedAction()
