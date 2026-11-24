@@ -15,7 +15,8 @@ The AcceptanceStore creates the Guard operation ID and writes acceptance state o
 ## HTTP behavior
 
 - `POST /v1/action-submissions` only.
-- Exactly one `Idempotency-Key` header; JSON content type; bounded request body.
+- Exactly one `Idempotency-Key` header and exactly one `Content-Type` header with media type `application/json`; bounded request body.
+- The submission body must be unencoded JSON. Any `Content-Encoding` header (including `identity`, an empty field, or multiple values) is rejected with 415 before Run verification or acceptance storage. Gateways must not silently transform or strip representation metadata; the submission digest binds exact accepted bytes.
 - 201 for first durable acceptance, 200 for exact replay, 409 for same key with changed submission bytes.
 - 400 malformed/unknown/duplicate fields, invalid key or oversized body.
 - 401 missing or invalid authenticated Principal.

@@ -112,6 +112,12 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
 		return
 	}
+	// Only exact, unencoded JSON bytes are part of the submission contract.
+	// Do not interpret or ignore caller-declared representation transforms.
+	if len(r.Header.Values("Content-Encoding")) != 0 {
+		http.Error(w, "Content-Encoding is not supported", http.StatusUnsupportedMediaType)
+		return
+	}
 	keys := r.Header.Values("Idempotency-Key")
 	if len(keys) != 1 || action.ValidateSubmissionKey(keys[0]) != nil {
 		http.Error(w, "invalid Idempotency-Key", http.StatusBadRequest)
