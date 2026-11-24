@@ -200,7 +200,7 @@ func TestExecutorNecessaryGateDeniesPostFirstLedgerRevocationAndLostACK(t *testi
 				t.Fatalf("did not reach final live/ledger check: calls=%d", live.calls)
 			}
 			// Recovery is an observation, not a fresh execution right.
-			recovered, err := New(store.db).GetDispatchState(ctx, resolved.TenantID,
+			recovered, err := store.GetDispatchState(ctx, resolved.TenantID,
 				resolved.OperationID, intent.AttemptID)
 			if err != nil {
 				t.Fatal(err)
@@ -213,7 +213,7 @@ func TestExecutorNecessaryGateDeniesPostFirstLedgerRevocationAndLostACK(t *testi
 				recovered.AttemptID != intent.AttemptID || recovered.PermitID != permitID {
 				t.Fatalf("recovery lost exact committed attempt: %+v", recovered)
 			}
-			if _, err := New(store.db).ClaimAuthorizedIntent(ctx, permitID, resolved); !errors.Is(err, ErrPermitAlreadyClaimed) {
+			if _, err := store.ClaimAuthorizedIntent(ctx, permitID, resolved); !errors.Is(err, ErrPermitAlreadyClaimed) {
 				t.Fatalf("recovered or revoked attempt could be claimed again: %v", err)
 			}
 			var audits int
