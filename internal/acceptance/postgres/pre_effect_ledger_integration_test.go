@@ -113,7 +113,6 @@ func TestPreEffectInspectionRejectsPostMigrationTemporaryLedgerShadows(t *testin
 	}
 }
 
-
 // A deferred constraint can be deliberately evaluated early by a direct SQL
 // writer. Even if that transaction commits an already-expired CLAIMED row
 // with matching Intent/Audit, a later pre-effect read must sample DB time and
