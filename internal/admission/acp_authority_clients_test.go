@@ -54,6 +54,7 @@ type protectedWorkspaceReceiptFixture struct {
 	Audience          string `json:"audience"`
 	Status            string `json:"status"`
 }
+
 func acpTestPrincipal() Principal {
 	return Principal{
 		TenantID: testACPTenant, SubjectID: "runtime-subject",
@@ -232,11 +233,11 @@ func TestACPProtectedWorkspaceClientBindsExactResolvedActionAndNeverIssuesPermit
 
 	receipt := protectedWorkspaceReceiptFixture{
 		SchemaVersion: acpProtectedWorkspaceSchema,
-		RunID: run.RunID, AgentID: run.AgentID, AgentReleaseID: run.AgentReleaseID,
-		SessionID: run.SessionID, SubjectID: resolved.SubjectID,
-		CapabilityID: resolved.Capability.ID, CapabilityVersion: resolved.Capability.Version,
+		RunID:         run.RunID, AgentID: run.AgentID, AgentReleaseID: run.AgentReleaseID,
+		SessionID:     run.SessionID, SubjectID: resolved.SubjectID,
+		CapabilityID:  resolved.Capability.ID, CapabilityVersion: resolved.Capability.Version,
 		ContractSHA256: resolved.Capability.ContractSHA256,
-		ConfigDigest: "sha256:" + strings.Repeat("d", 64),
+		ConfigDigest:   "sha256:" + strings.Repeat("d", 64),
 		PolicyRevision: resolved.PolicyVersion, WorkspaceID: resolved.ResourceRef,
 		ToolBindingDigest: resolved.ToolBindingDigest, Audience: resolved.Audience,
 		Status: "VERIFIED",
