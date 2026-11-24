@@ -27,6 +27,8 @@ func TestGuardDecisionClientReadsExactFreshMTLSPlanNotCallerApproval(t *testing.
 	type planResponse struct {
 		SchemaVersion  string `json:"schema_version"`
 		RunID          string `json:"run_id"`
+		RunAttemptID   string `json:"run_attempt_id"`
+		TurnID         string `json:"turn_id"`
 		DecisionID     string `json:"decision_id"`
 		PlanHash       string `json:"plan_hash"`
 		StepID         string `json:"step_id"`
@@ -43,6 +45,7 @@ func TestGuardDecisionClientReadsExactFreshMTLSPlanNotCallerApproval(t *testing.
 	submission.Arguments = json.RawMessage("{}")
 	want := planResponse{
 		SchemaVersion: decisionPlanSchema, RunID: safetyRun,
+		RunAttemptID: runtimeGuardAttempt, TurnID: runtimeGuardTurn,
 		DecisionID: submission.DecisionID, PlanHash: submission.PlanHash,
 		StepID: submission.StepID, RecordSHA256: strings.Repeat("c", 64),
 		BreakerEpoch:   int64(snapshot.BreakerEpoch),
@@ -76,8 +79,12 @@ func TestGuardDecisionClientReadsExactFreshMTLSPlanNotCallerApproval(t *testing.
 	}
 	defer client.CloseIdleConnections()
 	principal := boundRuntime()
-	if err := client.VerifyDecisionPlanStep(context.Background(), principal, snapshot, submission); err != nil {
+	binding, err := client.VerifyDecisionPlanStepReceipt(context.Background(), principal, snapshot, submission)
+	if err != nil {
 		t.Fatalf("authentic fresh Decision proof rejected: %v", err)
+	}
+	if binding.RunID != safetyRun || binding.RunAttemptID != runtimeGuardAttempt || binding.TurnID != runtimeGuardTurn {
+		t.Fatalf("Decision receipt selectors were not returned exactly: %+v", binding)
 	}
 	original := count.Load()
 	bad := submission
@@ -146,6 +153,7 @@ func TestDecisionPlanClientRejectsOversizedResponseHeaders(t *testing.T) {
 	snapshot.RunID = safetyRun
 	receipt := guardStepReceipt{
 		SchemaVersion: decisionPlanSchema, RunID: snapshot.RunID,
+		RunAttemptID: runtimeGuardAttempt, TurnID: runtimeGuardTurn,
 		DecisionID: submission.DecisionID, PlanHash: submission.PlanHash,
 		StepID: submission.StepID, RecordSHA256: strings.Repeat("c", 64),
 		BreakerEpoch:   int64(snapshot.BreakerEpoch),
@@ -195,6 +203,8 @@ func TestDecisionPlanClientRejectsAmbiguousResponseHeaders(t *testing.T) {
 	receipt := guardStepReceipt{
 		SchemaVersion:  decisionPlanSchema,
 		RunID:          snapshot.RunID,
+		RunAttemptID:   runtimeGuardAttempt,
+		TurnID:         runtimeGuardTurn,
 		DecisionID:     submission.DecisionID,
 		PlanHash:       submission.PlanHash,
 		StepID:         submission.StepID,
