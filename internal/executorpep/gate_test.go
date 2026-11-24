@@ -44,6 +44,20 @@ type fakeLive struct {
 	failAt int
 }
 
+type unavailableTestError struct{}
+
+func (unavailableTestError) Error() string { return "test-only ledger database unavailable" }
+func (unavailableTestError) Unavailable() bool { return true }
+
+type unavailableFakeLedger struct {
+	calls int
+}
+
+func (f *unavailableFakeLedger) InspectPreEffectLedger(context.Context, string, string, action.WorkspaceWrite) error {
+	f.calls++
+	return unavailableTestError{}
+}
+
 func (f *fakeLive) VerifyCurrent(_ context.Context, _, _ string, _ action.WorkspaceWrite) error {
 	f.calls++
 	if f.calls == f.failAt {
@@ -158,6 +172,21 @@ func makeGate(t *testing.T, root *x509.Certificate, ledger Ledger, live LiveAuth
 	return g
 }
 
+func TestExecutorPreEffectMapsLedgerSourceOutageToUnavailable(t *testing.T) {
+	ca := issueTestCA(t)
+	ledger := &unavailableFakeLedger{}
+	live := &fakeLive{}
+	g := makeGate(t, ca.cert, ledger, live)
+	err := g.Check(context.Background(), verifiedPeer(t, ca, goodExecutorID),
+		testPermitID, testAttemptID, resolvedWorkspaceWrite())
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("ledger source outage was not classified unavailable: %v", err)
+	}
+	if ledger.calls != 1 || live.calls != 1 {
+		t.Fatalf("outage classification skipped or repeated source reads: ledger=%d live=%d", ledger.calls, live.calls)
+	}
+}
+
 func TestExecutorPreEffectVerifiedIdentityAndAllFreshChecks(t *testing.T) {
 	ca := issueTestCA(t)
 	ledger, live := &fakeLedger{}, &fakeLive{}
@@ -240,6 +269,8 @@ func TestExecutorPreEffectConstructorRequiresAllAuthorities(t *testing.T) {
 func TestExecutorPreEffectRejectsMalformedPeerAndNonCanonicalIdentifiers(t *testing.T) {
 	ca := issueTestCA(t)
 	goodPeer := verifiedPeer(t, ca, goodExecutorID)
+	tls12Peer := verifiedPeer(t, ca, goodExecutorID)
+	tls12Peer.Version = tls.VersionTLS12
 	malformedPeer := verifiedPeer(t, ca, goodExecutorID)
 	// Defensive boundary: an in-process caller can supply a malformed
 	// ConnectionState. The check must fail closed, not crash the process.
@@ -251,6 +282,7 @@ func TestExecutorPreEffectRejectsMalformedPeerAndNonCanonicalIdentifiers(t *test
 		attemptID string
 	}{
 		{"nil SPIFFE URI must deny without panic", malformedPeer, testPermitID, testAttemptID},
+		{"TLS 1.2 executor identity must deny", tls12Peer, testPermitID, testAttemptID},
 		{"zero-version permit UUID must deny", goodPeer, "00000000-0000-0000-0000-000000000000", testAttemptID},
 		{"non-RFC variant attempt UUID must deny", goodPeer, testPermitID, "10000000-0000-4000-0000-000000000002"},
 	} {
