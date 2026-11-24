@@ -72,6 +72,29 @@ assert str(uuid.UUID(r["run_id"])) == r["run_id"]
 print(r["run_id"])
 PY
 )"
+# Second isolated ACP-accepted Run verifies an ambiguous persisted Attempt
+# without weakening the original Run's breaker and terminal-state assertions.
+python3 - "$root/accept.json" "$root/ambiguous.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    data = json.load(stream)
+data["run_intent_id"] = "33333333-3333-4333-8333-333333333333"
+with open(sys.argv[2], "w", encoding="utf-8") as stream:
+    json.dump(data, stream)
+PY
+code="$("${request[@]}" -o "$root/ambiguous-receipt.json" -w '%{http_code}' \
+  -H 'Content-Type: application/json' --data-binary "@$root/ambiguous.json" \
+  "$GUARD_RUNTIME_ORIGIN/internal/v2/run-intents:accept")"
+[[ "$code" == 201 ]]
+export GUARD_RUNTIME_AMBIGUOUS_RUN="$(python3 - "$root/ambiguous-receipt.json" <<'PY'
+import json, sys, uuid
+with open(sys.argv[1], encoding="utf-8") as stream:
+    receipt = json.load(stream)
+assert receipt["status"] == "FOUND" and receipt["created"] is True
+assert str(uuid.UUID(receipt["run_id"])) == receipt["run_id"]
+print(receipt["run_id"])
+PY
+)"
 export GUARD_RUNTIME_CA="$root/ca.crt" GUARD_RUNTIME_CERT="$root/guard.crt" GUARD_RUNTIME_KEY="$root/guard.key"
 export GUARD_LIVE_RUNTIME_SAFETY=1
 go test -race -count=1 -v -run '^TestLiveRuntimeRunSafetyAuthority$' ./internal/admission | tee "$root/acceptance.log"

@@ -36,11 +36,11 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: avaargsh/agent-runtime
-          ref: b3fa67da057ec680b07c9fcf39c0b669d050df86
+          ref: cf0bb352eccb41616fd9d2d51e7cd5d872adb2b1
           path: runtime
           persist-credentials: false
       - name: Verify pinned Runtime source
-        run: test "$(git -C runtime rev-parse HEAD)" = 'b3fa67da057ec680b07c9fcf39c0b669d050df86'
+        run: test "$(git -C runtime rev-parse HEAD)" = 'cf0bb352eccb41616fd9d2d51e7cd5d872adb2b1'
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
           go-version: '1.26.11'

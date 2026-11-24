@@ -43,6 +43,10 @@ func TestLiveRuntimeRunSafetyAuthority(t *testing.T) {
 	}
 	tenant := required("GUARD_RUNTIME_TENANT")
 	runID := required("GUARD_RUNTIME_RUN")
+	ambiguousRunID := required("GUARD_RUNTIME_AMBIGUOUS_RUN")
+	if ambiguousRunID == runID {
+		t.Fatal("ambiguity fixture must use a separate ACP-accepted Run")
+	}
 	client, err := NewRuntimeRunSafetyClient(required("GUARD_RUNTIME_ORIGIN"), required("GUARD_RUNTIME_SPIFFE"), tenant, roots, cert)
 	if err != nil {
 		t.Fatal(err)
@@ -110,6 +114,77 @@ func TestLiveRuntimeRunSafetyAuthority(t *testing.T) {
 	if _, err := client.GetRunSafetySnapshot(ctx, tenant, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("absent Run was not denied: %v", err)
 	}
+	// An independently accepted Run exercises historical Attempt ambiguity
+	// while the original Run stays valid for breaker and terminal tests.
+	if _, err := db.Exec(ctx,
+		"UPDATE runs SET status='RUNNING',updated_at=clock_timestamp() WHERE tenant_id=$1 AND run_id=$2::uuid",
+		tenant, ambiguousRunID); err != nil {
+		t.Fatal(err)
+	}
+	assertAmbiguousDenied := func(stage string) {
+		t.Helper()
+		if _, err := client.GetRunSafetySnapshot(ctx, tenant, ambiguousRunID); !errors.Is(err, ErrForbidden) {
+			t.Fatalf("%s: ambiguous Run gained Guard safety precondition: %v", stage, err)
+		}
+	}
+	assertAmbiguousDenied("no current Attempt")
+	fixture, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fixture.Rollback(context.Background())
+	var currentAttempt string
+	if err := fixture.QueryRow(ctx, `
+		INSERT INTO runtime_run_attempts
+		(tenant_id,run_id,run_attempt_id,workflow_id,temporal_execution_id)
+		SELECT r.tenant_id,r.run_id,pg_catalog.gen_random_uuid(),
+		       r.workflow_id,pg_catalog.gen_random_uuid()
+		FROM runs r WHERE r.tenant_id=$1 AND r.run_id=$2::uuid
+		RETURNING run_attempt_id::text
+	`, tenant, ambiguousRunID).Scan(&currentAttempt); err != nil {
+		t.Fatalf("insert isolated current Attempt fixture: %v", err)
+	}
+	if _, err := fixture.Exec(ctx, `
+		INSERT INTO runtime_current_attempts(tenant_id,run_id,attempt_id,generation,breaker_epoch)
+		VALUES ($1,$2::uuid,$3::uuid,1,1)
+	`, tenant, ambiguousRunID, currentAttempt); err != nil {
+		t.Fatalf("insert isolated generation-one pointer: %v", err)
+	}
+	if err := fixture.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	eligible, err := client.GetRunSafetySnapshot(ctx, tenant, ambiguousRunID)
+	if err != nil || eligible.RunID != ambiguousRunID || eligible.BreakerState != "CLOSED" ||
+		eligible.BreakerEpoch != 1 || eligible.Status != "RUNNING" {
+		t.Fatalf("single current Attempt must pass live Runtime safety read: %+v err=%v", eligible, err)
+	}
+	// Fixture-only SQL models inconsistent durable history. A second
+	// execution is never authorized here and no protected effect occurs.
+	if _, err := db.Exec(ctx, `
+		INSERT INTO runtime_run_attempts
+		(tenant_id,run_id,run_attempt_id,workflow_id,temporal_execution_id)
+		SELECT r.tenant_id,r.run_id,pg_catalog.gen_random_uuid(),
+		       r.workflow_id,pg_catalog.gen_random_uuid()
+		FROM runs r WHERE r.tenant_id=$1 AND r.run_id=$2::uuid
+	`, tenant, ambiguousRunID); err != nil {
+		t.Fatalf("seed second immutable historical Attempt: %v", err)
+	}
+	assertAmbiguousDenied("two immutable Attempts with one current pointer")
+	var attempts, pointers int
+	if err := db.QueryRow(ctx, `
+		SELECT
+			(SELECT count(*) FROM runtime_run_attempts WHERE tenant_id=$1 AND run_id=$2::uuid),
+			(SELECT count(*) FROM runtime_current_attempts WHERE tenant_id=$1 AND run_id=$2::uuid)
+	`, tenant, ambiguousRunID).Scan(&attempts, &pointers); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 2 || pointers != 1 {
+		t.Fatalf("Guard safety read mutated durable historical identities: attempts=%d pointers=%d", attempts, pointers)
+	}
+	if stillEligible, err := client.GetRunSafetySnapshot(ctx, tenant, runID); err != nil ||
+		stillEligible.Status != "RUNNING" || stillEligible.BreakerState != "CLOSED" {
+		t.Fatalf("independent Run was incorrectly fenced: %+v err=%v", stillEligible, err)
+	}
 	if _, err := db.Exec(ctx, `
 		UPDATE runtime_circuit_breakers
 		SET state='OPEN',reason_code='UNAUTHORIZED_EGRESS',trigger_event_id='live-safety-test',
@@ -124,7 +199,7 @@ func TestLiveRuntimeRunSafetyAuthority(t *testing.T) {
 	}
 	assertDenied()
 	var runs, events int
-	if err := db.QueryRow(ctx, "SELECT (SELECT count(*) FROM runs),(SELECT count(*) FROM runtime_outbox)").Scan(&runs, &events); err != nil || runs != 1 || events != 1 {
+	if err := db.QueryRow(ctx, "SELECT (SELECT count(*) FROM runs),(SELECT count(*) FROM runtime_outbox)").Scan(&runs, &events); err != nil || runs != 2 || events != 2 {
 		t.Fatalf("read-only network authority created effects: %d/%d %v", runs, events, err)
 	}
 	t.Logf("actual pinned Runtime safety authority read and denied the same Run %s", runID)
