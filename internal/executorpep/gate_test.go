@@ -150,6 +150,43 @@ func verifiedPeer(t *testing.T, ca testCA, identity string, omitClientEKU ...boo
 		PeerCertificates: []*x509.Certificate{xleaf}, VerifiedChains: chains,
 	}
 }
+func verifiedPeerWithEKUs(t *testing.T, ca testCA, identity string, usages []x509.ExtKeyUsage) *tls.ConnectionState {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	uri, err := url.Parse(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(now.UnixNano()),
+		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: usages,
+		URIs: []*url.URL{uri},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, ca.cert, key.Public(), ca.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chains, err := leaf.Verify(x509.VerifyOptions{
+		Roots: ca.roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	})
+	if err != nil {
+		t.Fatalf("test precondition: x509 transport verifier rejected EKU fixture: %v", err)
+	}
+	return &tls.ConnectionState{
+		HandshakeComplete: true, Version: tls.VersionTLS13,
+		PeerCertificates: []*x509.Certificate{leaf}, VerifiedChains: chains,
+	}
+}
+
 func resolvedWorkspaceWrite() action.WorkspaceWrite {
 	return action.WorkspaceWrite{
 		SchemaVersion: "v0.1", TenantID: "tenant-a", SubjectID: "subject-a",
@@ -215,6 +252,8 @@ func TestExecutorPreEffectFailClosedForIdentityOrAuthorityDrift(t *testing.T) {
 		// Go x509.Verify permits an absent EKU as unconstrained. A protected
 		// executor must require an explicit client-auth SVID usage.
 		{"missing client-auth EKU", ca.cert, verifiedPeer(t, ca, goodExecutorID, true), nil, 0, 0},
+		{"unrestricted Any EKU", ca.cert, verifiedPeerWithEKUs(t, ca, goodExecutorID, []x509.ExtKeyUsage{x509.ExtKeyUsageAny}), nil, 0, 0},
+		{"mixed client and server EKU", ca.cert, verifiedPeerWithEKUs(t, ca, goodExecutorID, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth}), nil, 0, 0},
 		{"runtime is not executor", ca.cert, verifiedPeer(t, ca, "spiffe://platform.example/ns/agents/sa/agent-runtime"), nil, 0, 0},
 		{"different pinned CA", other.cert, verifiedPeer(t, ca, goodExecutorID), nil, 0, 0},
 		{"tenant drift", ca.cert, verifiedPeer(t, ca, goodExecutorID), func(a *action.WorkspaceWrite) { a.TenantID = "tenant-b" }, 0, 0},
