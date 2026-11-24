@@ -48,9 +48,19 @@ type ActionRequest struct {
 }
 
 func validActionField(value string) bool {
-	return value != "" && len(value) <= 512 && utf8.ValidString(value) &&
-		strings.TrimSpace(value) == value &&
-		!strings.ContainsAny(value, "\x00\r\n\t ")
+	if value == "" || len(value) > 512 || !utf8.ValidString(value) {
+		return false
+	}
+	// Authorization identifiers and binding references use visible ASCII.
+	// Business payloads remain UTF-8; only protocol identity fields are
+	// restricted so bidi controls, zero-width characters and Unicode
+	// lookalikes cannot create ambiguous authorization evidence.
+	for i := 0; i < len(value); i++ {
+		if value[i] < 0x21 || value[i] > 0x7e {
+			return false
+		}
+	}
+	return true
 }
 
 func validSHA256(value string) bool {
