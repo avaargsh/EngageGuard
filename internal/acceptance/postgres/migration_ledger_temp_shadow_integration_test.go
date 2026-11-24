@@ -29,14 +29,14 @@ func TestMigrationRejectsPermanentChecksumDriftBehindTempLedgerShadow(t *testing
 		t.Fatal(err)
 	}
 	var fakeRows int
-	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM pg_temp.guard_schema_migrations").Scan(&fakeRows); err != nil || fakeRows != 14 {
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM pg_temp.guard_schema_migrations").Scan(&fakeRows); err != nil || fakeRows != 15 {
 		t.Fatalf("temporary migration ledger fixture not populated: rows=%d err=%v", fakeRows, err)
 	}
 
 	var sqlDamage string
 	if err := db.QueryRowContext(ctx, `
 		SELECT pg_catalog.format(
-			'UPDATE %I.guard_schema_migrations SET checksum=$1 WHERE version=14',
+			'UPDATE %I.guard_schema_migrations SET checksum=$1 WHERE version=15',
 			current_schema()
 		)
 	`).Scan(&sqlDamage); err != nil {
@@ -46,7 +46,7 @@ func TestMigrationRejectsPermanentChecksumDriftBehindTempLedgerShadow(t *testing
 		t.Fatal(err)
 	}
 	// The unqualified table name resolves to the fake, intact temp table,
-	// whereas the actual migration ledger now has an invalid v14 checksum.
+	// whereas the actual migration ledger now has an invalid v15 checksum.
 	var isShadowed bool
 	if err := db.QueryRowContext(ctx, `
 		SELECT pg_catalog.to_regclass('guard_schema_migrations') =
@@ -55,7 +55,7 @@ func TestMigrationRejectsPermanentChecksumDriftBehindTempLedgerShadow(t *testing
 		t.Fatalf("test did not establish migration-ledger shadow: shadowed=%t err=%v", isShadowed, err)
 	}
 	if err := Migrate(ctx, db); !errors.Is(err, ErrSchemaDrift) {
-		t.Fatalf("permanent v14 checksum drift concealed by pg_temp ledger: got %v, want ErrSchemaDrift", err)
+		t.Fatalf("permanent v15 checksum drift concealed by pg_temp ledger: got %v, want ErrSchemaDrift", err)
 	}
 }
 

@@ -20,13 +20,32 @@ func TestPreEffectLedgerRejectsUnknownJournalWithoutStateTransition(t *testing.T
 		t.Fatalf("valid control rejected: %v", err)
 	}
 
-	_, err = store.db.ExecContext(ctx, `
+	// v15 normally makes this mismatch impossible. Simulate a privileged
+	// historical/catalog corruption without weakening the final runtime
+	// configuration: suppress only the v15 journal trigger for this insert,
+	// restore ENABLE ALWAYS before commit, then test the read-side fence.
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx,
+		"ALTER TABLE guard_operation_unknown_events DISABLE TRIGGER guard_unknown_journal_commit_v15"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO guard_operation_unknown_events
 		    (tenant_id,operation_id,permit_id,attempt_id,action_hash,reason)
 		VALUES ($1,$2::uuid,$3::uuid,$4::uuid,$5,'ACK_LOST')
-	`, intent.TenantID, intent.OperationID, intent.PermitID, intent.AttemptID, intent.ActionHash)
-	if err != nil {
+	`, intent.TenantID, intent.OperationID, intent.PermitID, intent.AttemptID, intent.ActionHash); err != nil {
 		t.Fatalf("fixture could not persist exact UNKNOWN evidence: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		"ALTER TABLE guard_operation_unknown_events ENABLE ALWAYS TRIGGER guard_unknown_journal_commit_v15"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
 	}
 
 	var state string
