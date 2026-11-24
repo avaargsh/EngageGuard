@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/avaargsh/EngageGuard/internal/action"
 )
@@ -109,5 +110,62 @@ func TestPreEffectInspectionRejectsPostMigrationTemporaryLedgerShadows(t *testin
 	err = store.InspectPreEffectLedger(ctx, permitID, intent.AttemptID, resolved)
 	if !errors.Is(err, ErrPreEffectUnavailable) || !errors.Is(err, ErrSchemaDrift) {
 		t.Fatalf("pre-effect inspection trusted pg_temp unrevoked Permit/Intent/Audit over permanent revocation: %v; want ErrPreEffectUnavailable and ErrSchemaDrift", err)
+	}
+}
+
+
+// A deferred constraint can be deliberately evaluated early by a direct SQL
+// writer. Even if that transaction commits an already-expired CLAIMED row
+// with matching Intent/Audit, a later pre-effect read must sample DB time and
+// reject it. No provider or external effect is involved.
+func TestPreEffectLedgerRejectsExpiredClaimAfterEarlyV12ConstraintEvaluation(t *testing.T) {
+	store, resolved, permitID := seededWorkspacePermitWithExpiry(t, time.Now().Add(3*time.Second))
+	ctx := context.Background()
+	hash, err := action.Hash(resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "SET CONSTRAINTS guard_permit_claim_expiry_v12 IMMEDIATE"); err != nil {
+		t.Fatal("v12 expiry constraint cannot be forced immediate:", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE guard_permits
+		SET state='CLAIMED', claimed_at=clock_timestamp()
+		WHERE tenant_id=$1 AND permit_id=$2::uuid AND state='ISSUED'
+		  AND expires_at>clock_timestamp()`, resolved.TenantID, permitID); err != nil {
+		t.Fatal("pre-expiry claim update:", err)
+	}
+	var attemptID string
+	if err := tx.QueryRowContext(ctx, `INSERT INTO guard_operation_intents
+		(tenant_id,operation_id,permit_id,action_hash,binding_digest,state)
+		VALUES ($1,$2::uuid,$3::uuid,$4,$5,'DISPATCHING')
+		RETURNING attempt_id::text`,
+		resolved.TenantID, resolved.OperationID, permitID, hash, resolved.ToolBindingDigest).Scan(&attemptID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO guard_execution_audit
+		(tenant_id,operation_id,permit_id,attempt_id,event_type,action_hash)
+		VALUES ($1,$2::uuid,$3::uuid,$4::uuid,'guard.operation.dispatching.v1',$5)`,
+		resolved.TenantID, resolved.OperationID, permitID, attemptID, hash); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, "SELECT pg_sleep(3.6)"); err != nil {
+		t.Fatal(err)
+	}
+	var expired bool
+	if err := tx.QueryRowContext(ctx,
+		"SELECT expires_at <= clock_timestamp() FROM guard_permits WHERE permit_id=$1::uuid",
+		permitID).Scan(&expired); err != nil || !expired {
+		t.Fatalf("fixture did not cross DB-clock expiry: expired=%t err=%v", expired, err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("expected the deliberately early-evaluated v12 constraint to leave a late-commit window: %v", err)
+	}
+	if err := store.InspectPreEffectLedger(ctx, permitID, attemptID, resolved); !errors.Is(err, ErrPreEffectBlocked) {
+		t.Fatalf("expired CLAIMED Permit with committed Intent/Audit accepted as pre-effect-valid: %v", err)
 	}
 }
