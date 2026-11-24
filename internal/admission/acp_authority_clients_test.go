@@ -15,43 +15,43 @@ import (
 )
 
 const (
-	testACPPeer = "spiffe://platform.example/ns/acp/sa/guard-capability"
-	testGuardPeer = "spiffe://platform.example/ns/guard/sa/engageguard"
-	testACPTenant = "tenant-1"
-	testACPPath = "/internal/v1/guard-capabilities:verify"
+	testACPPeer          = "spiffe://platform.example/ns/acp/sa/guard-capability"
+	testGuardPeer        = "spiffe://platform.example/ns/guard/sa/engageguard"
+	testACPTenant        = "tenant-1"
+	testACPPath          = "/internal/v1/guard-capabilities:verify"
 	testACPProtectedPath = "/internal/v1/guard-protected-workspaces:verify"
 )
 
 type capabilityReceiptFixture struct {
-	SchemaVersion string `json:"schema_version"`
-	RunID string `json:"run_id"`
-	AgentID string `json:"agent_id"`
-	AgentReleaseID string `json:"agent_release_id"`
-	SessionID string `json:"session_id"`
-	CapabilityID string `json:"capability_id"`
-	CapabilityVersion string `json:"capability_version"`
-	ContractSHA256 string `json:"contract_sha256"`
-	PolicyRevision string `json:"policy_revision"`
-	ResourceRef string `json:"resource_ref"`
-	Status string `json:"status"`
+	SchemaVersion     string `json:"schema_version"`
+	RunID             string `json:"run_id"`
+	AgentID            string `json:"agent_id"`
+	AgentReleaseID     string `json:"agent_release_id"`
+	SessionID          string `json:"session_id"`
+	CapabilityID       string `json:"capability_id"`
+	CapabilityVersion  string `json:"capability_version"`
+	ContractSHA256     string `json:"contract_sha256"`
+	PolicyRevision     string `json:"policy_revision"`
+	ResourceRef        string `json:"resource_ref"`
+	Status             string `json:"status"`
 }
 
 type protectedWorkspaceReceiptFixture struct {
-	SchemaVersion string `json:"schema_version"`
-	RunID string `json:"run_id"`
-	AgentID string `json:"agent_id"`
-	AgentReleaseID string `json:"agent_release_id"`
-	SessionID string `json:"session_id"`
-	SubjectID string `json:"subject_id"`
-	CapabilityID string `json:"capability_id"`
-	CapabilityVersion string `json:"capability_version"`
-	ContractSHA256 string `json:"contract_sha256"`
-	ConfigDigest string `json:"config_digest"`
-	PolicyRevision string `json:"policy_revision"`
-	WorkspaceID string `json:"workspace_id"`
-	ToolBindingDigest string `json:"tool_binding_digest"`
-	Audience string `json:"audience"`
-	Status string `json:"status"`
+	SchemaVersion     string `json:"schema_version"`
+	RunID             string `json:"run_id"`
+	AgentID            string `json:"agent_id"`
+	AgentReleaseID     string `json:"agent_release_id"`
+	SessionID          string `json:"session_id"`
+	SubjectID          string `json:"subject_id"`
+	CapabilityID       string `json:"capability_id"`
+	CapabilityVersion  string `json:"capability_version"`
+	ContractSHA256     string `json:"contract_sha256"`
+	ConfigDigest       string `json:"config_digest"`
+	PolicyRevision     string `json:"policy_revision"`
+	WorkspaceID        string `json:"workspace_id"`
+	ToolBindingDigest  string `json:"tool_binding_digest"`
+	Audience           string `json:"audience"`
+	Status             string `json:"status"`
 }
 
 func acpTestPrincipal() Principal {
@@ -74,7 +74,7 @@ func acpTestWorkspaceWrite() action.WorkspaceWrite {
 	return action.WorkspaceWrite{
 		SchemaVersion: "v0.1", TenantID: testACPTenant,
 		SubjectID: "original-human-subject", AgentID: "agent-1",
-		OperationID: "11111111-1111-4111-8111-111111111111",
+		OperationID:  "11111111-1111-4111-8111-111111111111",
 		CapabilityID: "workspace.write", ToolBindingDigest: strings.Repeat("a", 64),
 		PolicyVersion: "policy-1", Audience: "trusted-workspace-executor",
 		WorkspaceID: "workspace-1", RelativePath: "docs/approved.md",
@@ -213,11 +213,11 @@ func TestACPProtectedWorkspaceClientBindsExactResolvedActionAndNeverIssuesPermit
 
 	receipt := protectedWorkspaceReceiptFixture{
 		SchemaVersion: "acp.guard-protected-workspace.v1",
-		RunID: run.RunID, AgentID: run.AgentID, AgentReleaseID: run.AgentReleaseID,
-		SessionID: run.SessionID, SubjectID: resolved.SubjectID,
-		CapabilityID: "workspace.write", CapabilityVersion: "1.0.0",
+		RunID:         run.RunID, AgentID: run.AgentID, AgentReleaseID: run.AgentReleaseID,
+		SessionID:     run.SessionID, SubjectID: resolved.SubjectID,
+		CapabilityID:  "workspace.write", CapabilityVersion: "1.0.0",
 		ContractSHA256: strings.Repeat("c", 64),
-		ConfigDigest: "sha256:" + strings.Repeat("d", 64),
+		ConfigDigest:   "sha256:" + strings.Repeat("d", 64),
 		PolicyRevision: resolved.PolicyVersion, WorkspaceID: resolved.WorkspaceID,
 		ToolBindingDigest: resolved.ToolBindingDigest, Audience: resolved.Audience,
 		Status: "VERIFIED",
