@@ -38,18 +38,18 @@ func (f *fakeLedger) PersistIssuedPermit(_ context.Context, draft PermitDraft) (
 
 func resolvedAction() action.WorkspaceWrite {
 	return action.WorkspaceWrite{
-		SchemaVersion: "v0.1",
-		TenantID: "tenant-a",
-		SubjectID: "subject-a",
-		AgentID: "agent-a",
-		OperationID: "10000000-0000-4000-8000-000000000003",
-		CapabilityID: "workspace.write",
+		SchemaVersion:     "v0.1",
+		TenantID:          "tenant-a",
+		SubjectID:         "subject-a",
+		AgentID:           "agent-a",
+		OperationID:       "10000000-0000-4000-8000-000000000003",
+		CapabilityID:      "workspace.write",
 		ToolBindingDigest: strings.Repeat("a", 64),
-		PolicyVersion: "policy-7",
-		Audience: "trusted-workspace-executor",
-		WorkspaceID: "workspace-a",
-		RelativePath: "docs/output.md",
-		ContentDigest: strings.Repeat("b", 64),
+		PolicyVersion:     "policy-7",
+		Audience:          "trusted-workspace-executor",
+		WorkspaceID:       "workspace-a",
+		RelativePath:      "docs/output.md",
+		ContentDigest:     strings.Repeat("b", 64),
 	}
 }
 
@@ -60,16 +60,16 @@ func validAuthorization(t *testing.T, a action.WorkspaceWrite, now time.Time) Au
 		t.Fatal(err)
 	}
 	return Authorization{
-		RunID: "run-1",
-		RuntimeAttemptID: "run-attempt-1",
-		TurnID: "turn-1",
-		ApprovalRef: "approval-1",
-		RiskRevision: "risk-17",
-		ActionHash: hash,
+		RunID:             "run-1",
+		RuntimeAttemptID:  "run-attempt-1",
+		TurnID:            "turn-1",
+		ApprovalRef:       "approval-1",
+		RiskRevision:      "risk-17",
+		ActionHash:        hash,
 		ToolBindingDigest: a.ToolBindingDigest,
-		PolicyVersion: a.PolicyVersion,
-		Audience: a.Audience,
-		ValidUntil: now.Add(2 * time.Minute),
+		PolicyVersion:     a.PolicyVersion,
+		Audience:          a.Audience,
+		ValidUntil:        now.Add(2 * time.Minute),
 	}
 }
 
@@ -80,8 +80,8 @@ func TestTrustedIssuerBindsCurrentAuthorityToExactResolvedAction(t *testing.T) {
 	ledger := &fakeLedger{}
 	svc, err := New(Config{
 		IssuerIdentity: "spiffe://platform.example/ns/guard/sa/issuer",
-		MaxTTL: 5 * time.Minute,
-		Now: func() time.Time { return now },
+		MaxTTL:         5 * time.Minute,
+		Now:            func() time.Time { return now },
 	}, auth, ledger)
 	if err != nil {
 		t.Fatal(err)
@@ -112,8 +112,8 @@ func TestTrustedIssuerFailsClosedOnAuthorityOrActionDrift(t *testing.T) {
 	now := time.Date(2026, 11, 24, 5, 40, 0, 0, time.UTC)
 	base := resolvedAction()
 	for _, tc := range []struct {
-		name string
-		change func(*Authorization)
+		name    string
+		change  func(*Authorization)
 		authErr error
 	}{
 		{"authority unavailable", nil, errors.New("runtime authority unavailable")},
@@ -161,9 +161,9 @@ func TestTrustedIssuerRejectsIncompleteConstruction(t *testing.T) {
 	auth := &fakeAuthority{result: validAuthorization(t, a, now)}
 	ledger := &fakeLedger{}
 	for _, tc := range []struct {
-		name string
-		cfg Config
-		auth Authority
+		name   string
+		cfg    Config
+		auth   Authority
 		ledger PermitLedger
 	}{
 		{"missing issuer identity", Config{MaxTTL: time.Minute, Now: func() time.Time { return now }}, auth, ledger},
