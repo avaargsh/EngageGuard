@@ -142,7 +142,7 @@ func TestRuntimeGuardExecutionAuthorityClientRejectsMissingServerAuthEKU(t *test
 		ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: clientRoots}
 	srv.StartTLS()
 	defer srv.Close()
-	client, err := NewRuntimeGuardExecutionAuthorityClient(srv.URL, runtimeGuardExecutionAuthorityPeer, safetyTenant, roots, clientCert)
+	client, err := NewRuntimeGuardExecutionAuthorityClient(srv.URL, runtimeGuardAuthorityPeer, safetyTenant, roots, clientCert)
 	if err != nil {
 		t.Fatal(err)
 	}
