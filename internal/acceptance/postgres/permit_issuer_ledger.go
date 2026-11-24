@@ -48,6 +48,14 @@ func validPermitDraft(d issuer.PermitDraft) bool {
 		validPermitEvidence(v.TurnID) &&
 		validPermitEvidence(v.ApprovalRef) &&
 		validPermitEvidence(v.RiskRevision) &&
+		validPermitEvidence(v.DecisionID) &&
+		validPermitEvidence(v.PlanID) &&
+		permitDigestRE.MatchString(v.PlanHash) &&
+		validPermitEvidence(v.StepID) &&
+		validPermitEvidence(v.CapabilityID) &&
+		validPermitEvidence(v.CapabilityVersion) &&
+		permitDigestRE.MatchString(v.CapabilityContractSHA256) &&
+		validPermitEvidence(v.ResourceRef) &&
 		permitDigestRE.MatchString(v.ActionHash) &&
 		permitDigestRE.MatchString(v.ToolBindingDigest) &&
 		validPermitEvidence(v.PolicyVersion) &&
@@ -61,6 +69,8 @@ func validPermitDraft(d issuer.PermitDraft) bool {
 func samePermitDraft(
 	d issuer.PermitDraft,
 	runID, runtimeAttemptID, turnID, approvalRef, riskRevision,
+	decisionID, planID, planHash, stepID, capabilityID, capabilityVersion,
+	capabilityContractSHA256, resourceRef,
 	actionHash, bindingDigest, audience, policyVersion, issuedBy string,
 	issuedAt, expiresAt time.Time,
 ) bool {
@@ -70,6 +80,14 @@ func samePermitDraft(
 		v.TurnID == turnID &&
 		v.ApprovalRef == approvalRef &&
 		v.RiskRevision == riskRevision &&
+		v.DecisionID == decisionID &&
+		v.PlanID == planID &&
+		v.PlanHash == planHash &&
+		v.StepID == stepID &&
+		v.CapabilityID == capabilityID &&
+		v.CapabilityVersion == capabilityVersion &&
+		v.CapabilityContractSHA256 == capabilityContractSHA256 &&
+		v.ResourceRef == resourceRef &&
 		v.ActionHash == actionHash &&
 		v.ToolBindingDigest == bindingDigest &&
 		v.Audience == audience &&
@@ -120,22 +138,29 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO guard_permit_authority_evidence
 				(tenant_id,operation_id,permit_id,run_id,runtime_attempt_id,turn_id,
-				 approval_ref,risk_revision,action_hash,binding_digest,audience,
-				 policy_version,issued_by,issued_at,expires_at)
-			VALUES ($1,$2::uuid,$3::uuid,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+				 approval_ref,risk_revision,decision_id,plan_id,plan_hash,step_id,
+				 capability_id,capability_version,capability_contract_sha256,resource_ref,
+				 action_hash,binding_digest,audience,policy_version,issued_by,issued_at,expires_at)
+			VALUES ($1,$2::uuid,$3::uuid,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
 		`, values.TenantID, values.OperationID, permitID, values.RunID,
 			values.RuntimeAttemptID, values.TurnID, values.ApprovalRef, values.RiskRevision,
+			values.DecisionID, values.PlanID, values.PlanHash, values.StepID,
+			values.CapabilityID, values.CapabilityVersion, values.CapabilityContractSHA256, values.ResourceRef,
 			values.ActionHash, values.ToolBindingDigest, values.Audience, values.PolicyVersion,
 			values.IssuedBy, values.IssuedAt, values.ExpiresAt); err != nil {
 			return zero, fmt.Errorf("%w: persist Permit authority evidence: %w", issuer.ErrUnavailable, err)
 		}
 	case errors.Is(err, sql.ErrNoRows):
 		var runID, runtimeAttemptID, turnID, approvalRef, riskRevision string
+		var decisionID, planID, planHash, stepID, capabilityID, capabilityVersion string
+		var capabilityContractSHA256, resourceRef string
 		var actionHash, bindingDigest, audience, policyVersion, issuedBy string
 		var issuedAt, expiresAt time.Time
 		err = tx.QueryRowContext(ctx, `
 			SELECT p.permit_id::text,
 			       e.run_id,e.runtime_attempt_id,e.turn_id,e.approval_ref,e.risk_revision,
+			       e.decision_id,e.plan_id,e.plan_hash,e.step_id,e.capability_id,e.capability_version,
+			       e.capability_contract_sha256,e.resource_ref,
 			       p.action_hash,p.binding_digest,p.audience,p.policy_version,p.issued_by,
 			       p.issued_at,p.expires_at
 			FROM guard_permits p
@@ -145,6 +170,8 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 			WHERE p.tenant_id=$1 AND p.operation_id=$2::uuid
 		`, values.TenantID, values.OperationID).Scan(
 			&permitID, &runID, &runtimeAttemptID, &turnID, &approvalRef, &riskRevision,
+			&decisionID, &planID, &planHash, &stepID, &capabilityID, &capabilityVersion,
+			&capabilityContractSHA256, &resourceRef,
 			&actionHash, &bindingDigest, &audience, &policyVersion, &issuedBy,
 			&issuedAt, &expiresAt,
 		)
@@ -155,7 +182,8 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 			return zero, fmt.Errorf("%w: inspect existing Permit: %w", issuer.ErrUnavailable, err)
 		}
 		if !samePermitDraft(draft, runID, runtimeAttemptID, turnID, approvalRef,
-			riskRevision, actionHash, bindingDigest, audience, policyVersion,
+			riskRevision, decisionID, planID, planHash, stepID, capabilityID, capabilityVersion,
+			capabilityContractSHA256, resourceRef, actionHash, bindingDigest, audience, policyVersion,
 			issuedBy, issuedAt, expiresAt) {
 			return zero, issuer.ErrConflict
 		}
