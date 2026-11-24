@@ -81,6 +81,8 @@ func TestDecisionPlanClientRejectsCompressedVerificationReceipt(t *testing.T) {
 	raw, err := json.Marshal(guardStepReceipt{
 		SchemaVersion:  decisionPlanSchema,
 		RunID:          snapshot.RunID,
+		RunAttemptID:   runtimeGuardAttempt,
+		TurnID:         runtimeGuardTurn,
 		DecisionID:     submission.DecisionID,
 		PlanHash:       submission.PlanHash,
 		StepID:         submission.StepID,

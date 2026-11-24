@@ -18,6 +18,9 @@ import (
 const decisionPlanSchema = "decision.guard-plan-step.v1"
 const decisionPlanPath = "/internal/v1/guard-plan-steps:verify"
 
+const decisionPlanReadOnlyCapabilityID = "sre.metrics.read"
+const decisionPlanReadOnlyCapabilityVersion = "1.0.0"
+
 type guardStepRequest struct {
 	SchemaVersion     string          `json:"schema_version"`
 	RunID             string          `json:"run_id"`
@@ -139,13 +142,21 @@ func (c *DecisionPlanClient) verifyDecisionPlanStep(
 	ctx context.Context, principal Principal, snapshot RunSafetySnapshot, submission action.ActionSubmission,
 	result *DecisionPlanReceipt,
 ) error {
-	if c == nil || c.http == nil {
+	if c == nil || c.http == nil || ctx == nil {
+		return ErrAuthorityUnavailable
+	}
+	if ctx.Err() != nil {
 		return ErrAuthorityUnavailable
 	}
 	if principal.TenantID != c.tenant || snapshot.TenantID != c.tenant ||
 		principal.ServiceID != "agent-runtime" || snapshot.RunID != submission.RunID ||
+		!canonicalSafetyRunID.MatchString(snapshot.RunID) ||
+		!validRuntimeIdentity(snapshot.AgentID) ||
+		!validRuntimeIdentity(snapshot.AgentReleaseID) ||
+		!validRuntimeIdentity(snapshot.SessionID) ||
 		snapshot.Status != "RUNNING" || snapshot.BreakerState != "CLOSED" ||
-		snapshot.BreakerEpoch == 0 || snapshot.BreakerVersion == 0 {
+		snapshot.BreakerEpoch == 0 || snapshot.BreakerVersion == 0 ||
+		submission.Validate() != nil {
 		return ErrForbidden
 	}
 	// This first compatible version only verifies read-only SRE observations.
@@ -155,7 +166,8 @@ func (c *DecisionPlanClient) verifyDecisionPlanStep(
 	// explicitly reviewed read-only observation capability. Any expansion
 	// requires a trusted capability catalog and its own negative test.
 	if !bytes.Equal(submission.Arguments, []byte("{}")) ||
-		submission.Capability.ID != "sre.metrics.read" {
+		submission.Capability.ID != decisionPlanReadOnlyCapabilityID ||
+		submission.Capability.Version != decisionPlanReadOnlyCapabilityVersion {
 		return ErrForbidden
 	}
 	const maxUint = uint64(^uint64(0) >> 1)
@@ -232,6 +244,9 @@ func (c *DecisionPlanClient) verifyDecisionPlanStep(
 	if err != nil || !bytes.Equal(canonical, bytes.TrimSpace(body)) {
 		return ErrAuthorityUnavailable
 	}
+	if ctx.Err() != nil {
+		return ErrAuthorityUnavailable
+	}
 	if result != nil {
 		*result = DecisionPlanReceipt{
 			RunID: receipt.RunID, RunAttemptID: receipt.RunAttemptID, TurnID: receipt.TurnID,
@@ -253,4 +268,4 @@ func canonicalSHA256(s string) bool {
 	return true
 }
 
-var _ DecisionPlanReceiptAuthority = (*DecisionPlanClient)(nil)
+var _ DecisionPlanAuthority = (*DecisionPlanClient)(nil)
