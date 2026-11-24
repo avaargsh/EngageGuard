@@ -201,12 +201,12 @@ func TestComposedRunVerifierReplayRevalidatesRunBreakerBeforeAccept(t *testing.T
 	store := &fakeStore{}
 	resolver := &fakeResolver{principal: boundRuntime()}
 	handler := NewHandler(resolver, verifier, store)
-	first := exercise(handler, "guard-authority-key", goodBody())
+	first := exercise(handler, "guard-authority-key", goodBodyForRun(safetyRun))
 	if first.Code != http.StatusCreated || store.calls != 1 {
 		t.Fatalf("first admission rejected: status=%d writes=%d", first.Code, store.calls)
 	}
 	reader.snapshot.BreakerState = "OPEN"
-	denied := exercise(handler, "guard-authority-key", goodBody())
+	denied := exercise(handler, "guard-authority-key", goodBodyForRun(safetyRun))
 	if denied.Code != http.StatusForbidden || store.calls != 1 ||
 		reader.calls != 3 || decision.calls != 1 || capability.calls != 1 {
 		t.Fatalf("replay bypassed current Run breaker: status=%d writes=%d calls=%d/%d/%d",
@@ -214,7 +214,7 @@ func TestComposedRunVerifierReplayRevalidatesRunBreakerBeforeAccept(t *testing.T
 	}
 	reader.snapshot.BreakerState = "CLOSED"
 	capability.err = errors.New("ACP policy unavailable")
-	unavailable := exercise(handler, "guard-authority-key", goodBody())
+	unavailable := exercise(handler, "guard-authority-key", goodBodyForRun(safetyRun))
 	if unavailable.Code != http.StatusServiceUnavailable || store.calls != 1 {
 		t.Fatalf("authority outage replay accepted: status=%d writes=%d", unavailable.Code, store.calls)
 	}

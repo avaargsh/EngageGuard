@@ -97,7 +97,7 @@ func TestGuardHTTPNeverWritesAfterPostflightBreakerChange(t *testing.T) {
 	}
 	store := &fakeStore{}
 	handler := NewHandler(&fakeResolver{principal: boundRuntime()}, verifier, store)
-	res := exercise(handler, "postflight-flip", goodBody())
+	res := exercise(handler, "postflight-flip", goodBodyForRun(safetyRun))
 	if res.Code != http.StatusForbidden || store.calls != 0 || reader.calls != 2 {
 		t.Fatalf("postflight stale acceptance: status=%d writes=%d safety-reads=%d",
 			res.Code, store.calls, reader.calls)
