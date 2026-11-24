@@ -51,7 +51,7 @@ func TestV2MigrationUpgradesEmptyV1WithoutRewritingOriginalChecksum(t *testing.T
 	if err := db.QueryRow("SELECT count(*) FROM guard_schema_migrations").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 16 {
+	if count != 17 {
 		t.Fatalf("expected sixteen migration ledger rows, got %d", count)
 	}
 }
