@@ -114,6 +114,67 @@ func TestLiveRuntimeRunSafetyAuthority(t *testing.T) {
 	if _, err := client.GetRunSafetySnapshot(ctx, tenant, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("absent Run was not denied: %v", err)
 	}
+	// Exercise the separately deployed Guard-specific Runtime listener only
+	// in the source-pinned execution-authority acceptance job.
+	if os.Getenv("GUARD_LIVE_RUNTIME_EXECUTION") == "1" {
+		executionClient, err := NewRuntimeGuardExecutionAuthorityClient(required("GUARD_RUNTIME_EXECUTION_ORIGIN"), required("GUARD_RUNTIME_EXECUTION_SPIFFE"), tenant, roots, cert)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer executionClient.CloseIdleConnections()
+		const missingTurn = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+		assertExecutionDenied := func(stage, run, turn string) {
+			t.Helper()
+			got, err := executionClient.GetGuardExecutionAuthority(ctx, tenant, run, turn)
+			if !errors.Is(err, ErrForbidden) || got != (RuntimeExecutionAuthoritySnapshot{}) {
+				t.Fatalf("%s: denied execution authority returned %+v err=%v", stage, got, err)
+			}
+		}
+		assertExecutionDenied("no Turn", runID, missingTurn)
+		var executionID string
+		if err := db.QueryRow(ctx, "SELECT temporal_execution_id::text FROM runtime_run_attempts WHERE run_attempt_id=$1::uuid", attemptID).Scan(&executionID); err != nil {
+			t.Fatal(err)
+		}
+		insertTurn := func(index int) string {
+			t.Helper()
+			var id string
+			if err := db.QueryRow(ctx, `
+				INSERT INTO runtime_decision_turns
+				(tenant_id,run_id,run_attempt_id,turn_id,invocation_id,turn_index)
+				SELECT $1,$2::uuid,$3::uuid,id,id,$4 FROM (SELECT pg_catalog.gen_random_uuid() AS id) AS fixture
+				RETURNING turn_id::text
+			`, tenant, runID, attemptID, index).Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			return id
+		}
+		first := insertTurn(1)
+		got, err := executionClient.GetGuardExecutionAuthority(ctx, tenant, runID, first)
+		if err != nil || got.RunAttemptID != attemptID || got.TemporalExecutionID != executionID ||
+			got.TurnID != first || got.InvocationID != first || got.TurnIndex != 1 ||
+			got.AgentID != snapshot.AgentID || got.AgentReleaseID != snapshot.AgentReleaseID ||
+			got.SessionID != snapshot.SessionID || got.AttemptGeneration != 1 ||
+			got.AttemptBreakerEpoch != 1 || got.BreakerEpoch != 1 || got.BreakerVersion != 1 {
+			t.Fatalf("actual Runtime execution binding differs from isolated fixture: %+v err=%v", got, err)
+		}
+		second := insertTurn(2)
+		assertExecutionDenied("superseded Turn", runID, first)
+		assertExecutionDenied("foreign Run", ambiguousRunID, second)
+		got, err = executionClient.GetGuardExecutionAuthority(ctx, tenant, runID, second)
+		if err != nil || got.TurnID != second || got.TurnIndex != 2 || got.RunAttemptID != attemptID {
+			t.Fatalf("latest actual Runtime Turn not resolved: %+v err=%v", got, err)
+		}
+		// Verify the same exact Turn is denied after the existing breaker
+		// and terminal transitions later in this test.
+		t.Cleanup(func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if got, err := executionClient.GetGuardExecutionAuthority(cleanupCtx, tenant, runID, second); !errors.Is(err, ErrForbidden) || got != (RuntimeExecutionAuthoritySnapshot{}) {
+				t.Errorf("terminal Run retained execution authority: %+v err=%v", got, err)
+			}
+		})
+		t.Log("actual pinned Runtime execution authority verified current Attempt/Turn and denied superseded Turn")
+	}
 	// An independently accepted Run exercises historical Attempt ambiguity
 	// while the original Run stays valid for breaker and terminal tests.
 	if _, err := db.Exec(ctx,

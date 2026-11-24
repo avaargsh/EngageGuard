@@ -74,6 +74,11 @@ func goodBody() string {
 		strings.Repeat("a", 64) + `","step_id":"step-1","capability":{"id":"workspace.write","version":"1.0.0"},"resource_ref":"workspace-1","arguments":{"path":"docs/a.txt"}}`
 }
 
+// goodBodyForRun binds handler fixtures to a canonical authoritative Run ID.
+func goodBodyForRun(runID string) string {
+	return strings.Replace(goodBody(), `"run_id":"run-1"`, `"run_id":"`+runID+`"`, 1)
+}
+
 func exercise(h http.Handler, key, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, "/v1/action-submissions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
