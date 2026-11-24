@@ -16,7 +16,7 @@ func TestForwardPermitLedgerPreservesAdmissionMigrationHistory(t *testing.T) {
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	for version, source := range []string{initialSchema, snapshotSchema, snapshotReplicaSchema, permitClaimSchema, permitIdentitySchema, permitUnknownSchema, permitRevocationSchema, permitEvidenceFenceSchema, permitIdentityFenceSchema, permitCausalCommitSchema, permitCausalPinnedSchema} {
+	for version, source := range []string{initialSchema, snapshotSchema, snapshotReplicaSchema, permitClaimSchema, permitIdentitySchema, permitUnknownSchema, permitRevocationSchema, permitEvidenceFenceSchema, permitIdentityFenceSchema, permitCausalCommitSchema, permitCausalPinnedSchema, permitExpiryFenceSchema, permitInitialStateSchema} {
 		var actual string
 		if err := db.QueryRowContext(ctx, "SELECT checksum FROM guard_schema_migrations WHERE version=$1", version+1).Scan(&actual); err != nil {
 			t.Fatal(err)
@@ -26,8 +26,8 @@ func TestForwardPermitLedgerPreservesAdmissionMigrationHistory(t *testing.T) {
 		}
 	}
 	var versions int
-	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM guard_schema_migrations").Scan(&versions); err != nil || versions != 11 {
-		t.Fatalf("Permit migration must append v4-v11: count=%d %v", versions, err)
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM guard_schema_migrations").Scan(&versions); err != nil || versions != 13 {
+		t.Fatalf("Permit migration must append v4-v13: count=%d %v", versions, err)
 	}
 	for _, table := range []string{
 		"guard_accepted_submission_snapshots",

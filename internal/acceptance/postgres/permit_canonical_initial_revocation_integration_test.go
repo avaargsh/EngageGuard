@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -62,5 +63,16 @@ func TestCanonicalPermitInitialRevocationRequiresRejection(t *testing.T) {
 				t.Fatalf("durable Permit count=%d want=%d", count, want)
 			}
 		})
+	}
+}
+
+func TestCanonicalPermitInitialStateFenceRejectsDisabledTrigger(t *testing.T) {
+	store, _, _ := seededWorkspacePermit(t)
+	ctx := context.Background()
+	if _, err := store.db.ExecContext(ctx, "ALTER TABLE guard_permits DISABLE TRIGGER guard_permit_initial_state_v13"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, store.db); !errors.Is(err, ErrSchemaDrift) {
+		t.Fatalf("disabled initial-state trigger accepted: %v", err)
 	}
 }
