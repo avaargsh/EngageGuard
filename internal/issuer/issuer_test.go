@@ -139,8 +139,8 @@ func TestTrustedIssuerFailsClosedOnAuthorityOrActionDrift(t *testing.T) {
 			ledger := &fakeLedger{}
 			svc, err := New(Config{
 				IssuerIdentity: "spiffe://platform.example/ns/guard/sa/issuer",
-				MaxTTL: 5 * time.Minute,
-				Now: func() time.Time { return now },
+				MaxTTL:         5 * time.Minute,
+				Now:            func() time.Time { return now },
 			}, auth, ledger)
 			if err != nil {
 				t.Fatal(err)
