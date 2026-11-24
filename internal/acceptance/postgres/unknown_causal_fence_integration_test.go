@@ -96,3 +96,25 @@ func TestUnknownCausalFenceRejectsReturnToDispatching(t *testing.T) {
 		t.Fatalf("UNKNOWN evidence did not survive reversal attempt: %+v %v", state, err)
 	}
 }
+
+
+func TestUnknownCausalFenceRejectsDisabledTrigger(t *testing.T) {
+	for _, target := range []struct {
+		table, trigger string
+	}{
+		{"guard_operation_intents", "guard_intent_unknown_commit_v15"},
+		{"guard_operation_unknown_events", "guard_unknown_journal_commit_v15"},
+	} {
+		t.Run(target.trigger, func(t *testing.T) {
+			store, _, _ := seededWorkspacePermit(t)
+			ctx := context.Background()
+			if _, err := store.db.ExecContext(ctx,
+				"ALTER TABLE "+target.table+" DISABLE TRIGGER "+target.trigger); err != nil {
+				t.Fatal(err)
+			}
+			if err := Migrate(ctx, store.db); !errors.Is(err, ErrSchemaDrift) {
+				t.Fatalf("disabled v15 UNKNOWN causal trigger accepted: %v", err)
+			}
+		})
+	}
+}
