@@ -23,24 +23,24 @@ var permitIDRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[
 // Authorization is a fresh result from independently authenticated authority
 // sources. It is not accepted from an Agent request and is not itself a Permit.
 type Authorization struct {
-	TenantID                  string
-	RunID                     string
-	RuntimeAttemptID          string
-	TurnID                    string
-	ApprovalRef               string
-	RiskRevision              string
-	DecisionID                string
-	PlanID                    string
-	PlanHash                  string
-	StepID                    string
-	CapabilityID              string
-	CapabilityVersion         string
-	CapabilityContractSHA256  string
-	ActionHash                string
-	ToolBindingDigest         string
-	PolicyVersion              string
-	Audience                   string
-	ValidUntil                 time.Time
+	TenantID                 string
+	RunID                    string
+	RuntimeAttemptID         string
+	TurnID                   string
+	ApprovalRef              string
+	RiskRevision             string
+	DecisionID               string
+	PlanID                   string
+	PlanHash                 string
+	StepID                   string
+	CapabilityID             string
+	CapabilityVersion        string
+	CapabilityContractSHA256 string
+	ActionHash               string
+	ToolBindingDigest        string
+	PolicyVersion            string
+	Audience                 string
+	ValidUntil               time.Time
 }
 
 // PermitDraft is opaque outside this package. Only Service.Issue may
@@ -57,23 +57,23 @@ type PermitDraftValues struct {
 	RunID                    string
 	RuntimeAttemptID         string
 	TurnID                   string
-	ApprovalRef               string
-	RiskRevision              string
-	DecisionID                string
-	PlanID                    string
-	PlanHash                  string
-	StepID                    string
-	CapabilityID              string
-	CapabilityVersion         string
-	CapabilityContractSHA256  string
-	ResourceRef               string
-	ActionHash                string
-	ToolBindingDigest         string
-	PolicyVersion              string
-	Audience                   string
-	IssuedBy                   string
-	IssuedAt                   time.Time
-	ExpiresAt                  time.Time
+	ApprovalRef              string
+	RiskRevision             string
+	DecisionID               string
+	PlanID                   string
+	PlanHash                 string
+	StepID                   string
+	CapabilityID             string
+	CapabilityVersion        string
+	CapabilityContractSHA256 string
+	ResourceRef              string
+	ActionHash               string
+	ToolBindingDigest        string
+	PolicyVersion            string
+	Audience                 string
+	IssuedBy                 string
+	IssuedAt                 time.Time
+	ExpiresAt                time.Time
 }
 
 func (d PermitDraft) Values() PermitDraftValues {
@@ -219,7 +219,7 @@ func (s *Service) Issue(ctx context.Context, resolved action.ActionRequest) (Sco
 	}
 
 	draft := PermitDraft{values: PermitDraftValues{
-		TenantID:          resolved.TenantID,
+		TenantID:                 resolved.TenantID,
 		OperationID:              resolved.OperationID,
 		RunID:                    resolved.RunID,
 		RuntimeAttemptID:         auth.RuntimeAttemptID,
@@ -238,9 +238,9 @@ func (s *Service) Issue(ctx context.Context, resolved action.ActionRequest) (Sco
 		ToolBindingDigest:        resolved.ToolBindingDigest,
 		PolicyVersion:            resolved.PolicyVersion,
 		Audience:                 resolved.Audience,
-		IssuedBy:          s.cfg.IssuerIdentity,
-		IssuedAt:          now,
-		ExpiresAt:         expiresAt,
+		IssuedBy:                 s.cfg.IssuerIdentity,
+		IssuedAt:                 now,
+		ExpiresAt:                expiresAt,
 	}}
 	permit, err := s.ledger.PersistIssuedPermit(ctx, draft)
 	if err != nil {
