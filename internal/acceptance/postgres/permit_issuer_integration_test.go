@@ -197,14 +197,6 @@ func TestPermitIssuerAuthorityEvidenceIsImmutable(t *testing.T) {
 // only by the issuer process clock. Otherwise host clock skew can extend a
 // short-lived Permit or persist one that is already expired in the DB.
 func TestPermitIssuerLedgerRejectsIssuerClockSkewAgainstPostgres(t *testing.T) {
-	store, db := integrationStore(t)
-	_, authority, resolved := acceptedPermitIssuer(t, store)
-	ctx := context.Background()
-
-	var dbNow time.Time
-	if err := db.QueryRowContext(ctx, "SELECT clock_timestamp()").Scan(&dbNow); err != nil {
-		t.Fatal(err)
-	}
 	for _, tc := range []struct {
 		name   string
 		offset time.Duration
@@ -213,6 +205,13 @@ func TestPermitIssuerLedgerRejectsIssuerClockSkewAgainstPostgres(t *testing.T) {
 		{name: "issuer clock behind", offset: -10 * time.Minute},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			store, db := integrationStore(t)
+			_, authority, resolved := acceptedPermitIssuer(t, store)
+			ctx := context.Background()
+			var dbNow time.Time
+			if err := db.QueryRowContext(ctx, "SELECT clock_timestamp()").Scan(&dbNow); err != nil {
+				t.Fatal(err)
+			}
 			issuerNow := dbNow.Add(tc.offset).UTC().Truncate(time.Microsecond)
 			authority.result.ValidUntil = issuerNow.Add(2 * time.Minute)
 			ledger, err := NewPermitIssuerLedger(store)
