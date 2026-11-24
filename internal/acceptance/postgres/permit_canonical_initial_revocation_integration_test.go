@@ -87,11 +87,31 @@ func TestCanonicalPermitInitialStateFenceRejectsDisabledTrigger(t *testing.T) {
 func TestCanonicalPermitInitialStateFenceRejectsMissingRevocationEvidence(t *testing.T) {
 	store, resolved, permitID := seededWorkspacePermit(t)
 	ctx := context.Background()
-	if _, err := store.db.ExecContext(ctx, `
+	// Simulate privileged tampering only in the disposable test transaction.
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	for _, stmt := range []string{
+		"ALTER TABLE guard_permits DISABLE TRIGGER guard_permit_revocation_commit_v14",
+		"SET CONSTRAINTS ALL IMMEDIATE",
+	} {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `
 		UPDATE guard_permits SET revoked_at=clock_timestamp()
 		WHERE tenant_id=$1 AND permit_id=$2::uuid
 	`, resolved.TenantID, permitID); err != nil {
 		t.Fatalf("prepare isolated historical revocation drift: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, "ALTER TABLE guard_permits ENABLE ALWAYS TRIGGER guard_permit_revocation_commit_v14"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
 	}
 	if err := Migrate(ctx, store.db); !errors.Is(err, ErrSchemaDrift) {
 		t.Fatalf("historical revocation without durable evidence accepted: %v", err)
