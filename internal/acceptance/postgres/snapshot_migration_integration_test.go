@@ -52,7 +52,7 @@ func TestV2MigrationUpgradesEmptyV1WithoutRewritingOriginalChecksum(t *testing.T
 		t.Fatal(err)
 	}
 	if count != 11 {
-		t.Fatalf("expected ten forward-only migration ledger rows, got %d", count)
+		t.Fatalf("expected eleven forward-only migration ledger rows, got %d", count)
 	}
 }
 
