@@ -58,24 +58,24 @@ func trustedRuntimeRunForExecutionBinding() RunSafetySnapshot {
 
 func trustedRuntimeExecutionBinding(s RunSafetySnapshot) RuntimeExecutionAuthoritySnapshot {
 	return RuntimeExecutionAuthoritySnapshot{
-		SchemaVersion: runtimeExecutionAuthoritySchema,
-		TenantID: s.TenantID,
-		RunID: s.RunID,
-		AgentID: s.AgentID,
-		AgentReleaseID: s.AgentReleaseID,
-		SessionID: s.SessionID,
-		WorkflowID: "agent-run/v1/" + s.RunID,
+		SchemaVersion:       runtimeExecutionAuthoritySchema,
+		TenantID:            s.TenantID,
+		RunID:               s.RunID,
+		AgentID:             s.AgentID,
+		AgentReleaseID:      s.AgentReleaseID,
+		SessionID:           s.SessionID,
+		WorkflowID:          "agent-run/v1/" + s.RunID,
 		TemporalExecutionID: runtimeGuardExecution,
-		RunAttemptID: runtimeGuardAttempt,
-		TurnID: runtimeGuardTurn,
-		InvocationID: runtimeGuardTurn,
-		TurnIndex: 1,
-		AttemptGeneration: 1,
+		RunAttemptID:        runtimeGuardAttempt,
+		TurnID:              runtimeGuardTurn,
+		InvocationID:        runtimeGuardTurn,
+		TurnIndex:           1,
+		AttemptGeneration:   1,
 		AttemptBreakerEpoch: 1,
-		Status: "RUNNING",
-		BreakerState: "CLOSED",
-		BreakerEpoch: 1,
-		BreakerVersion: 1,
+		Status:              "RUNNING",
+		BreakerState:        "CLOSED",
+		BreakerEpoch:        1,
+		BreakerVersion:      1,
 	}
 }
 
@@ -86,9 +86,9 @@ func trustedRuntimeExecutionAuthority(s RunSafetySnapshot) *testRuntimeExecution
 
 func trustedDecisionPlanReceipt(s RunSafetySnapshot) DecisionPlanReceipt {
 	return DecisionPlanReceipt{
-		RunID: s.RunID,
-		RunAttemptID: runtimeGuardAttempt,
-		TurnID: runtimeGuardTurn,
+		RunID:               s.RunID,
+		RunAttemptID:        runtimeGuardAttempt,
+		TurnID:              runtimeGuardTurn,
 	}
 }
 
@@ -127,7 +127,7 @@ func TestComposedRunVerifierRequiresDecisionSelectorsAndIndependentRuntimeBindin
 func TestComposedRunVerifierRejectsMissingDecisionAttemptOrTurnBeforeRuntime(t *testing.T) {
 	safety := trustedRuntimeRunForExecutionBinding()
 	for _, tc := range []struct {
-		name string
+		name   string
 		mutate func(*DecisionPlanReceipt)
 	}{
 		{"missing Attempt", func(r *DecisionPlanReceipt) { r.RunAttemptID = "" }},
@@ -162,7 +162,7 @@ func TestComposedRunVerifierRejectsMissingDecisionAttemptOrTurnBeforeRuntime(t *
 func TestComposedRunVerifierRequiresExactRuntimeAttemptTurnAndFences(t *testing.T) {
 	safety := trustedRuntimeRunForExecutionBinding()
 	for _, tc := range []struct {
-		name string
+		name   string
 		mutate func(*RuntimeExecutionAuthoritySnapshot)
 	}{
 		{"different Attempt", func(a *RuntimeExecutionAuthoritySnapshot) { a.RunAttemptID = "55555555-5555-4555-8555-555555555555" }},
@@ -230,8 +230,8 @@ func TestComposedRunVerifierRejectsTurnSupersededDuringACPRead(t *testing.T) {
 func TestComposedRunVerifierFailsClosedWhenRuntimeExecutionAuthorityUnavailable(t *testing.T) {
 	safety := trustedRuntimeRunForExecutionBinding()
 	for _, tc := range []struct {
-		name string
-		err error
+		name   string
+		err  error
 		want error
 	}{
 		{"denied", ErrForbidden, ErrForbidden},
