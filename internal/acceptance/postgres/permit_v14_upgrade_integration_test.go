@@ -52,7 +52,14 @@ func TestCanonicalV14UpgradesAuthenticHistoricalCatalogs(t *testing.T) {
 			db := unmigratedDatabase(t)
 			installCanonicalPermitHistory(t, db, version)
 			ctx := context.Background()
-			store := New(db)
+			var schema string
+			if err := db.QueryRowContext(ctx, "SELECT current_schema()").Scan(&schema); err != nil {
+				t.Fatal(err)
+			}
+			store, err := NewWithTrustedSchema(db, schema)
+			if err != nil {
+				t.Fatal(err)
+			}
 			op, created, err := store.Accept(ctx, "tenant-a", "historical-v14-upgrade", sampleSubmission())
 			if err != nil || !created {
 				t.Fatalf("historical acceptance fixture: created=%t err=%v", created, err)
