@@ -53,7 +53,6 @@ type protectedWorkspaceReceiptFixture struct {
 	Audience           string `json:"audience"`
 	Status             string `json:"status"`
 }
-
 func acpTestPrincipal() Principal {
 	return Principal{
 		TenantID: testACPTenant, SubjectID: "runtime-subject",
