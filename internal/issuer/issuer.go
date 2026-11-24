@@ -87,6 +87,15 @@ type ScopedPermit struct {
 	Draft    PermitDraft
 }
 
+// PersistedPermit is the ledger's read-back of the immutable Permit row.
+// Returning values rather than PermitDraft keeps the draft constructor private
+// to this package while allowing an idempotent retry to return the original
+// issuance timestamps instead of fabricating a new draft.
+type PersistedPermit struct {
+	PermitID string
+	Values   PermitDraftValues
+}
+
 // Authority must independently verify current Run/Attempt/Turn, Decision,
 // capability/tool binding, policy, approval and risk before returning success.
 type Authority interface {
@@ -96,7 +105,7 @@ type Authority interface {
 // PermitLedger must persist a one-time Permit atomically and enforce replay
 // fencing. Only Service.Issue can construct a non-zero PermitDraft.
 type PermitLedger interface {
-	PersistIssuedPermit(context.Context, PermitDraft, time.Duration) (ScopedPermit, error)
+	PersistIssuedPermit(context.Context, PermitDraft, time.Duration) (PersistedPermit, error)
 }
 
 type Config struct {
@@ -242,15 +251,50 @@ func (s *Service) Issue(ctx context.Context, resolved action.ActionRequest) (Sco
 		IssuedAt:                 now,
 		ExpiresAt:                expiresAt,
 	}}
-	permit, err := s.ledger.PersistIssuedPermit(ctx, draft, s.cfg.MaxTTL)
+	persisted, err := s.ledger.PersistIssuedPermit(ctx, draft, s.cfg.MaxTTL)
 	if err != nil {
 		if errors.Is(err, ErrDenied) || errors.Is(err, ErrConflict) {
 			return zero, fmt.Errorf("persist Permit: %w", err)
 		}
 		return zero, fmt.Errorf("%w: persist Permit: %w", ErrUnavailable, err)
 	}
-	if !permitIDRE.MatchString(permit.PermitID) || permit.Draft.Values() != draft.Values() {
+	if !permitIDRE.MatchString(persisted.PermitID) ||
+		!samePersistedPermit(draft.Values(), persisted.Values, now, s.cfg.MaxTTL) {
 		return zero, fmt.Errorf("%w: ledger returned inconsistent Permit", ErrUnavailable)
 	}
-	return permit, nil
+	return ScopedPermit{
+		PermitID: persisted.PermitID,
+		Draft:    PermitDraft{values: persisted.Values},
+	}, nil
+}
+
+func samePersistedPermit(expected, persisted PermitDraftValues, now time.Time, maxTTL time.Duration) bool {
+	return persisted.TenantID == expected.TenantID &&
+		persisted.OperationID == expected.OperationID &&
+		persisted.RunID == expected.RunID &&
+		persisted.RuntimeAttemptID == expected.RuntimeAttemptID &&
+		persisted.TurnID == expected.TurnID &&
+		persisted.ApprovalRef == expected.ApprovalRef &&
+		persisted.RiskRevision == expected.RiskRevision &&
+		persisted.DecisionID == expected.DecisionID &&
+		persisted.PlanID == expected.PlanID &&
+		persisted.PlanHash == expected.PlanHash &&
+		persisted.StepID == expected.StepID &&
+		persisted.CapabilityID == expected.CapabilityID &&
+		persisted.CapabilityVersion == expected.CapabilityVersion &&
+		persisted.CapabilityContractSHA256 == expected.CapabilityContractSHA256 &&
+		persisted.ResourceRef == expected.ResourceRef &&
+		persisted.ActionHash == expected.ActionHash &&
+		persisted.ToolBindingDigest == expected.ToolBindingDigest &&
+		persisted.PolicyVersion == expected.PolicyVersion &&
+		persisted.Audience == expected.Audience &&
+		persisted.IssuedBy == expected.IssuedBy &&
+		!persisted.IssuedAt.IsZero() &&
+		persisted.IssuedAt.Equal(persisted.IssuedAt.Truncate(time.Microsecond)) &&
+		!persisted.ExpiresAt.IsZero() &&
+		persisted.ExpiresAt.Equal(persisted.ExpiresAt.Truncate(time.Microsecond)) &&
+		persisted.ExpiresAt.After(persisted.IssuedAt) &&
+		!persisted.ExpiresAt.After(persisted.IssuedAt.Add(maxTTL)) &&
+		persisted.ExpiresAt.After(now) &&
+		!persisted.ExpiresAt.After(expected.ExpiresAt)
 }
