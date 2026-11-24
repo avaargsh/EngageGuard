@@ -245,7 +245,6 @@ func TestPermitIssuerLedgerRejectsIssuerClockSkewAgainstPostgres(t *testing.T) {
 	}
 }
 
-
 func TestPermitIssuerLedgerReplaysExistingPermitAfterIssuerClockAdvances(t *testing.T) {
 	store, db := integrationStore(t)
 	firstService, authority, resolved := acceptedPermitIssuer(t, store)
