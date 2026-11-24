@@ -79,3 +79,41 @@ func TestMigrateRejectsSameNameReorderedOutboxIndex(t *testing.T) {
 		t.Fatalf("same-name outbox index with wrong scan order accepted: %v, want ErrSchemaDrift", err)
 	}
 }
+
+
+// A same-named CHECK that retains every expected token but adds OR TRUE is
+// semantically disabled. Catalog attestation must reject it, not merely search
+// the deparsed expression for expected substrings.
+func TestPermitAuthorityEvidenceRejectsSameNameAlwaysTrueV17Check(t *testing.T) {
+	store, _ := integrationStore(t)
+	ctx := context.Background()
+
+	var original string
+	if err := store.db.QueryRowContext(ctx, `
+		SELECT pg_catalog.pg_get_expr(c.conbin,c.conrelid)
+		FROM pg_catalog.pg_constraint c
+		WHERE c.conrelid=pg_catalog.to_regclass('guard_permit_authority_evidence')
+		  AND c.conname='guard_permit_authority_action_request_v17_plan_hash_check'
+	`).Scan(&original); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("original plan_hash CHECK expression: %s", original)
+
+	for _, statement := range []string{
+		"ALTER TABLE guard_permit_authority_evidence DROP CONSTRAINT guard_permit_authority_action_request_v17_plan_hash_check",
+		"ALTER TABLE guard_permit_authority_evidence ADD CONSTRAINT guard_permit_authority_action_request_v17_plan_hash_check CHECK (plan_hash IS NULL OR plan_hash ~ '^[0-9a-f]{64}$' OR TRUE)",
+	} {
+		if _, err := store.db.ExecContext(ctx, statement); err != nil {
+			t.Fatalf("install same-name weakened v17 CHECK: %v", err)
+		}
+	}
+
+	tx, err := store.beginLedgerTx(ctx, true)
+	if err != nil {
+		t.Fatalf("begin trusted Permit ledger transaction: %v", err)
+	}
+	defer tx.Rollback()
+	if err := verifyPermitAuthorityEvidence(ctx, tx); !errors.Is(err, ErrSchemaDrift) {
+		t.Fatalf("same-name always-true Permit CHECK accepted; original=%q err=%v, want ErrSchemaDrift", original, err)
+	}
+}
