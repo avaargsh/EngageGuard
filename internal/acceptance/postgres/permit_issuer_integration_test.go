@@ -192,7 +192,6 @@ func TestPermitIssuerAuthorityEvidenceIsImmutable(t *testing.T) {
 	}
 }
 
-
 // A Permit's maximum lifetime must be bounded by PostgreSQL's clock, not
 // only by the issuer process clock. Otherwise host clock skew can extend a
 // short-lived Permit or persist one that is already expired in the DB.
