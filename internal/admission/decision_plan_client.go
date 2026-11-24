@@ -119,23 +119,31 @@ func (c *DecisionPlanClient) CloseIdleConnections() {
 func (c *DecisionPlanClient) VerifyDecisionPlanStep(
 	ctx context.Context, principal Principal, snapshot RunSafetySnapshot, submission action.ActionSubmission,
 ) error {
-	if c == nil || c.http == nil {
+	if c == nil || c.http == nil || ctx == nil {
+		return ErrAuthorityUnavailable
+	}
+	if ctx.Err() != nil {
 		return ErrAuthorityUnavailable
 	}
 	if principal.TenantID != c.tenant || snapshot.TenantID != c.tenant ||
 		principal.ServiceID != "agent-runtime" || snapshot.RunID != submission.RunID ||
+		!canonicalSafetyRunID.MatchString(snapshot.RunID) ||
+		!validRuntimeIdentity(snapshot.AgentID) ||
+		!validRuntimeIdentity(snapshot.AgentReleaseID) ||
+		!validRuntimeIdentity(snapshot.SessionID) ||
 		snapshot.Status != "RUNNING" || snapshot.BreakerState != "CLOSED" ||
-		snapshot.BreakerEpoch == 0 || snapshot.BreakerVersion == 0 {
+		snapshot.BreakerEpoch == 0 || snapshot.BreakerVersion == 0 ||
+		submission.Validate() != nil {
 		return ErrForbidden
 	}
-	// This first compatible version only verifies read-only SRE observations.
-	// Plan candidates do not bind arbitrary tool argument payloads yet.
-	// Prefix membership is not a read-only authorization: an SRE-namespaced
-	// selector could name a mutating action. This v1 client only admits the
-	// explicitly reviewed read-only observation capability. Any expansion
-	// requires a trusted capability catalog and its own negative test.
+	// This first compatible version only verifies the explicitly reviewed
+	// read-only SRE capability at its pinned contract version. Prefix
+	// membership is not a read-only authorization: an SRE-namespaced
+	// selector could name a mutating action. Any expansion requires a trusted
+	// capability catalog and its own negative test.
 	if !bytes.Equal(submission.Arguments, []byte("{}")) ||
-		submission.Capability.ID != "sre.metrics.read" {
+		submission.Capability.ID != acpReadOnlyCapabilityID ||
+		submission.Capability.Version != acpReadOnlyCapabilityVersion {
 		return ErrForbidden
 	}
 	const maxUint = uint64(^uint64(0) >> 1)
@@ -208,6 +216,9 @@ func (c *DecisionPlanClient) VerifyDecisionPlanStep(
 	}
 	canonical, err := json.Marshal(receipt)
 	if err != nil || !bytes.Equal(canonical, bytes.TrimSpace(body)) {
+		return ErrAuthorityUnavailable
+	}
+	if ctx.Err() != nil {
 		return ErrAuthorityUnavailable
 	}
 	return nil
