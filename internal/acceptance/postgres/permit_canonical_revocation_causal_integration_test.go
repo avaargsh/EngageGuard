@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -69,6 +70,26 @@ func TestCanonicalRevocationRequiresMatchingFlagAndJournal(t *testing.T) {
 			}
 			if revoked != tc.wantValid || count != wantCount {
 				t.Fatalf("unexpected durable revocation: flag=%t rows=%d", revoked, count)
+			}
+		})
+	}
+}
+
+func TestCanonicalRevocationCausalFenceRejectsDisabledTrigger(t *testing.T) {
+	for _, target := range []struct {
+		table, trigger string
+	}{
+		{"guard_permits", "guard_permit_revocation_commit_v14"},
+		{"guard_permit_revocations", "guard_revocation_journal_commit_v14"},
+	} {
+		t.Run(target.trigger, func(t *testing.T) {
+			store, _, _ := seededWorkspacePermit(t)
+			ctx := context.Background()
+			if _, err := store.db.ExecContext(ctx, "ALTER TABLE "+target.table+" DISABLE TRIGGER "+target.trigger); err != nil {
+				t.Fatal(err)
+			}
+			if err := Migrate(ctx, store.db); !errors.Is(err, ErrSchemaDrift) {
+				t.Fatalf("disabled revocation causal trigger accepted: %v", err)
 			}
 		})
 	}
