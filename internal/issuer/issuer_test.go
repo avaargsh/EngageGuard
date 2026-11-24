@@ -95,7 +95,7 @@ func TestTrustedIssuerFailsClosedOnAuthorityOrActionDrift(t *testing.T) {
 	}{
 		{"authority unavailable", nil, errors.New("runtime authority unavailable")},
 		{"wrong action hash", func(a *Authorization) { a.ActionHash = strings.Repeat("c", 64) }, nil},
-		{"binding drift", func(a *Authorization) { a.ToolBindingDigest = strings.Repeat("c", 64) }, nil},
+		{"binding drift", func(a *Authorization) { a.ToolBindingDigest = strings.Repeat("d", 64) }, nil},
 		{"policy drift", func(a *Authorization) { a.PolicyVersion = "policy-8" }, nil},
 		{"audience drift", func(a *Authorization) { a.Audience = "other-executor" }, nil},
 		{"expired authority", func(a *Authorization) { a.ValidUntil = now }, nil},
