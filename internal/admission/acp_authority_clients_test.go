@@ -25,33 +25,33 @@ const (
 type capabilityReceiptFixture struct {
 	SchemaVersion     string `json:"schema_version"`
 	RunID             string `json:"run_id"`
-	AgentID            string `json:"agent_id"`
-	AgentReleaseID     string `json:"agent_release_id"`
-	SessionID          string `json:"session_id"`
-	CapabilityID       string `json:"capability_id"`
-	CapabilityVersion  string `json:"capability_version"`
-	ContractSHA256     string `json:"contract_sha256"`
-	PolicyRevision     string `json:"policy_revision"`
-	ResourceRef        string `json:"resource_ref"`
-	Status             string `json:"status"`
+	AgentID           string `json:"agent_id"`
+	AgentReleaseID    string `json:"agent_release_id"`
+	SessionID         string `json:"session_id"`
+	CapabilityID      string `json:"capability_id"`
+	CapabilityVersion string `json:"capability_version"`
+	ContractSHA256    string `json:"contract_sha256"`
+	PolicyRevision    string `json:"policy_revision"`
+	ResourceRef       string `json:"resource_ref"`
+	Status            string `json:"status"`
 }
 
 type protectedWorkspaceReceiptFixture struct {
 	SchemaVersion     string `json:"schema_version"`
 	RunID             string `json:"run_id"`
-	AgentID            string `json:"agent_id"`
-	AgentReleaseID     string `json:"agent_release_id"`
-	SessionID          string `json:"session_id"`
-	SubjectID          string `json:"subject_id"`
-	CapabilityID       string `json:"capability_id"`
-	CapabilityVersion  string `json:"capability_version"`
-	ContractSHA256     string `json:"contract_sha256"`
-	ConfigDigest       string `json:"config_digest"`
-	PolicyRevision     string `json:"policy_revision"`
-	WorkspaceID        string `json:"workspace_id"`
-	ToolBindingDigest  string `json:"tool_binding_digest"`
-	Audience           string `json:"audience"`
-	Status             string `json:"status"`
+	AgentID           string `json:"agent_id"`
+	AgentReleaseID    string `json:"agent_release_id"`
+	SessionID         string `json:"session_id"`
+	SubjectID         string `json:"subject_id"`
+	CapabilityID      string `json:"capability_id"`
+	CapabilityVersion string `json:"capability_version"`
+	ContractSHA256    string `json:"contract_sha256"`
+	ConfigDigest      string `json:"config_digest"`
+	PolicyRevision    string `json:"policy_revision"`
+	WorkspaceID       string `json:"workspace_id"`
+	ToolBindingDigest string `json:"tool_binding_digest"`
+	Audience          string `json:"audience"`
+	Status            string `json:"status"`
 }
 func acpTestPrincipal() Principal {
 	return Principal{
