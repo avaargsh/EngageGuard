@@ -27,6 +27,8 @@ func TestGuardDecisionClientReadsExactFreshMTLSPlanNotCallerApproval(t *testing.
 	type planResponse struct {
 		SchemaVersion  string `json:"schema_version"`
 		RunID          string `json:"run_id"`
+		RunAttemptID   string `json:"run_attempt_id"`
+		TurnID         string `json:"turn_id"`
 		DecisionID     string `json:"decision_id"`
 		PlanHash       string `json:"plan_hash"`
 		StepID         string `json:"step_id"`
@@ -43,6 +45,7 @@ func TestGuardDecisionClientReadsExactFreshMTLSPlanNotCallerApproval(t *testing.
 	submission.Arguments = json.RawMessage("{}")
 	want := planResponse{
 		SchemaVersion: decisionPlanSchema, RunID: safetyRun,
+		RunAttemptID: runtimeGuardAttempt, TurnID: runtimeGuardTurn,
 		DecisionID: submission.DecisionID, PlanHash: submission.PlanHash,
 		StepID: submission.StepID, RecordSHA256: strings.Repeat("c", 64),
 		BreakerEpoch:   int64(snapshot.BreakerEpoch),
@@ -76,8 +79,12 @@ func TestGuardDecisionClientReadsExactFreshMTLSPlanNotCallerApproval(t *testing.
 	}
 	defer client.CloseIdleConnections()
 	principal := boundRuntime()
-	if err := client.VerifyDecisionPlanStep(context.Background(), principal, snapshot, submission); err != nil {
+	binding, err := client.VerifyDecisionPlanStepReceipt(context.Background(), principal, snapshot, submission)
+	if err != nil {
 		t.Fatalf("authentic fresh Decision proof rejected: %v", err)
+	}
+	if binding.RunID != safetyRun || binding.RunAttemptID != runtimeGuardAttempt || binding.TurnID != runtimeGuardTurn {
+		t.Fatalf("Decision receipt selectors were not returned exactly: %+v", binding)
 	}
 	original := count.Load()
 	bad := submission
@@ -93,6 +100,14 @@ func TestGuardDecisionClientReadsExactFreshMTLSPlanNotCallerApproval(t *testing.
 	if err := client.VerifyDecisionPlanStep(context.Background(), principal, snapshot, bad); !errors.Is(err, ErrForbidden) || count.Load() != original {
 		t.Fatalf("unreviewed mutating SRE capability reached Decision verifier: %v", err)
 	}
+	staleBreaker := strings.Replace(string(body), `"breaker_version":1`, `"breaker_version":2`, 1)
+	if staleBreaker == string(body) {
+		t.Fatal("breaker-version negative fixture did not mutate the JSON receipt")
+	}
+	badRecord := strings.Replace(string(body), `"record_sha256":"`+strings.Repeat("c", 64)+`"`, `"record_sha256":"bad"`, 1)
+	if badRecord == string(body) {
+		t.Fatal("record-hash negative fixture did not mutate the JSON receipt")
+	}
 	for _, tc := range []struct {
 		status int
 		body   string
@@ -100,8 +115,8 @@ func TestGuardDecisionClientReadsExactFreshMTLSPlanNotCallerApproval(t *testing.
 	}{
 		{http.StatusForbidden, string(body), ErrForbidden},
 		{http.StatusServiceUnavailable, string(body), ErrAuthorityUnavailable},
-		{http.StatusOK, strings.Replace(string(body), `"breaker_version":11`, `"breaker_version":12`, 1), ErrAuthorityUnavailable},
-		{http.StatusOK, strings.Replace(string(body), `"record_sha256":"`+strings.Repeat("c", 64)+`"`, `"record_sha256":"bad"`, 1), ErrAuthorityUnavailable},
+		{http.StatusOK, staleBreaker, ErrAuthorityUnavailable},
+		{http.StatusOK, badRecord, ErrAuthorityUnavailable},
 		{http.StatusOK, string(body) + " {}", ErrAuthorityUnavailable},
 	} {
 		status.Store(int32(tc.status))
@@ -146,6 +161,7 @@ func TestDecisionPlanClientRejectsOversizedResponseHeaders(t *testing.T) {
 	snapshot.RunID = safetyRun
 	receipt := guardStepReceipt{
 		SchemaVersion: decisionPlanSchema, RunID: snapshot.RunID,
+		RunAttemptID: runtimeGuardAttempt, TurnID: runtimeGuardTurn,
 		DecisionID: submission.DecisionID, PlanHash: submission.PlanHash,
 		StepID: submission.StepID, RecordSHA256: strings.Repeat("c", 64),
 		BreakerEpoch:   int64(snapshot.BreakerEpoch),
@@ -195,6 +211,8 @@ func TestDecisionPlanClientRejectsAmbiguousResponseHeaders(t *testing.T) {
 	receipt := guardStepReceipt{
 		SchemaVersion:  decisionPlanSchema,
 		RunID:          snapshot.RunID,
+		RunAttemptID:   runtimeGuardAttempt,
+		TurnID:         runtimeGuardTurn,
 		DecisionID:     submission.DecisionID,
 		PlanHash:       submission.PlanHash,
 		StepID:         submission.StepID,
