@@ -13,20 +13,68 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 )
 
-// A verifier that trusts only current_schema()/search_path reset_val can be
-// redirected by a connection whose startup search_path is configured to a
-// complete but non-authoritative schema. The expected schema must be pinned
-// independently by operator configuration.
+// A current_schema()/search_path.reset_val-only audit can be redirected to a
+// complete, safe-looking decoy schema. The actual operator-pinned schema has
+// an unsafe issuer UPDATE grant; only an explicit schema pin distinguishes it.
 func TestPermitRoleSeparationRejectsOperatorSchemaMismatch(t *testing.T) {
 	store, db := integrationStore(t)
+	restrictPublicDatabaseTempForPermitTest(t, db)
 	ctx := context.Background()
-	decoy := fmt.Sprintf("guard_role_decoy_startup_%d", time.Now().UnixNano())
+	trusted := store.trustedSchema
+	suffix := time.Now().UnixNano()
+	decoy := fmt.Sprintf("guard_role_decoy_startup_%d", suffix)
+	issuer := fmt.Sprintf("guard_decoy_issuer_%d", suffix)
+	claimer := fmt.Sprintf("guard_decoy_claimer_%d", suffix)
+
 	if _, err := db.ExecContext(ctx, "CREATE SCHEMA "+decoy); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		_, _ = db.ExecContext(context.Background(), "DROP SCHEMA "+decoy+" CASCADE")
 	})
+	for _, role := range []string{issuer, claimer} {
+		if _, err := db.ExecContext(ctx, "CREATE ROLE "+role+" NOLOGIN"); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			_, _ = db.ExecContext(context.Background(), "DROP OWNED BY "+role)
+			_, _ = db.ExecContext(context.Background(), "DROP ROLE "+role)
+		})
+	}
+
+	// Build all relations the legacy schema-relative audit expects. The decoy
+	// carries the exact least-privilege grants, while the trusted schema does not.
+	for _, relation := range []string{
+		"guard_action_operations", "guard_accepted_submission_snapshots",
+		"guard_outbox_events", "guard_schema_migrations", "guard_permits",
+		"guard_operation_intents", "guard_execution_audit",
+		"guard_operation_unknown_events", "guard_permit_revocations",
+	} {
+		var statement string
+		if err := db.QueryRowContext(ctx,
+			"SELECT pg_catalog.format('CREATE TABLE %I.%I (LIKE %I.%I INCLUDING ALL)', $1::text, $2::text, $3::text, $2::text)",
+			decoy, relation, trusted).Scan(&statement); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			t.Fatalf("create decoy relation %s: %v", relation, err)
+		}
+	}
+	for _, grant := range []string{
+		"GRANT USAGE ON SCHEMA " + decoy + " TO " + issuer + ", " + claimer,
+		"GRANT SELECT, INSERT ON " + decoy + ".guard_permits TO " + issuer,
+		"GRANT SELECT ON " + decoy + ".guard_action_operations TO " + issuer,
+		"GRANT SELECT ON " + decoy + ".guard_accepted_submission_snapshots TO " + issuer,
+		"GRANT SELECT ON " + decoy + ".guard_permits TO " + claimer,
+		"GRANT UPDATE (state, claimed_at) ON " + decoy + ".guard_permits TO " + claimer,
+		"GRANT SELECT, INSERT ON " + decoy + ".guard_operation_intents TO " + claimer,
+		"GRANT SELECT, INSERT ON " + decoy + ".guard_execution_audit TO " + claimer,
+		"GRANT UPDATE (state) ON " + trusted + ".guard_permits TO " + issuer,
+	} {
+		if _, err := db.ExecContext(ctx, grant); err != nil {
+			t.Fatalf("fixture grant %q: %v", grant, err)
+		}
+	}
 
 	config, err := pgx.ParseConfig(os.Getenv("GUARD_PG_DSN"))
 	if err != nil {
@@ -36,18 +84,24 @@ func TestPermitRoleSeparationRejectsOperatorSchemaMismatch(t *testing.T) {
 	decoyDB := stdlib.OpenDB(*config)
 	t.Cleanup(func() { _ = decoyDB.Close() })
 	var active string
-	if err := decoyDB.QueryRowContext(ctx, "SELECT current_schema()").Scan(&active); err != nil {
+	var baseline bool
+	if err := decoyDB.QueryRowContext(ctx, `
+		SELECT pg_catalog.current_schema(),
+		       EXISTS (
+		           SELECT 1 FROM pg_catalog.pg_settings
+		           WHERE name='search_path' AND setting=reset_val
+		       )
+	`).Scan(&active, &baseline); err != nil {
 		t.Fatal(err)
 	}
-	if active != decoy {
-		t.Fatalf("decoy startup search_path = %q, want %q", active, decoy)
+	if active != decoy || !baseline {
+		t.Fatalf("decoy startup baseline not established: schema=%q baseline=%t", active, baseline)
 	}
 
-	err = VerifyPermitRoleSeparation(ctx, decoyDB, store.trustedSchema,
-		"guard_issuer_test", "guard_claimer_test")
+	err = VerifyPermitRoleSeparation(ctx, decoyDB, trusted, issuer, claimer)
 	if !errors.Is(err, ErrPermitRoleUnsafe) || err == nil {
-		t.Fatalf("role audit accepted startup-selected schema %q instead of operator-pinned %q: %v",
-			decoy, store.trustedSchema, err)
+		t.Fatalf("role audit accepted safe-looking startup decoy %q instead of operator-pinned %q: %v",
+			decoy, trusted, err)
 	}
 	if !containsPermitRoleReason(err, "trusted schema") {
 		t.Fatalf("role audit rejected for unrelated reason; want trusted-schema mismatch: %v", err)
