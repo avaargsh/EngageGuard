@@ -79,13 +79,20 @@ func VerifyPermitRoleSeparation(
 	if err != nil || !issuerSafe || !claimerSafe {
 		return unsafe("missing or privileged database role", err)
 	}
-	var shared bool
+	var inheritedMembership bool
 	err = conn.QueryRowContext(ctx, `
-		SELECT pg_catalog.pg_has_role($1::name,$2::name,'MEMBER')
-		    OR pg_catalog.pg_has_role($2::name,$1::name,'MEMBER')
-	`, issuerRole, claimerRole).Scan(&shared)
-	if err != nil || shared {
-		return unsafe("role membership permits cross-role escalation", err)
+		SELECT EXISTS (
+			SELECT 1
+			FROM pg_catalog.pg_roles r
+			WHERE r.rolname NOT IN ($1::name, $2::name)
+			  AND (
+				pg_catalog.pg_has_role($1::name, r.rolname, 'MEMBER')
+				OR pg_catalog.pg_has_role($2::name, r.rolname, 'MEMBER')
+			  )
+		)
+	`, issuerRole, claimerRole).Scan(&inheritedMembership)
+	if err != nil || inheritedMembership {
+		return unsafe("issuer/claimer role inherits or can SET ROLE to another database role", err)
 	}
 
 	// PostgreSQL commonly grants TEMPORARY on newly created databases to
