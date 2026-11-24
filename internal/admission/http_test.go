@@ -356,3 +356,45 @@ func TestAdmissionRejectsAmbiguousContentTypeBeforeRunVerification(t *testing.T)
 		})
 	}
 }
+
+
+// Admission accepts exact, unencoded submission bytes only. A declared
+// Content-Encoding must never be ignored, even when the body is valid JSON.
+func TestAdmissionRejectsContentEncodingBeforeRunVerification(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		values []string
+		want   int
+	}{
+		{"unencoded", nil, http.StatusCreated},
+		{"gzip", []string{"gzip"}, http.StatusUnsupportedMediaType},
+		{"identity", []string{"identity"}, http.StatusUnsupportedMediaType},
+		{"empty", []string{""}, http.StatusUnsupportedMediaType},
+		{"multiple", []string{"identity", "gzip"}, http.StatusUnsupportedMediaType},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resolver := &fakeResolver{principal: Principal{
+				TenantID: "tenant-a", SubjectID: "runtime-service",
+				ActorID: "agent-runtime", WorkloadID: "runtime-workload", ServiceID: "agent-runtime",
+			}}
+			verifier := &fakeVerifier{}
+			store := &fakeStore{}
+			req := httptest.NewRequest(http.MethodPost, "/v1/action-submissions", strings.NewReader(goodBody()))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Idempotency-Key", "content-encoding-1")
+			for _, encoding := range tc.values {
+				req.Header.Add("Content-Encoding", encoding)
+			}
+			rec := httptest.NewRecorder()
+			NewHandler(resolver, verifier, store).ServeHTTP(rec, req)
+			wantCalls := 0
+			if tc.want == http.StatusCreated {
+				wantCalls = 1
+			}
+			if rec.Code != tc.want || verifier.calls != wantCalls || store.calls != wantCalls {
+				t.Fatalf("encoding=%q status=%d verify=%d store=%d; want status=%d calls=%d",
+					tc.values, rec.Code, verifier.calls, store.calls, tc.want, wantCalls)
+			}
+		})
+	}
+}
