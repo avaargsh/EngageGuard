@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // A newly inserted Permit must begin ISSUED and not revoked. The canonical
@@ -43,8 +45,12 @@ func TestCanonicalPermitInitialRevocationRequiresRejection(t *testing.T) {
 			} else {
 				_ = tx.Rollback()
 			}
-			if tc.revoked && err == nil {
-				t.Fatal("initially revoked ISSUED Permit committed without a revocation journal")
+			if tc.revoked {
+				var pgErr *pgconn.PgError
+				if !errors.As(err, &pgErr) || pgErr.Code != "23514" ||
+					!strings.Contains(pgErr.Message, "Guard Permit INSERT must start ISSUED") {
+					t.Fatalf("expected initial-state constraint rejection, got %v", err)
+				}
 			}
 			if !tc.revoked && err != nil {
 				t.Fatalf("valid initial ISSUED Permit rejected: %v", err)
@@ -74,5 +80,20 @@ func TestCanonicalPermitInitialStateFenceRejectsDisabledTrigger(t *testing.T) {
 	}
 	if err := Migrate(ctx, store.db); !errors.Is(err, ErrSchemaDrift) {
 		t.Fatalf("disabled initial-state trigger accepted: %v", err)
+	}
+}
+
+// Historical tampering must not be blessed by a subsequent startup.
+func TestCanonicalPermitInitialStateFenceRejectsMissingRevocationEvidence(t *testing.T) {
+	store, resolved, permitID := seededWorkspacePermit(t)
+	ctx := context.Background()
+	if _, err := store.db.ExecContext(ctx, `
+		UPDATE guard_permits SET revoked_at=clock_timestamp()
+		WHERE tenant_id=$1 AND permit_id=$2::uuid
+	`, resolved.TenantID, permitID); err != nil {
+		t.Fatalf("prepare isolated historical revocation drift: %v", err)
+	}
+	if err := Migrate(ctx, store.db); !errors.Is(err, ErrSchemaDrift) {
+		t.Fatalf("historical revocation without durable evidence accepted: %v", err)
 	}
 }
