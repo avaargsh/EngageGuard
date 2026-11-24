@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -18,7 +19,7 @@ import (
 func TestPermitRoleSeparationRejectsOperatorSchemaMismatch(t *testing.T) {
 	store, db := integrationStore(t)
 	ctx := context.Background()
-	decoy := fmt.Sprintf("guard_role_decoy_startup_%d", testSchemaSuffix(t))
+	decoy := fmt.Sprintf("guard_role_decoy_startup_%d", time.Now().UnixNano())
 	if _, err := db.ExecContext(ctx, "CREATE SCHEMA "+decoy); err != nil {
 		t.Fatal(err)
 	}
@@ -52,11 +53,3 @@ func TestPermitRoleSeparationRejectsOperatorSchemaMismatch(t *testing.T) {
 	}
 }
 
-func testSchemaSuffix(t *testing.T) int64 {
-	t.Helper()
-	var suffix int64
-	if err := integrationSuffixQuery(t, &suffix); err != nil {
-		t.Fatal(err)
-	}
-	return suffix
-}
