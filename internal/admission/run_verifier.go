@@ -11,14 +11,12 @@ import (
 )
 
 // ErrAuthorityUnavailable means one or more required authoritative sources
-// could not establish current Run, Decision/Plan, or ACP policy state.
-// Admission must not fall back to untrusted claims or cached approvals.
+// could not establish current Run, Decision/Plan, ACP policy, or Attempt/Turn
+// state. Admission must not fall back to untrusted claims or cached approvals.
 var ErrAuthorityUnavailable = errors.New("Guard admission authority unavailable")
 
 // RunSafetySnapshot is a read-only projection of Runtime-owned Run state and
-// RUN circuit-breaker fencing. Its fields mirror Runtime's
-// GuardRunSafetySnapshot, but this package does not import another service's
-// internal Go types or read its PostgreSQL tables.
+// RUN circuit-breaker fencing. It is necessary context, not authorization.
 type RunSafetySnapshot struct {
 	TenantID       string
 	RunID          string
@@ -31,35 +29,47 @@ type RunSafetySnapshot struct {
 	BreakerVersion uint64
 }
 
-// RunSafetyAuthority must read fresh, canonical tenant-scoped Run state from
-// Runtime's trusted authority. No caller-provided snapshot may implement this
-// contract. A successful read is only a safety precondition, not permission.
+// DecisionPlanReceipt carries only untrusted selectors copied from Decision's
+// successful, read-only Plan Step verification. Runtime must independently
+// confirm the Attempt/Turn tuple before Guard can continue.
+type DecisionPlanReceipt struct {
+	RunID        string
+	RunAttemptID string
+	TurnID       string
+}
+
 type RunSafetyAuthority interface {
 	GetRunSafetySnapshot(context.Context, string, string) (RunSafetySnapshot, error)
 }
 
-// DecisionPlanAuthority verifies the current immutable DecisionRecord and
-// requested PlanHash/PlanID/StepID/resource/arguments provenance against the
-// authoritative Decision and Plan records, including Run/AgentRelease binding.
-// It must reject a stale/revoked plan, never trust caller fields as authority.
+// DecisionPlanAuthority verifies immutable Decision/Plan/Step provenance and
+// returns canonical Runtime Attempt/Turn selectors. Those selectors are not
+// authority and are never accepted without a second Runtime read.
 type DecisionPlanAuthority interface {
-	VerifyDecisionPlanStep(context.Context, Principal, RunSafetySnapshot, action.ActionSubmission) error
+	VerifyDecisionPlanStepReceipt(context.Context, Principal, RunSafetySnapshot, action.ActionSubmission) (DecisionPlanReceipt, error)
 }
 
-// CapabilityAuthority verifies the version-pinned capability contract and
-// tenant/AgentRelease/policy visibility against ACP-owned state. It must
-// reject revoked or unavailable capabilities rather than returning nil.
+// RuntimeExecutionAuthority is a separate Runtime read boundary dedicated to
+// Guard. It verifies the Decision selectors against the current Run/Attempt/
+// Turn. It must not be implemented by caller data or a Decision receipt.
+type RuntimeExecutionAuthority interface {
+	GetGuardExecutionAuthority(context.Context, string, string, string) (RuntimeExecutionAuthoritySnapshot, error)
+}
+
+// CapabilityAuthority verifies version-pinned capability contract and
+// tenant/AgentRelease/policy visibility against ACP-owned state.
 type CapabilityAuthority interface {
 	VerifyCapabilityAccess(context.Context, Principal, RunSafetySnapshot, action.ActionSubmission) error
 }
 
-// ComposedRunVerifier enforces all three *independent* admission checks.
-// There is no authorization, Permit issuance, side effect or persistent state.
-// A concurrent breaker transition after this read is not atomically fenced:
-// G03/G05 execution still requires a later authoritative Guard safety gate.
+// ComposedRunVerifier performs four independent, read-only authority checks.
+// Success is admission evidence only; it is not Approval, Risk, Permit or
+// permission to execute a protected effect. Permit issuer and Executor PEP
+// must still revalidate and atomically fence the effect-time state.
 type ComposedRunVerifier struct {
 	run        RunSafetyAuthority
 	decision   DecisionPlanAuthority
+	execution  RuntimeExecutionAuthority
 	capability CapabilityAuthority
 }
 
@@ -77,12 +87,17 @@ func nilAuthority(value any) bool {
 }
 
 func NewComposedRunVerifier(
-	run RunSafetyAuthority, decision DecisionPlanAuthority, capability CapabilityAuthority,
+	run RunSafetyAuthority,
+	decision DecisionPlanAuthority,
+	capability CapabilityAuthority,
+	execution RuntimeExecutionAuthority,
 ) (*ComposedRunVerifier, error) {
-	if nilAuthority(run) || nilAuthority(decision) || nilAuthority(capability) {
-		return nil, fmt.Errorf("%w: Runtime, Decision and ACP are all mandatory", ErrAuthorityUnavailable)
+	if nilAuthority(run) || nilAuthority(decision) || nilAuthority(capability) || nilAuthority(execution) {
+		return nil, fmt.Errorf("%w: Runtime Run, Decision, Runtime Attempt/Turn and ACP are all mandatory", ErrAuthorityUnavailable)
 	}
-	return &ComposedRunVerifier{run: run, decision: decision, capability: capability}, nil
+	return &ComposedRunVerifier{
+		run: run, decision: decision, execution: execution, capability: capability,
+	}, nil
 }
 
 func validRuntimeIdentity(value string) bool {
@@ -93,7 +108,8 @@ func validRuntimeIdentity(value string) bool {
 func (v *ComposedRunVerifier) VerifySubmission(
 	ctx context.Context, principal Principal, submission action.ActionSubmission,
 ) error {
-	if v == nil || nilAuthority(v.run) || nilAuthority(v.decision) || nilAuthority(v.capability) {
+	if v == nil || nilAuthority(v.run) || nilAuthority(v.decision) ||
+		nilAuthority(v.execution) || nilAuthority(v.capability) || ctx == nil {
 		return ErrAuthorityUnavailable
 	}
 	if principal.ServiceID != "agent-runtime" ||
@@ -108,8 +124,8 @@ func (v *ComposedRunVerifier) VerifySubmission(
 		return fmt.Errorf("%w: request context canceled: %w", ErrAuthorityUnavailable, err)
 	}
 
-	// Always ask Runtime for the current state, including on a duplicate
-	// submission key. Do not reuse a previously accepted safety snapshot.
+	// Always ask Runtime for the current Run, including on duplicate submission
+	// keys. No caller-provided snapshot or previously accepted state is reused.
 	snapshot, err := v.run.GetRunSafetySnapshot(ctx, principal.TenantID, submission.RunID)
 	if err != nil {
 		return verifyAuthorityFailure("Runtime Run", err)
@@ -122,25 +138,72 @@ func (v *ComposedRunVerifier) VerifySubmission(
 		snapshot.BreakerEpoch == 0 || snapshot.BreakerVersion == 0 {
 		return ErrForbidden
 	}
+	const maxInt64 = uint64(1<<63 - 1)
+	if snapshot.BreakerEpoch > maxInt64 || snapshot.BreakerVersion > maxInt64 {
+		return ErrForbidden
+	}
 
-	// Separate authority owners must validate immutable provenance and
-	// current policy. A successful Runtime read alone cannot admit an Action.
-	if err := v.decision.VerifyDecisionPlanStep(ctx, principal, snapshot, submission); err != nil {
+	// Decision is a provenance verifier only. Its Attempt/Turn values are
+	// selectors and cannot authorize an action or replace Runtime authority.
+	receipt, err := v.decision.VerifyDecisionPlanStepReceipt(ctx, principal, snapshot, submission)
+	if err != nil {
 		return verifyAuthorityFailure("Decision/Plan/Step", err)
 	}
+	if receipt.RunID != submission.RunID ||
+		!canonicalSafetyRunID.MatchString(receipt.RunID) ||
+		!canonicalSafetyRunID.MatchString(receipt.RunAttemptID) ||
+		!canonicalSafetyRunID.MatchString(receipt.TurnID) {
+		return ErrForbidden
+	}
+
+	// Independently resolve the exact Run/Attempt/Turn from Runtime. Compare
+	// all immutable principal and breaker fields with the first Run snapshot.
+	execution, err := v.execution.GetGuardExecutionAuthority(
+		ctx, principal.TenantID, submission.RunID, receipt.TurnID,
+	)
+	if err != nil {
+		return verifyAuthorityFailure("Runtime Attempt/Turn", err)
+	}
+	if err := execution.validate(principal.TenantID, submission.RunID, receipt.TurnID); err != nil {
+		return err
+	}
+	if execution.RunAttemptID != receipt.RunAttemptID ||
+		execution.AgentID != snapshot.AgentID ||
+		execution.AgentReleaseID != snapshot.AgentReleaseID ||
+		execution.SessionID != snapshot.SessionID ||
+		execution.Status != snapshot.Status ||
+		execution.BreakerState != snapshot.BreakerState ||
+		execution.BreakerEpoch != int64(snapshot.BreakerEpoch) ||
+		execution.BreakerVersion != int64(snapshot.BreakerVersion) {
+		return ErrForbidden
+	}
+
+	// ACP policy is checked only after the canonical Runtime Attempt/Turn
+	// pair is established. It is not allowed to supply or change that pair.
 	if err := v.capability.VerifyCapabilityAccess(ctx, principal, snapshot, submission); err != nil {
 		return verifyAuthorityFailure("ACP capability/policy", err)
 	}
-	// Decision and ACP are independently owned and their reads can race
-	// a Run cancellation or breaker transition. A final live Runtime read
-	// prevents accepting an already-observed stale generation. This is NOT
-	// a distributed atomic fence: Guard's Permit issuer / execution PEP
-	// must revalidate and atomically fence any protected side effect.
+
+	// Postflight both authority reads. This narrows (but cannot eliminate) a
+	// distributed TOCTOU window; the later Permit issuer and Executor PEP must
+	// still fence the exact effect atomically at the protected boundary.
 	postflight, err := v.run.GetRunSafetySnapshot(ctx, principal.TenantID, submission.RunID)
 	if err != nil {
 		return verifyAuthorityFailure("Runtime Run postflight", err)
 	}
 	if postflight != snapshot {
+		return ErrForbidden
+	}
+	postflightExecution, err := v.execution.GetGuardExecutionAuthority(
+		ctx, principal.TenantID, submission.RunID, receipt.TurnID,
+	)
+	if err != nil {
+		return verifyAuthorityFailure("Runtime Attempt/Turn postflight", err)
+	}
+	if err := postflightExecution.validate(principal.TenantID, submission.RunID, receipt.TurnID); err != nil {
+		return err
+	}
+	if postflightExecution != execution {
 		return ErrForbidden
 	}
 	if err := ctx.Err(); err != nil {
