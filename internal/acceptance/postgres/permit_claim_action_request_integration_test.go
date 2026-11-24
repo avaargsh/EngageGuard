@@ -36,7 +36,7 @@ func TestClaimResolvedActionIntentBindsActionRequestV1Authority(t *testing.T) {
 
 func TestClaimResolvedActionIntentRejectsRunPlanAndCapabilityDrift(t *testing.T) {
 	for _, tc := range []struct {
-		name string
+		name   string
 		change func(*action.ActionRequest)
 	}{
 		{"wrong run", func(a *action.ActionRequest) { a.RunID = "run-other" }},
