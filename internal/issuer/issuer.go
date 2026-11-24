@@ -96,7 +96,7 @@ type Authority interface {
 // PermitLedger must persist a one-time Permit atomically and enforce replay
 // fencing. Only Service.Issue can construct a non-zero PermitDraft.
 type PermitLedger interface {
-	PersistIssuedPermit(context.Context, PermitDraft) (ScopedPermit, error)
+	PersistIssuedPermit(context.Context, PermitDraft, time.Duration) (ScopedPermit, error)
 }
 
 type Config struct {
@@ -242,7 +242,7 @@ func (s *Service) Issue(ctx context.Context, resolved action.ActionRequest) (Sco
 		IssuedAt:                 now,
 		ExpiresAt:                expiresAt,
 	}}
-	permit, err := s.ledger.PersistIssuedPermit(ctx, draft)
+	permit, err := s.ledger.PersistIssuedPermit(ctx, draft, s.cfg.MaxTTL)
 	if err != nil {
 		if errors.Is(err, ErrDenied) || errors.Is(err, ErrConflict) {
 			return zero, fmt.Errorf("persist Permit: %w", err)
