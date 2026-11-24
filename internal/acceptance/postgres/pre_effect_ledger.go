@@ -13,9 +13,16 @@ import (
 // necessary pre-effect check. It does NOT mean the provider did not run.
 var ErrPreEffectBlocked = errors.New("Guard pre-effect ledger does not support a protected side effect")
 
+// preEffectUnavailableError is also understood by the executor gate without
+// importing this PostgreSQL package or creating an import cycle.
+type preEffectUnavailableError struct{}
+
+func (preEffectUnavailableError) Error() string     { return "Guard pre-effect ledger source unavailable" }
+func (preEffectUnavailableError) Unavailable() bool { return true }
+
 // ErrPreEffectUnavailable means the required trusted DB snapshot could not
 // be read. It is fail-closed and is NOT permission to retry an effect.
-var ErrPreEffectUnavailable = errors.New("Guard pre-effect ledger source unavailable")
+var ErrPreEffectUnavailable error = preEffectUnavailableError{}
 
 // InspectPreEffectLedger validates source-owned Guard DB facts from ONE SQL
 // snapshot and ONE sampled PostgreSQL clock instant. It returns nil only for
