@@ -142,3 +142,23 @@ func TestPermitV10StartupRejectsHistoricalOrphanAfterOwnerTamper(t *testing.T) {
 		t.Fatalf("historical orphan CLAIMED Permit passed startup attestation: %v", err)
 	}
 }
+
+// A CREATE OR REPLACE FUNCTION preserves the function OID and trigger
+// attachment. Startup must attest the actual v10 body, not only its name.
+func TestPermitV10StartupRejectsReplacedCausalFunctionBody(t *testing.T) {
+	store, _, _ := seededWorkspacePermit(t)
+	ctx := context.Background()
+	if _, err := store.db.ExecContext(ctx, `
+		CREATE OR REPLACE FUNCTION guard_claim_causal_commit_v10()
+		RETURNS trigger LANGUAGE plpgsql AS $guard$
+		BEGIN
+			RETURN NULL;
+		END;
+		$guard$
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, store.db); !errors.Is(err, ErrSchemaDrift) {
+		t.Fatalf("replaced v10 causal function body passed startup attestation: %v", err)
+	}
+}

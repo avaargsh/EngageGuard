@@ -174,6 +174,35 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
 			return fmt.Errorf("%w: Permit v9 write-once trigger %s disabled or changed: %v", ErrSchemaDrift, expected.name, err)
 		}
 	}
+	// Attest the exact function body shipped in the immutable v10 migration.
+	// CREATE OR REPLACE FUNCTION can retain the OID while removing enforcement.
+	const prefix = "CREATE FUNCTION guard_claim_causal_commit_v10() RETURNS trigger\nLANGUAGE plpgsql AS $guard$"
+	if strings.Count(permitCausalCommitSchema, prefix) != 1 {
+		return fmt.Errorf("%w: missing or ambiguous v10 causal function source", ErrSchemaDrift)
+	}
+	body := strings.SplitN(permitCausalCommitSchema, prefix, 2)[1]
+	end := strings.Index(body, "$guard$;")
+	if end < 0 {
+		return fmt.Errorf("%w: unterminated v10 causal function source", ErrSchemaDrift)
+	}
+	var actualBody string
+	var attributesSafe bool
+	err := tx.QueryRowContext(ctx, `
+		SELECT p.prosrc,
+		       NOT p.prosecdef AND NOT p.proleakproof
+		       AND p.provolatile='v' AND NOT p.proisstrict
+		       AND p.proparallel='u' AND p.proconfig IS NULL
+		       AND p.prolang=(SELECT oid FROM pg_catalog.pg_language WHERE lanname='plpgsql')
+		       AND p.pronamespace=current_schema()::regnamespace
+		       AND p.prorettype='pg_catalog.trigger'::regtype AND p.pronargs=0
+		FROM pg_catalog.pg_proc p
+		WHERE p.oid=pg_catalog.to_regprocedure(
+			pg_catalog.format('%I.%I()', current_schema(), 'guard_claim_causal_commit_v10'))
+		  AND p.oid=pg_catalog.to_regprocedure('guard_claim_causal_commit_v10()')
+	`).Scan(&actualBody, &attributesSafe)
+	if err != nil || !attributesSafe || actualBody != body[:end] {
+		return fmt.Errorf("%w: v10 causal function definition or security attributes drifted: %v", ErrSchemaDrift, err)
+	}
 	// A function name or migration checksum is not an enforcement gate.
 	// Verify both initially deferred, enabled-always constraint triggers
 	// still invoke the original v10 source function, not a substitute.
