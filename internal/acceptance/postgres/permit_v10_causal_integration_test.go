@@ -120,9 +120,13 @@ func TestPermitV10StartupRejectsHistoricalOrphanAfterOwnerTamper(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx,
-		"ALTER TABLE guard_permits DISABLE TRIGGER guard_permit_causal_commit_v10"); err != nil {
-		t.Fatal(err)
+	// This fixture simulates a privileged owner bypassing both deferred
+	// fences. Disable them before the UPDATE so no pending trigger events
+	// prevent restoring the catalog in this same transaction.
+	for _, trigger := range []string{"guard_permit_causal_commit_v10", "guard_permit_claim_expiry_v12"} {
+		if _, err := tx.ExecContext(ctx, "ALTER TABLE guard_permits DISABLE TRIGGER "+trigger); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE guard_permits
@@ -131,9 +135,10 @@ func TestPermitV10StartupRejectsHistoricalOrphanAfterOwnerTamper(t *testing.T) {
 	`, resolved.TenantID, permitID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx,
-		"ALTER TABLE guard_permits ENABLE ALWAYS TRIGGER guard_permit_causal_commit_v10"); err != nil {
-		t.Fatal(err)
+	for _, trigger := range []string{"guard_permit_causal_commit_v10", "guard_permit_claim_expiry_v12"} {
+		if _, err := tx.ExecContext(ctx, "ALTER TABLE guard_permits ENABLE ALWAYS TRIGGER "+trigger); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
