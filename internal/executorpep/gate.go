@@ -48,7 +48,7 @@ type Ledger interface {
 // must be bound to the same operator-provisioned executor identity as Binding.
 // It must not trust caller claims or cache positive snapshots.
 type LiveAuthority interface {
-	VerifyCurrent(context.Context, string, string, action.WorkspaceWrite) error
+	VerifyCurrent(context.Context, string, string, string, action.WorkspaceWrite) error
 }
 
 // Gate performs no external side effects and returns no execution capability.
@@ -96,7 +96,8 @@ func NewGate(binding Binding, ledger Ledger, live LiveAuthority) (*Gate, error) 
 	}
 	// Parse the operator-provided DER into private immutable state so
 	// mutating a caller-owned x509 object cannot alter the trust anchor.
-	root, err := x509.ParseCertificate(binding.ClientRoot.Raw)
+	rootDER := append([]byte(nil), binding.ClientRoot.Raw...)
+	root, err := x509.ParseCertificate(rootDER)
 	if err != nil || !root.IsCA || !root.BasicConstraintsValid ||
 		root.KeyUsage&x509.KeyUsageCertSign == 0 {
 		return nil, ErrUnavailable
@@ -221,7 +222,7 @@ func (g *Gate) Check(
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("%w: context: %w", ErrUnavailable, err)
 		}
-		if err := g.live.VerifyCurrent(ctx, permitID, attemptID, resolved); err != nil {
+		if err := g.live.VerifyCurrent(ctx, g.binding.ExecutorSPIFFEID, permitID, attemptID, resolved); err != nil {
 			return fmt.Errorf("%w: live authority: %w", ErrUnavailable, err)
 		}
 		if err := g.ledger.InspectPreEffectLedger(ctx, permitID, attemptID, resolved); err != nil {
