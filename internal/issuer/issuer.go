@@ -48,7 +48,7 @@ type PermitDraftValues struct {
 	OperationID       string
 	RunID             string
 	RuntimeAttemptID  string
-	TurnID             string
+	TurnID            string
 	ApprovalRef       string
 	RiskRevision      string
 	ActionHash        string
