@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 func verifyPermitAuthorityEvidence(ctx context.Context, tx *sql.Tx) error {
@@ -97,6 +98,61 @@ func verifyPermitAuthorityEvidence(ctx context.Context, tx *sql.Tx) error {
 		)
 	`).Scan(&fkSafe); err != nil || !fkSafe {
 		return fmt.Errorf("%w: v16 authority-evidence Permit binding drift: %v", ErrSchemaDrift, err)
+	}
+
+	// v17 adds the source-resolved ActionRequest identity to new evidence.
+	// Existing v16 rows remain all-NULL and are legacy-only; they are never
+	// backfilled from a WorkspaceWrite because the missing Run/Plan/Capability
+	// bindings cannot be reconstructed safely.
+	var actionRequestColumns int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT count(*)
+		FROM (VALUES
+			('decision_id'), ('plan_id'), ('plan_hash'), ('step_id'),
+			('capability_id'), ('capability_version'),
+			('capability_contract_sha256'), ('resource_ref')
+		) AS expected(name)
+		JOIN pg_catalog.pg_attribute a
+		  ON a.attrelid=pg_catalog.to_regclass('guard_permit_authority_evidence')
+		 AND a.attname=expected.name
+		 AND a.atttypid='pg_catalog.text'::regtype
+		 AND NOT a.attnotnull AND NOT a.attisdropped
+	`).Scan(&actionRequestColumns); err != nil || actionRequestColumns != 8 {
+		return fmt.Errorf("%w: v17 ActionRequest evidence columns drift: %v", ErrSchemaDrift, err)
+	}
+
+	for _, check := range []struct {
+		name     string
+		required []string
+	}{
+		{
+			"guard_permit_authority_action_request_v17_all_or_none_check",
+			[]string{"decision_id", "plan_id", "plan_hash", "step_id", "capability_id", "capability_version", "capability_contract_sha256", "resource_ref", "IS NULL", "="},
+		},
+		{"guard_permit_authority_action_request_v17_decision_check", []string{"decision_id", "IS NULL", "length", "!~", "[[:cntrl:][:space:]]"}},
+		{"guard_permit_authority_action_request_v17_plan_check", []string{"plan_id", "IS NULL", "length", "!~", "[[:cntrl:][:space:]]"}},
+		{"guard_permit_authority_action_request_v17_plan_hash_check", []string{"plan_hash", "IS NULL", "~", "^[0-9a-f]{64}$"}},
+		{"guard_permit_authority_action_request_v17_step_check", []string{"step_id", "IS NULL", "length", "!~", "[[:cntrl:][:space:]]"}},
+		{"guard_permit_authority_action_request_v17_capability_check", []string{"capability_id", "IS NULL", "length", "!~", "[[:cntrl:][:space:]]"}},
+		{"guard_permit_authority_action_request_v17_capability_version_check", []string{"capability_version", "IS NULL", "length", "!~", "[[:cntrl:][:space:]]"}},
+		{"guard_permit_authority_action_request_v17_capability_contract_check", []string{"capability_contract_sha256", "IS NULL", "~", "^[0-9a-f]{64}$"}},
+		{"guard_permit_authority_action_request_v17_resource_check", []string{"resource_ref", "IS NULL", "length", "!~", "[[:cntrl:][:space:]]"}},
+	} {
+		var expression string
+		if err := tx.QueryRowContext(ctx, `
+			SELECT pg_catalog.pg_get_expr(c.conbin,c.conrelid)
+			FROM pg_catalog.pg_constraint c
+			WHERE c.conrelid=pg_catalog.to_regclass('guard_permit_authority_evidence')
+			  AND c.conname=$1 AND c.contype='c' AND c.convalidated
+			  AND NOT c.condeferrable AND NOT c.condeferred
+		`, check.name).Scan(&expression); err != nil {
+			return fmt.Errorf("%w: missing v17 ActionRequest check %s: %v", ErrSchemaDrift, check.name, err)
+		}
+		for _, token := range check.required {
+			if !strings.Contains(expression, token) {
+				return fmt.Errorf("%w: v17 ActionRequest check %s lost %q", ErrSchemaDrift, check.name, token)
+			}
+		}
 	}
 
 	for _, trigger := range []struct {
