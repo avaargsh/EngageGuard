@@ -253,8 +253,8 @@ func TestExecutorPreEffectFailClosedForIdentityOrAuthorityDrift(t *testing.T) {
 		peer                 *tls.ConnectionState
 		action               func(*action.WorkspaceWrite)
 		liveFail, ledgerFail int
-		liveError error
-		wantError error
+		liveError            error
+		wantError            error
 	}{
 		{"no TLS", ca.cert, nil, nil, 0, 0, nil, ErrBlocked},
 		{"wrong executor SPIFFE", ca.cert, verifiedPeer(t, ca, "spiffe://platform.example/ns/sandbox/sa/attacker"), nil, 0, 0, nil, ErrBlocked},
