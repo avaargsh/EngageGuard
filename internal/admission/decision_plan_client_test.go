@@ -118,6 +118,14 @@ func TestGuardDecisionClientReadsExactFreshMTLSPlanNotCallerApproval(t *testing.
 	if err := client.VerifyDecisionPlanStep(nil, principal, snapshot, submission); !errors.Is(err, ErrAuthorityUnavailable) || count.Load() != original {
 		t.Fatalf("nil context was not rejected: %v", err)
 	}
+	staleBreaker := strings.Replace(string(body), `"breaker_version":1`, `"breaker_version":2`, 1)
+	if staleBreaker == string(body) {
+		t.Fatal("breaker-version negative fixture did not mutate the JSON receipt")
+	}
+	badRecord := strings.Replace(string(body), `"record_sha256":"`+strings.Repeat("c", 64)+`"`, `"record_sha256":"bad"`, 1)
+	if badRecord == string(body) {
+		t.Fatal("record-hash negative fixture did not mutate the JSON receipt")
+	}
 	for _, tc := range []struct {
 		status int
 		body   string
@@ -125,8 +133,8 @@ func TestGuardDecisionClientReadsExactFreshMTLSPlanNotCallerApproval(t *testing.
 	}{
 		{http.StatusForbidden, string(body), ErrForbidden},
 		{http.StatusServiceUnavailable, string(body), ErrAuthorityUnavailable},
-		{http.StatusOK, strings.Replace(string(body), `"breaker_version":11`, `"breaker_version":12`, 1), ErrAuthorityUnavailable},
-		{http.StatusOK, strings.Replace(string(body), `"record_sha256":"`+strings.Repeat("c", 64)+`"`, `"record_sha256":"bad"`, 1), ErrAuthorityUnavailable},
+		{http.StatusOK, staleBreaker, ErrAuthorityUnavailable},
+		{http.StatusOK, badRecord, ErrAuthorityUnavailable},
 		{http.StatusOK, string(body) + " {}", ErrAuthorityUnavailable},
 	} {
 		status.Store(int32(tc.status))
