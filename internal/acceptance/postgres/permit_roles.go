@@ -210,8 +210,3 @@ func VerifyPermitRoleSeparation(
 	}
 	return nil
 }
-
-
-func containsPermitRoleReason(err error, reason string) bool {
-	return err != nil && strings.Contains(err.Error(), reason)
-}
