@@ -29,14 +29,19 @@ type testDecisionPlanAuthority struct {
 	snapshot   RunSafetySnapshot
 	principal  Principal
 	submission action.ActionSubmission
+	receipt    DecisionPlanReceipt
 }
 
-func (a *testDecisionPlanAuthority) VerifyDecisionPlanStep(
+func (a *testDecisionPlanAuthority) VerifyDecisionPlanStepReceipt(
 	_ context.Context, principal Principal, run RunSafetySnapshot, submission action.ActionSubmission,
-) error {
+) (DecisionPlanReceipt, error) {
 	a.calls++
 	a.principal, a.snapshot, a.submission = principal, run, submission
-	return a.err
+	receipt := a.receipt
+	if receipt.RunID == "" {
+		receipt = trustedDecisionPlanReceipt(run)
+	}
+	return receipt, a.err
 }
 
 type testCapabilityAuthority struct {
@@ -56,9 +61,9 @@ func (a *testCapabilityAuthority) VerifyCapabilityAccess(
 
 func trustedRuntimeRun() RunSafetySnapshot {
 	return RunSafetySnapshot{
-		TenantID: "tenant-verified", RunID: "run-1", AgentID: "agent-1",
+		TenantID: "tenant-verified", RunID: safetyRun, AgentID: "agent-1",
 		AgentReleaseID: "release-1", SessionID: "session-1", Status: "RUNNING",
-		BreakerState: "CLOSED", BreakerEpoch: 3, BreakerVersion: 11,
+		BreakerState: "CLOSED", BreakerEpoch: 1, BreakerVersion: 1,
 	}
 }
 
@@ -68,6 +73,7 @@ func testGuardSubmission(t *testing.T) action.ActionSubmission {
 	if err != nil {
 		t.Fatal(err)
 	}
+	result.RunID = safetyRun
 	return result
 }
 
@@ -86,7 +92,7 @@ func TestComposedRunVerifierRequiresAllThreeAuthorities(t *testing.T) {
 		{"nil Capability", reader, decision, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := NewComposedRunVerifier(tc.reader, tc.decision, tc.capability)
+			_, err := NewComposedRunVerifier(tc.reader, tc.decision, tc.capability, trustedRuntimeExecutionAuthority(trustedRuntimeRun()))
 			if !errors.Is(err, ErrAuthorityUnavailable) {
 				t.Fatalf("incomplete authority graph accepted: %v", err)
 			}
@@ -117,7 +123,7 @@ func TestComposedRunVerifierBindsRuntimeTenantAndRunBeforeDecision(t *testing.T)
 			reader := &testRunAuthority{snapshot: snapshot}
 			decision := &testDecisionPlanAuthority{}
 			capability := &testCapabilityAuthority{}
-			verifier, err := NewComposedRunVerifier(reader, decision, capability)
+			verifier, err := NewComposedRunVerifier(reader, decision, capability, trustedRuntimeExecutionAuthority(trustedRuntimeRun()))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -125,7 +131,7 @@ func TestComposedRunVerifierBindsRuntimeTenantAndRunBeforeDecision(t *testing.T)
 			if !errors.Is(err, ErrForbidden) {
 				t.Fatalf("untrusted Run snapshot not rejected: %v", err)
 			}
-			if reader.calls != 1 || reader.tenant != "tenant-verified" || reader.run != "run-1" ||
+			if reader.calls != 1 || reader.tenant != "tenant-verified" || reader.run != safetyRun ||
 				decision.calls != 0 || capability.calls != 0 {
 				t.Fatalf("unauthorized Run reached downstream authority: Run=%+v Decision=%d Capability=%d",
 					reader, decision.calls, capability.calls)
@@ -156,7 +162,7 @@ func TestComposedRunVerifierRequiresDecisionAndACPAuthority(t *testing.T) {
 			reader := &testRunAuthority{snapshot: trustedRuntimeRun(), err: tc.readErr}
 			decision := &testDecisionPlanAuthority{err: tc.decisionErr}
 			capability := &testCapabilityAuthority{err: tc.capabilityErr}
-			verifier, err := NewComposedRunVerifier(reader, decision, capability)
+			verifier, err := NewComposedRunVerifier(reader, decision, capability, trustedRuntimeExecutionAuthority(trustedRuntimeRun()))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -188,7 +194,7 @@ func TestComposedRunVerifierReplayRevalidatesRunBreakerBeforeAccept(t *testing.T
 	reader := &testRunAuthority{snapshot: trustedRuntimeRun()}
 	decision := &testDecisionPlanAuthority{}
 	capability := &testCapabilityAuthority{}
-	verifier, err := NewComposedRunVerifier(reader, decision, capability)
+	verifier, err := NewComposedRunVerifier(reader, decision, capability, trustedRuntimeExecutionAuthority(trustedRuntimeRun()))
 	if err != nil {
 		t.Fatal(err)
 	}
