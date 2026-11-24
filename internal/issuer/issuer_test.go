@@ -134,6 +134,10 @@ func TestTrustedIssuerFailsClosedOnAuthorityOrActionDrift(t *testing.T) {
 		{"missing turn", func(a *Authorization) { a.TurnID = "" }, nil},
 		{"missing approval", func(a *Authorization) { a.ApprovalRef = "" }, nil},
 		{"missing risk revision", func(a *Authorization) { a.RiskRevision = "" }, nil},
+		{"run contains bidi control", func(a *Authorization) { a.RunID = "run-\\u202e1" }, nil},
+		{"attempt contains zero-width format", func(a *Authorization) { a.RuntimeAttemptID = "attempt-\\u200b1" }, nil},
+		{"approval contains C1 control", func(a *Authorization) { a.ApprovalRef = "approval-\\u0085-1" }, nil},
+		{"risk revision contains non-ASCII", func(a *Authorization) { a.RiskRevision = "risk-\\u00e9" }, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := base
