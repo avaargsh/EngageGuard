@@ -234,8 +234,8 @@ func TestACPProtectedWorkspaceClientBindsExactResolvedActionAndNeverIssuesPermit
 	receipt := protectedWorkspaceReceiptFixture{
 		SchemaVersion: acpProtectedWorkspaceSchema,
 		RunID:         run.RunID, AgentID: run.AgentID, AgentReleaseID: run.AgentReleaseID,
-		SessionID:     run.SessionID, SubjectID: resolved.SubjectID,
-		CapabilityID:  resolved.Capability.ID, CapabilityVersion: resolved.Capability.Version,
+		SessionID: run.SessionID, SubjectID: resolved.SubjectID,
+		CapabilityID: resolved.Capability.ID, CapabilityVersion: resolved.Capability.Version,
 		ContractSHA256: resolved.Capability.ContractSHA256,
 		ConfigDigest:   "sha256:" + strings.Repeat("d", 64),
 		PolicyRevision: resolved.PolicyVersion, WorkspaceID: resolved.ResourceRef,
@@ -348,7 +348,6 @@ func TestACPProtectedWorkspaceClientBindsExactResolvedActionAndNeverIssuesPermit
 	}
 }
 
-
 func TestReadACPReceiptRejectsAmbiguousRepresentationMetadata(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -398,14 +397,14 @@ func TestReadACPReceiptRejectsAmbiguousRepresentationMetadata(t *testing.T) {
 			body: "{}",
 		},
 		{
-			name: "oversized receipt",
+			name:   "oversized receipt",
 			mutate: func(http.Header, *http.Response) {},
-			body: strings.Repeat("x", maxACPAuthorityReceipt+1),
+			body:   strings.Repeat("x", maxACPAuthorityReceipt+1),
 		},
 		{
-			name: "invalid UTF-8",
+			name:   "invalid UTF-8",
 			mutate: func(http.Header, *http.Response) {},
-			body: string([]byte{0xff}),
+			body:   string([]byte{0xff}),
 		},
 	}
 	for _, tc := range tests {
