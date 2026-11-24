@@ -40,8 +40,9 @@ func (f *fakeLedger) InspectPreEffectLedger(_ context.Context, _, _ string, _ ac
 }
 
 type fakeLive struct {
-	calls  int
-	failAt int
+	calls    int
+	failAt   int
+	identity string
 }
 
 type unavailableTestError struct{}
@@ -58,8 +59,9 @@ func (f *unavailableFakeLedger) InspectPreEffectLedger(context.Context, string, 
 	return unavailableTestError{}
 }
 
-func (f *fakeLive) VerifyCurrent(_ context.Context, _, _ string, _ action.WorkspaceWrite) error {
+func (f *fakeLive) VerifyCurrent(_ context.Context, executorSPIFFEID, _, _ string, _ action.WorkspaceWrite) error {
 	f.calls++
+	f.identity = executorSPIFFEID
 	if f.calls == f.failAt {
 		return errors.New("live authority revoked or unavailable")
 	}
@@ -233,8 +235,8 @@ func TestExecutorPreEffectVerifiedIdentityAndAllFreshChecks(t *testing.T) {
 		t.Fatalf("trusted, fresh, exact pre-effect inspection rejected: %v", err)
 	}
 	// Final postflight reads must be real: not a single preflight snapshot.
-	if ledger.calls != 2 || live.calls != 2 {
-		t.Fatalf("pre-effect gate lacked a final freshness check: ledger=%d live=%d", ledger.calls, live.calls)
+	if ledger.calls != 2 || live.calls != 2 || live.identity != goodExecutorID {
+		t.Fatalf("pre-effect gate lacked final freshness/identity binding: ledger=%d live=%d identity=%q", ledger.calls, live.calls, live.identity)
 	}
 }
 func TestExecutorPreEffectFailClosedForIdentityOrAuthorityDrift(t *testing.T) {
@@ -491,5 +493,23 @@ func TestExecutorPreEffectRealTLS13MTLSHandshake(t *testing.T) {
 	}
 	if ledger.calls != 2 || live.calls != 2 {
 		t.Fatal("bad handshake/identity reached authority checks")
+	}
+}
+
+
+// NewGate must own a private copy of the operator-pinned root DER. Mutating
+// the caller's certificate object or Raw slice after construction cannot
+// rewrite the trust anchor retained by the gate.
+func TestExecutorPreEffectCopiesOperatorRootDER(t *testing.T) {
+	ca := issueTestCA(t)
+	ledger, live := &fakeLedger{}, &fakeLive{}
+	g := makeGate(t, ca.cert, ledger, live)
+	if len(g.binding.ClientRoot.Raw) == 0 || &g.binding.ClientRoot.Raw[0] == &ca.cert.Raw[0] {
+		t.Fatal("gate retained caller-owned root DER backing storage")
+	}
+	before := append([]byte(nil), g.binding.ClientRoot.Raw...)
+	ca.cert.Raw[0] ^= 0xff
+	if !reflect.DeepEqual(g.binding.ClientRoot.Raw, before) {
+		t.Fatal("mutating caller root DER changed gate trust anchor")
 	}
 }
