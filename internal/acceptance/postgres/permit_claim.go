@@ -63,8 +63,8 @@ func (s *Store) ClaimAuthorizedIntent(ctx context.Context, permitID string, reso
 	var state, actionHash, bindingDigest, audience, policyVersion string
 	var unexpired, notRevoked bool
 	err = tx.QueryRowContext(ctx, `
-		SELECT state, action_hash, binding_digest, audience, policy_version,
-			expires_at > clock_timestamp(), revoked_at IS NULL
+		SELECT p.state, p.action_hash, p.binding_digest, p.audience, p.policy_version,
+			p.expires_at > clock_timestamp(), p.revoked_at IS NULL
 		FROM guard_permits p
 		JOIN guard_permit_authority_evidence e
 		  ON e.tenant_id=p.tenant_id
