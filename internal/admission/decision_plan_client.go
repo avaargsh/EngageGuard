@@ -253,4 +253,4 @@ func canonicalSHA256(s string) bool {
 	return true
 }
 
-var _ DecisionPlanReceiptAuthority = (*DecisionPlanClient)(nil)
+var _ DecisionPlanAuthority = (*DecisionPlanClient)(nil)
