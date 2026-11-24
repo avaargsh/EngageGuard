@@ -185,10 +185,30 @@ func TestACPCapabilityClientBindsFreshReadOnlySourceAndRejectsEscalation(t *test
 	if err := client.VerifyCapabilityAccess(context.Background(), foreign, run, submission); !errors.Is(err, ErrForbidden) || calls.Load() != initialCalls {
 		t.Fatalf("foreign tenant reached ACP: err=%v calls=%d", err, calls.Load())
 	}
+	for _, tc := range []struct {
+		name   string
+		mutate func(*RunSafetySnapshot)
+	}{
+		{"non-ASCII agent", func(r *RunSafetySnapshot) { r.AgentID = "agent-\u200b-1" }},
+		{"non-ASCII release", func(r *RunSafetySnapshot) { r.AgentReleaseID = "release-\u202e-1" }},
+		{"non-ASCII session", func(r *RunSafetySnapshot) { r.SessionID = "session-é" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			candidate := run
+			tc.mutate(&candidate)
+			if err := client.VerifyCapabilityAccess(context.Background(), principal, candidate, submission); !errors.Is(err, ErrForbidden) {
+				t.Fatalf("non-ASCII Runtime identity accepted: %v", err)
+			}
+			if calls.Load() != initialCalls {
+				t.Fatalf("non-ASCII Runtime identity reached ACP: calls=%d", calls.Load())
+			}
+		})
+	}
 
 	for _, tc := range []struct{ name, body string }{
 		{"wrong release", strings.Replace(string(body), `"agent_release_id":"release-1"`, `"agent_release_id":"release-attacker"`, 1)},
 		{"wrong policy", strings.Replace(string(body), `"policy_revision":"policy-1"`, `"policy_revision":""`, 1)},
+		{"non-ASCII policy revision", strings.Replace(string(body), `"policy_revision":"policy-1"`, `"policy_revision":"policy-é"`, 1)},
 		{"bad digest", strings.Replace(string(body), strings.Repeat("c", 64), "bad", 1)},
 		{"duplicate field", strings.Replace(string(body), `"status":"VERIFIED"`, `"status":"VERIFIED","status":"VERIFIED"`, 1)},
 		{"unknown permit field", strings.Replace(string(body), `"status":"VERIFIED"`, `"status":"VERIFIED","permit":"forged"`, 1)},
@@ -480,4 +500,15 @@ func TestACPCapabilityClientRejectsMalformedAuthenticatedPrincipalBeforeNetwork(
 			}
 		})
 	}
+}
+
+
+func TestNewACPPinnedHTTPClientRejectsNonClientCredential(t *testing.T) {
+	serverCert, roots := safetyServerCert(t, testACPPeer)
+	clientCA, signer, _ := newTestTransportCA(t)
+	serverOnly := newTestTLSLeaf(t, clientCA, signer, false, "")
+	if _, err := NewACPCapabilityClient("https://acp.example", testACPPeer, testACPTenant, roots, serverOnly); !errors.Is(err, ErrAuthorityUnavailable) {
+		t.Fatalf("serverAuth-only certificate accepted as Guard client identity: %v", err)
+	}
+	_ = serverCert
 }
