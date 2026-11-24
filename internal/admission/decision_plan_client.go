@@ -39,6 +39,8 @@ type guardStepRequest struct {
 type guardStepReceipt struct {
 	SchemaVersion  string `json:"schema_version"`
 	RunID          string `json:"run_id"`
+	RunAttemptID   string `json:"run_attempt_id"`
+	TurnID         string `json:"turn_id"`
 	DecisionID     string `json:"decision_id"`
 	PlanHash       string `json:"plan_hash"`
 	StepID         string `json:"step_id"`
@@ -118,6 +120,24 @@ func (c *DecisionPlanClient) CloseIdleConnections() {
 
 func (c *DecisionPlanClient) VerifyDecisionPlanStep(
 	ctx context.Context, principal Principal, snapshot RunSafetySnapshot, submission action.ActionSubmission,
+) error {
+	return c.verifyDecisionPlanStep(ctx, principal, snapshot, submission, nil)
+}
+
+// VerifyDecisionPlanStepReceipt returns only the canonical Runtime Attempt/Turn
+// selectors from Decision's verified read-only receipt. They are not authority;
+// ComposedRunVerifier must resolve the exact pair again from Runtime.
+func (c *DecisionPlanClient) VerifyDecisionPlanStepReceipt(
+	ctx context.Context, principal Principal, snapshot RunSafetySnapshot, submission action.ActionSubmission,
+) (DecisionPlanReceipt, error) {
+	var receipt DecisionPlanReceipt
+	err := c.verifyDecisionPlanStep(ctx, principal, snapshot, submission, &receipt)
+	return receipt, err
+}
+
+func (c *DecisionPlanClient) verifyDecisionPlanStep(
+	ctx context.Context, principal Principal, snapshot RunSafetySnapshot, submission action.ActionSubmission,
+	result *DecisionPlanReceipt,
 ) error {
 	if c == nil || c.http == nil {
 		return ErrAuthorityUnavailable
@@ -201,6 +221,8 @@ func (c *DecisionPlanClient) VerifyDecisionPlanStep(
 		receipt.DecisionID != submission.DecisionID ||
 		receipt.PlanHash != submission.PlanHash ||
 		receipt.StepID != submission.StepID ||
+		!canonicalSafetyRunID.MatchString(receipt.RunAttemptID) ||
+		!canonicalSafetyRunID.MatchString(receipt.TurnID) ||
 		receipt.BreakerEpoch != int64(snapshot.BreakerEpoch) ||
 		receipt.BreakerVersion != int64(snapshot.BreakerVersion) ||
 		!canonicalSHA256(receipt.RecordSHA256) {
@@ -209,6 +231,11 @@ func (c *DecisionPlanClient) VerifyDecisionPlanStep(
 	canonical, err := json.Marshal(receipt)
 	if err != nil || !bytes.Equal(canonical, bytes.TrimSpace(body)) {
 		return ErrAuthorityUnavailable
+	}
+	if result != nil {
+		*result = DecisionPlanReceipt{
+			RunID: receipt.RunID, RunAttemptID: receipt.RunAttemptID, TurnID: receipt.TurnID,
+		}
 	}
 	return nil
 }
@@ -226,4 +253,4 @@ func canonicalSHA256(s string) bool {
 	return true
 }
 
-var _ DecisionPlanAuthority = (*DecisionPlanClient)(nil)
+var _ DecisionPlanReceiptAuthority = (*DecisionPlanClient)(nil)
