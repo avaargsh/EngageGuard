@@ -23,6 +23,10 @@ var ErrBlocked = errors.New("executor pre-effect checks blocked")
 // to answer. No automatic retry, cached approval or fail-open dispatch is possible.
 var ErrUnavailable = errors.New("executor pre-effect authority unavailable")
 
+// ErrLiveDenied is returned by a live authority for a current policy,
+// approval, revocation or identity denial. It must not be treated as retryable.
+var ErrLiveDenied = errors.New("executor pre-effect live authority denied")
+
 var identityRE = regexp.MustCompile("^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
 // Guard-generated operation and attempt IDs must be canonical RFC 4122 variant UUIDs.
@@ -46,7 +50,8 @@ type Ledger interface {
 // LiveAuthority must re-read current independently owned Runtime/Decision/ACP,
 // approval, risk and executor-certificate revocation state. Its configuration
 // must be bound to the same operator-provisioned executor identity as Binding.
-// It must not trust caller claims or cache positive snapshots.
+// It must not trust caller claims or cache positive snapshots. Return
+// ErrLiveDenied for a current denial; other errors mean the source is unavailable.
 type LiveAuthority interface {
 	VerifyCurrent(context.Context, string, string, string, action.WorkspaceWrite) error
 }
@@ -223,7 +228,10 @@ func (g *Gate) Check(
 			return fmt.Errorf("%w: context: %w", ErrUnavailable, err)
 		}
 		if err := g.live.VerifyCurrent(ctx, g.binding.ExecutorSPIFFEID, permitID, attemptID, resolved); err != nil {
-			return fmt.Errorf("%w: live authority: %w", ErrUnavailable, err)
+			if errors.Is(err, ErrLiveDenied) {
+				return fmt.Errorf("%w: live authority denied: %w", ErrBlocked, err)
+			}
+			return fmt.Errorf("%w: live authority unavailable: %w", ErrUnavailable, err)
 		}
 		if err := g.ledger.InspectPreEffectLedger(ctx, permitID, attemptID, resolved); err != nil {
 			if isLedgerUnavailable(err) {
