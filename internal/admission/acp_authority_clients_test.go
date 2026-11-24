@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -134,6 +135,8 @@ func TestACPCapabilityClientBindsFreshReadOnlySourceAndRejectsEscalation(t *test
 		calls.Add(1)
 		if r.Method != http.MethodPost || r.URL.Path != testACPPath ||
 			r.Header.Get("Content-Type") != "application/json" ||
+			r.Header.Get("Accept-Encoding") != "identity" ||
+			r.Header.Get("Cache-Control") != "no-store" ||
 			r.Header.Get("Authorization") != "" || r.Header.Get("X-Tenant-ID") != "" {
 			t.Error("Guard sent an unexpected ACP capability request")
 		}
@@ -341,5 +344,82 @@ func TestACPProtectedWorkspaceClientBindsExactResolvedActionAndNeverIssuesPermit
 	defer wrongPeer.CloseIdleConnections()
 	if _, err := wrongPeer.ObserveProtectedWorkspace(context.Background(), principal, run, resolved); !errors.Is(err, ErrAuthorityUnavailable) {
 		t.Fatalf("wrong ACP SPIFFE peer was accepted: %v", err)
+	}
+}
+
+
+func TestReadACPReceiptRejectsAmbiguousRepresentationMetadata(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(http.Header, *http.Response)
+		body   string
+	}{
+		{
+			name: "duplicate content type",
+			mutate: func(h http.Header, _ *http.Response) {
+				h.Add("Content-Type", "application/json")
+			},
+			body: "{}",
+		},
+		{
+			name: "duplicate cache control",
+			mutate: func(h http.Header, _ *http.Response) {
+				h.Add("Cache-Control", "no-store")
+			},
+			body: "{}",
+		},
+		{
+			name: "compressed representation",
+			mutate: func(h http.Header, _ *http.Response) {
+				h.Set("Content-Encoding", "gzip")
+			},
+			body: "{}",
+		},
+		{
+			name: "transparent decompression",
+			mutate: func(_ http.Header, response *http.Response) {
+				response.Uncompressed = true
+			},
+			body: "{}",
+		},
+		{
+			name: "wrong media type",
+			mutate: func(h http.Header, _ *http.Response) {
+				h.Set("Content-Type", "text/plain")
+			},
+			body: "{}",
+		},
+		{
+			name: "cacheable receipt",
+			mutate: func(h http.Header, _ *http.Response) {
+				h.Set("Cache-Control", "public, max-age=60")
+			},
+			body: "{}",
+		},
+		{
+			name: "oversized receipt",
+			mutate: func(http.Header, *http.Response) {},
+			body: strings.Repeat("x", maxACPAuthorityReceipt+1),
+		},
+		{
+			name: "invalid UTF-8",
+			mutate: func(http.Header, *http.Response) {},
+			body: string([]byte{0xff}),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			headers := make(http.Header)
+			headers.Set("Content-Type", "application/json")
+			headers.Set("Cache-Control", "no-store")
+			response := &http.Response{
+				Header: headers,
+				Body:   io.NopCloser(strings.NewReader(tc.body)),
+			}
+			tc.mutate(headers, response)
+			if _, err := readACPReceipt(response); !errors.Is(err, ErrAuthorityUnavailable) {
+				t.Fatalf("ambiguous ACP receipt metadata accepted: %v", err)
+			}
+		})
 	}
 }
