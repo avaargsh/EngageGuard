@@ -52,7 +52,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           repository: avaargsh/agent-decision
-          ref: 85408f5642a8ce7806504f3c3a119e32dfa40d31
+          ref: cefa650c76576a53551482c4584786b0a79ef289
           path: decision
           persist-credentials: false
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -67,7 +67,7 @@ jobs:
           test "$(git -C acp rev-parse HEAD)" = '424ca92d16c481aac61d5f00379b72d481a2ca18'
           test "$(git -C issuer-fixture rev-parse HEAD)" = '5b0109cbafcf659f2230f7a38fc560b8644332a9'
           test "$(git -C runtime-api rev-parse HEAD)" = '83d7c73628ac97d870240b5a825e40bccb4dd206'
-          test "$(git -C decision rev-parse HEAD)" = '85408f5642a8ce7806504f3c3a119e32dfa40d31'
+          test "$(git -C decision rev-parse HEAD)" = 'cefa650c76576a53551482c4584786b0a79ef289'
           test "$(git -C guard rev-parse HEAD)" = "$EXPECTED_HEAD"
           git -C guard rev-parse HEAD
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
