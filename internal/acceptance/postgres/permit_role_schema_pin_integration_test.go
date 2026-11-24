@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,3 +54,7 @@ func TestPermitRoleSeparationRejectsOperatorSchemaMismatch(t *testing.T) {
 	}
 }
 
+
+func containsPermitRoleReason(err error, reason string) bool {
+	return err != nil && strings.Contains(err.Error(), reason)
+}
