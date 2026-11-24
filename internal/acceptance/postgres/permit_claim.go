@@ -52,7 +52,7 @@ func (s *Store) ClaimAuthorizedIntent(ctx context.Context, permitID string, reso
 	if err != nil {
 		return DispatchIntent{}, fmt.Errorf("%w: %v", ErrPermitMismatch, err)
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	tx, err := s.beginLedgerTx(ctx, true)
 	if err != nil {
 		return DispatchIntent{}, fmt.Errorf("begin Permit claim: %w", err)
 	}
