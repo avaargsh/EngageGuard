@@ -23,14 +23,16 @@ func (f *fakeAuthority) VerifyIssue(_ context.Context, _ action.ActionRequest) (
 }
 
 type fakeLedger struct {
-	last  PermitDraft
-	calls int
-	err   error
+	last   PermitDraft
+	maxTTL time.Duration
+	calls  int
+	err    error
 }
 
-func (f *fakeLedger) PersistIssuedPermit(_ context.Context, draft PermitDraft) (ScopedPermit, error) {
+func (f *fakeLedger) PersistIssuedPermit(_ context.Context, draft PermitDraft, maxTTL time.Duration) (ScopedPermit, error) {
 	f.calls++
 	f.last = draft
+	f.maxTTL = maxTTL
 	if f.err != nil {
 		return ScopedPermit{}, f.err
 	}
@@ -64,6 +66,9 @@ func TestTrustedIssuerBindsCurrentAuthorityToExactResolvedAction(t *testing.T) {
 	}
 	if got.PermitID == "" || ledger.calls != 1 || auth.calls != 1 {
 		t.Fatalf("issuer did not persist exactly once: permit=%q ledger=%d authority=%d", got.PermitID, ledger.calls, auth.calls)
+	}
+	if ledger.maxTTL != 5*time.Minute {
+		t.Fatalf("issuer did not pass configured maximum TTL to ledger: %s", ledger.maxTTL)
 	}
 	last := ledger.last.Values()
 	if last.TenantID != a.TenantID || last.OperationID != a.OperationID ||
