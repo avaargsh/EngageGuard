@@ -162,3 +162,37 @@ func TestPermitV10StartupRejectsReplacedCausalFunctionBody(t *testing.T) {
 		t.Fatalf("replaced v10 causal function body passed startup attestation: %v", err)
 	}
 }
+
+// Startup must reject trigger definition drift even when the function OID,
+// event bitmask, enabled state and deferred properties remain unchanged.
+func TestPermitV10StartupRejectsCausalTriggerMetadataDrift(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		events string
+		when   string
+		args   string
+	}{
+		{name: "conditional", events: "INSERT OR UPDATE", when: " WHEN (false)"},
+		{name: "column-filter", events: "INSERT OR UPDATE OF revoked_at"},
+		{name: "unexpected-argument", events: "INSERT OR UPDATE", args: "'unexpected'"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, _, _ := seededWorkspacePermit(t)
+			ctx := context.Background()
+			for _, stmt := range []string{
+				"DROP TRIGGER guard_permit_causal_commit_v10 ON guard_permits",
+				"CREATE CONSTRAINT TRIGGER guard_permit_causal_commit_v10 AFTER " + tc.events +
+					" ON guard_permits DEFERRABLE INITIALLY DEFERRED FOR EACH ROW" + tc.when +
+					" EXECUTE FUNCTION guard_claim_causal_commit_v10(" + tc.args + ")",
+				"ALTER TABLE guard_permits ENABLE ALWAYS TRIGGER guard_permit_causal_commit_v10",
+			} {
+				if _, err := store.db.ExecContext(ctx, stmt); err != nil {
+					t.Fatalf("isolated trigger drift setup: %v", err)
+				}
+			}
+			if err := Migrate(ctx, store.db); !errors.Is(err, ErrSchemaDrift) {
+				t.Fatalf("v10 causal trigger metadata drift passed startup attestation: %v", err)
+			}
+		})
+	}
+}
