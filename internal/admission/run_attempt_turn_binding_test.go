@@ -87,8 +87,8 @@ func trustedRuntimeExecutionAuthority(s RunSafetySnapshot) *testRuntimeExecution
 func trustedDecisionPlanReceipt(s RunSafetySnapshot) DecisionPlanReceipt {
 	return DecisionPlanReceipt{
 		RunID:        s.RunID,
-		RunAttemptID:        runtimeGuardAttempt,
-		TurnID:              runtimeGuardTurn,
+		RunAttemptID: runtimeGuardAttempt,
+		TurnID:       runtimeGuardTurn,
 	}
 }
 
@@ -230,8 +230,8 @@ func TestComposedRunVerifierRejectsTurnSupersededDuringACPRead(t *testing.T) {
 func TestComposedRunVerifierFailsClosedWhenRuntimeExecutionAuthorityUnavailable(t *testing.T) {
 	safety := trustedRuntimeRunForExecutionBinding()
 	for _, tc := range []struct {
-		name   string
-		err   error
+		name string
+		err  error
 		want error
 	}{
 		{"denied", ErrForbidden, ErrForbidden},
