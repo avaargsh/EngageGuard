@@ -18,14 +18,14 @@ import (
 )
 
 const (
-	acpCapabilitySchema = "acp.guard-capability.v1"
-	acpCapabilityPath = "/internal/v1/guard-capabilities:verify"
-	acpProtectedWorkspaceSchema = "acp.guard-protected-workspace.v1"
-	acpProtectedWorkspacePath = "/internal/v1/guard-protected-workspaces:verify"
-	acpReadOnlyCapabilityID = "sre.metrics.read"
+	acpCapabilitySchema                    = "acp.guard-capability.v1"
+	acpCapabilityPath                      = "/internal/v1/guard-capabilities:verify"
+	acpProtectedWorkspaceSchema            = "acp.guard-protected-workspace.v1"
+	acpProtectedWorkspacePath              = "/internal/v1/guard-protected-workspaces:verify"
+	acpReadOnlyCapabilityID                = "sre.metrics.read"
 	acpProtectedWorkspaceCapabilityVersion = "1.0.0"
-	maxACPAuthorityReceipt = 4096
-	maxACPAuthorityHeaders = 8 * 1024
+	maxACPAuthorityReceipt                 = 4096
+	maxACPAuthorityHeaders                 = 8 * 1024
 )
 
 // acpAuthorityHTTPClient is a dedicated, single-tenant Guard-to-ACP mTLS
@@ -254,11 +254,11 @@ func (c *ACPCapabilityClient) VerifyCapabilityAccess(
 
 	payload := acpCapabilityRequest{
 		SchemaVersion: acpCapabilitySchema,
-		RunID: run.RunID, AgentID: run.AgentID,
+		RunID:         run.RunID, AgentID: run.AgentID,
 		AgentReleaseID: run.AgentReleaseID, SessionID: run.SessionID,
-		CapabilityID: submission.Capability.ID,
+		CapabilityID:      submission.Capability.ID,
 		CapabilityVersion: submission.Capability.Version,
-		ResourceRef: submission.ResourceRef,
+		ResourceRef:       submission.ResourceRef,
 	}
 	response, err := c.base.postJSON(ctx, acpCapabilityPath, payload)
 	if err != nil {
@@ -391,11 +391,11 @@ func (c *ACPProtectedWorkspaceClient) ObserveProtectedWorkspace(
 
 	payload := acpProtectedWorkspaceRequest{
 		SchemaVersion: acpProtectedWorkspaceSchema,
-		RunID: run.RunID, AgentID: run.AgentID,
+		RunID:         run.RunID, AgentID: run.AgentID,
 		AgentReleaseID: run.AgentReleaseID, SessionID: run.SessionID,
 		SubjectID: resolved.SubjectID, CapabilityID: resolved.CapabilityID,
 		CapabilityVersion: capabilityVersion, PolicyRevision: resolved.PolicyVersion,
-		WorkspaceID: resolved.WorkspaceID,
+		WorkspaceID:       resolved.WorkspaceID,
 		ToolBindingDigest: resolved.ToolBindingDigest, Audience: resolved.Audience,
 	}
 	response, err := c.base.postJSON(ctx, acpProtectedWorkspacePath, payload)
@@ -433,7 +433,7 @@ func (c *ACPProtectedWorkspaceClient) ObserveProtectedWorkspace(
 	}
 	return ProtectedWorkspaceObservation{
 		ContractSHA256: receipt.ContractSHA256,
-		ConfigDigest: receipt.ConfigDigest,
+		ConfigDigest:   receipt.ConfigDigest,
 		PolicyRevision: receipt.PolicyRevision,
 	}, nil
 }
