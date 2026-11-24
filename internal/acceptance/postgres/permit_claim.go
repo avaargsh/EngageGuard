@@ -57,14 +57,21 @@ func (s *Store) ClaimAuthorizedIntent(ctx context.Context, permitID string, reso
 		return DispatchIntent{}, fmt.Errorf("begin Permit claim: %w", err)
 	}
 	defer tx.Rollback()
+	if err := verifyPermitAuthorityEvidence(ctx, tx); err != nil {
+		return DispatchIntent{}, fmt.Errorf("%w: trusted issuance evidence: %w", ErrPermitUnavailable, err)
+	}
 	var state, actionHash, bindingDigest, audience, policyVersion string
 	var unexpired, notRevoked bool
 	err = tx.QueryRowContext(ctx, `
 		SELECT state, action_hash, binding_digest, audience, policy_version,
 			expires_at > clock_timestamp(), revoked_at IS NULL
-		FROM guard_permits
-		WHERE permit_id=$1::uuid AND tenant_id=$2 AND operation_id=$3::uuid
-		FOR UPDATE
+		FROM guard_permits p
+		JOIN guard_permit_authority_evidence e
+		  ON e.tenant_id=p.tenant_id
+		 AND e.operation_id=p.operation_id
+		 AND e.permit_id=p.permit_id
+		WHERE p.permit_id=$1::uuid AND p.tenant_id=$2 AND p.operation_id=$3::uuid
+		FOR UPDATE OF p
 	`, permitID, resolved.TenantID, resolved.OperationID).Scan(
 		&state, &actionHash, &bindingDigest, &audience, &policyVersion, &unexpired, &notRevoked)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -86,10 +93,16 @@ func (s *Store) ClaimAuthorizedIntent(ctx context.Context, permitID string, reso
 	// Recheck expiry/revocation using the DB clock on the write; a slow
 	// transaction must not claim after the Permit expires.
 	tag, err := tx.ExecContext(ctx, `
-		UPDATE guard_permits
+		UPDATE guard_permits p
 		SET state='CLAIMED', claimed_at=clock_timestamp()
-		WHERE permit_id=$1::uuid AND tenant_id=$2 AND operation_id=$3::uuid
-			AND state='ISSUED' AND revoked_at IS NULL AND expires_at > clock_timestamp()
+		WHERE p.permit_id=$1::uuid AND p.tenant_id=$2 AND p.operation_id=$3::uuid
+			AND p.state='ISSUED' AND p.revoked_at IS NULL AND p.expires_at > clock_timestamp()
+			AND EXISTS (
+				SELECT 1 FROM guard_permit_authority_evidence e
+				WHERE e.tenant_id=p.tenant_id
+				  AND e.operation_id=p.operation_id
+				  AND e.permit_id=p.permit_id
+			)
 	`, permitID, resolved.TenantID, resolved.OperationID)
 	if err != nil {
 		return DispatchIntent{}, fmt.Errorf("claim Permit: %w", err)

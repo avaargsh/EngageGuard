@@ -84,8 +84,42 @@ func seedV14Claim(t *testing.T, db *sql.DB) (*Store, action.WorkspaceWrite, stri
 		resolved.Audience, resolved.PolicyVersion, time.Now().UTC().Add(time.Hour)).Scan(&permitID); err != nil {
 		t.Fatal(err)
 	}
-	intent, err := store.ClaimAuthorizedIntent(ctx, permitID, resolved)
+	// Historical v14 has no v16 trusted-issuer evidence relation. Seed the
+	// exact pre-v15 causal claim directly so this test can exercise migration
+	// preservation without invoking the current trusted claim API.
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE guard_permits
+		SET state='CLAIMED', claimed_at=clock_timestamp()
+		WHERE tenant_id=$1 AND permit_id=$2::uuid AND state='ISSUED'
+	`, resolved.TenantID, permitID); err != nil {
+		t.Fatal(err)
+	}
+	intent := DispatchIntent{
+		TenantID: resolved.TenantID, OperationID: resolved.OperationID,
+		PermitID: permitID, ActionHash: hash, State: "DISPATCHING",
+	}
+	if err := tx.QueryRowContext(ctx, `
+		INSERT INTO guard_operation_intents
+			(tenant_id,operation_id,permit_id,action_hash,binding_digest,state)
+		VALUES ($1,$2::uuid,$3::uuid,$4,$5,'DISPATCHING')
+		RETURNING attempt_id::text
+	`, resolved.TenantID, resolved.OperationID, permitID, hash, resolved.ToolBindingDigest).
+		Scan(&intent.AttemptID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO guard_execution_audit
+			(tenant_id,operation_id,permit_id,attempt_id,event_type,action_hash)
+		VALUES ($1,$2::uuid,$3::uuid,$4::uuid,'guard.operation.dispatching.v1',$5)
+	`, resolved.TenantID, resolved.OperationID, permitID, intent.AttemptID, hash); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 	return store, resolved, permitID, intent
