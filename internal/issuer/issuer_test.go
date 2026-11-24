@@ -29,14 +29,14 @@ type fakeLedger struct {
 	err    error
 }
 
-func (f *fakeLedger) PersistIssuedPermit(_ context.Context, draft PermitDraft, maxTTL time.Duration) (ScopedPermit, error) {
+func (f *fakeLedger) PersistIssuedPermit(_ context.Context, draft PermitDraft, maxTTL time.Duration) (PersistedPermit, error) {
 	f.calls++
 	f.last = draft
 	f.maxTTL = maxTTL
 	if f.err != nil {
-		return ScopedPermit{}, f.err
+		return PersistedPermit{}, f.err
 	}
-	return ScopedPermit{PermitID: "10000000-0000-4000-8000-000000000010", Draft: draft}, nil
+	return PersistedPermit{PermitID: "10000000-0000-4000-8000-000000000010", Values: draft.Values()}, nil
 }
 
 func resolvedAction() action.ActionRequest {
