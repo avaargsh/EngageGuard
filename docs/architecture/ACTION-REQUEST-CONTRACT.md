@@ -30,6 +30,10 @@ This slice has no live Run/Decision/ACP/Policy/Approval/Risk adapters. Fake auth
 - `SubmissionDigest` hashes **the exact accepted request bytes** with `engageguard/submission-bytes/v1\\0` domain separation. This digest is only an idempotency replay fingerprint. Byte-different submissions using the same key must conflict, even when semantically equal JSON, until a separately reviewed canonical replay format is accepted.
 - **Never use SubmissionDigest for approval, Permit or ActionHash.** It has different domain, purpose, and trust assumptions.
 
+## Identifier encoding
+
+All identity, capability, resource-reference, policy-version and audience fields in both ActionSubmission v1 and resolved ActionRequest v1 are restricted to visible ASCII bytes (0x21-0x7e). This rejects bidi controls, zero-width format characters, non-ASCII whitespace and Unicode lookalikes consistently across Go validation, JSON Schema and immutable Permit evidence. The restriction applies only to protocol identifiers and bindings; valid UTF-8 business values inside `arguments` remain supported.
+
 ## Replay identity and resolved ActionHash
 
 Two hashes have different purposes and must never be substituted:
