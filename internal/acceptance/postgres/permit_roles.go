@@ -88,11 +88,18 @@ func VerifyPermitRoleSeparation(
 				SELECT 1
 				FROM pg_catalog.pg_roles r
 				WHERE r.rolname NOT IN ($1::name, $2::name)
-				  AND NOT r.rolsuper
 				  AND (
 					pg_catalog.pg_has_role($1::name, r.rolname, 'MEMBER')
 					OR pg_catalog.pg_has_role($2::name, r.rolname, 'MEMBER')
-					OR pg_catalog.pg_has_role(r.rolname, $1::name, 'MEMBER')
+				  )
+			)
+			OR EXISTS (
+				SELECT 1
+				FROM pg_catalog.pg_roles r
+				WHERE r.rolname NOT IN ($1::name, $2::name)
+				  AND NOT r.rolsuper
+				  AND (
+					pg_catalog.pg_has_role(r.rolname, $1::name, 'MEMBER')
 					OR pg_catalog.pg_has_role(r.rolname, $2::name, 'MEMBER')
 				  )
 			)
