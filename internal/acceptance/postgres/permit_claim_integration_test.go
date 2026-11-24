@@ -161,8 +161,9 @@ func TestClaimPermitAndIntentAreAtomicAndOneTimeUnderConcurrency(t *testing.T) {
 	if successes != 1 || alreadyClaimed != clients-1 {
 		t.Fatalf("claimed=%d already-claimed=%d; want 1 and %d", successes, alreadyClaimed, clients-1)
 	}
-	if _, err := New(store.db).ClaimAuthorizedIntent(context.Background(), permitID, resolved); !errors.Is(err, ErrPermitAlreadyClaimed) {
-		t.Fatalf("reconstructed store replay = %v, want explicit already-claimed fence", err)
+	reconstructed := newPinnedStoreCopy(t, store)
+	if _, err := reconstructed.ClaimAuthorizedIntent(context.Background(), permitID, resolved); !errors.Is(err, ErrPermitAlreadyClaimed) {
+		t.Fatalf("reconstructed pinned store replay = %v, want explicit already-claimed fence", err)
 	}
 	var claimed, intents, audits int
 	err := store.db.QueryRow(`SELECT count(*) FROM guard_permits

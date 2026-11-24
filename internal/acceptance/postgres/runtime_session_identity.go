@@ -3,15 +3,21 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 )
 
 // beginLedgerTx checks authority on the same physical session used for the
 // ensuing ledger operation. Startup Migrate cannot attest later pool sessions.
-// Explicitly provisioned schema identity is preferred; the legacy New
-// constructor retains the connection's reset search_path for compatibility
-// only. Production still requires trusted configuration and separate DDL roles.
+// Explicitly provisioned schema identity is mandatory for Permit-ledger
+// operations; the legacy New constructor is admission-only.
 func (s *Store) beginLedgerTx(ctx context.Context, permit bool) (*sql.Tx, error) {
+	if s == nil || s.db == nil {
+		return nil, errors.New("Guard database unavailable")
+	}
+	if permit && s.trustedSchema == "" {
+		return nil, fmt.Errorf("%w: Permit ledger access requires NewWithTrustedSchema", ErrSchemaDrift)
+	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return nil, err
