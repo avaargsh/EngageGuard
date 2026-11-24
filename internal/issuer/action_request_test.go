@@ -26,14 +26,14 @@ type actionRequestLedger struct {
 	err    error
 }
 
-func (l *actionRequestLedger) PersistIssuedPermit(_ context.Context, draft PermitDraft, maxTTL time.Duration) (ScopedPermit, error) {
+func (l *actionRequestLedger) PersistIssuedPermit(_ context.Context, draft PermitDraft, maxTTL time.Duration) (PersistedPermit, error) {
 	l.calls++
 	l.last = draft
 	l.maxTTL = maxTTL
 	if l.err != nil {
-		return ScopedPermit{}, l.err
+		return PersistedPermit{}, l.err
 	}
-	return ScopedPermit{PermitID: "10000000-0000-4000-8000-000000000010", Draft: draft}, nil
+	return PersistedPermit{PermitID: "10000000-0000-4000-8000-000000000010", Values: draft.Values()}, nil
 }
 
 func resolvedActionRequest() action.ActionRequest {
