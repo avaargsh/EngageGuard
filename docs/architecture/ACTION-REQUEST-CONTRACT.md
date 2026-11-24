@@ -1,6 +1,6 @@
 # Guard Submission v1 and Resolved Action — Contract Gate
 
-Status: **Draft / not ratified**. This branch contains pure validation helpers, not a running PEP, PostgreSQL journal, Permit service, or trusted executor.
+Status: **Draft / not ratified**. This branch contains the generic ActionRequest contract, non-production trusted Issuer and PostgreSQL v16/v17 evidence/claim primitives. It still has no production authority adapters, signed bearer Permit, public issuer endpoint, effect-time PEP or trusted executor.
 
 ## Authority split
 
@@ -9,6 +9,18 @@ Status: **Draft / not ratified**. This branch contains pure validation helpers, 
 3. **EngageGuard** is the **only authority to allocate `operation_id`** on the first accepted submission. A future PostgreSQL transaction must uniquely bind `(authenticated_tenant, submission_key)` to `(submission_digest, operation_id)`. Same key + exact digest returns the same operation, different digest conflicts; race/concurrent request and restart behavior need integration tests.
 4. After allocation and trusted resolution, **EngageGuard** builds its internal `ActionRequest` containing `operation_id` and all trusted binding fields. The existing `action-request.v1.schema.json` and Go `ActionRequest` are **internal resolved-action contracts, NOT the Runtime request wire contract**. The resolved record includes actor and workload identity.
 5. Guard performs policy/risk/approval and issues an action-bound Permit only after required checks. Trusted Executor validates and atomically claims it before the side effect. OperationJournal persists Intent **before** dispatch, and owns UNKNOWN reconciliation after uncertain outcomes. Runtime owns Run/Step progress, not Guard's external-effect retry.
+
+## Current issuer/claim implementation boundary (non-production)
+
+The current branch implements a generic `action.ActionRequest` v1 issuer contract, not the legacy fixed-shape `WorkspaceWrite` v0.1 contract:
+
+- `issuer.Service.Issue` computes the normative RFC 8785 `ActionHash` over the complete resolved ActionRequest and requires the fresh authority result to match tenant, Run, Decision, Plan ID/hash, Step, Capability ID/version/contract digest, ToolBinding, policy, audience and expiry.
+- The opaque `PermitDraft` carries the resolved identity plus current Runtime Attempt, Decision Turn, Approval reference and Risk revision.
+- PostgreSQL v16 stores immutable source-bound Permit evidence. v17 adds Decision/Plan/Step/Capability/Resource fields. Existing v16 rows retain NULL v17 fields; no missing source evidence is fabricated.
+- `ClaimResolvedActionIntent` re-hashes the supplied ActionRequest, compares it to the Permit and all immutable v17 evidence, and atomically creates one DispatchIntent/Attempt/Audit. The legacy WorkspaceWrite claim path cannot claim an ActionRequest v1 Permit.
+- The returned ScopedPermit is an internal database result, not a signed bearer token. A committed DispatchIntent is not permission to call a provider.
+
+This slice has no live Run/Decision/ACP/Policy/Approval/Risk adapters. Fake authorities exist only in tests. No provider side effect is enabled.
 
 ## Caller wire contract
 
@@ -35,8 +47,10 @@ Go verification covers the generic numeric and resolved-action vectors. The sepa
 
 - Authenticated Guard HTTP endpoint, PostgreSQL operation allocation and `(tenant,key,digest)` conflict/replay atomicity
 - Cross-tenant conflict isolation, concurrent claims, restart/replay, and lost-ACK operation lookup
-- Trust-source resolution and policy, approval, Permit claim, revocation/fencing
-- Intent-before-side-effect journal, trusted executor, external UNKNOWN reconciliation
+- Production mTLS adapters for current Runtime Run/Attempt, Decision Plan/Step, ACP Capability/ToolBinding, Policy, Approval and Risk sources
+- Signed bearer Permit/JTI issuance, revocation and policy revalidation at claim and effect time
+- ActionRequest v1-aware pre-effect ledger and independently deployed Trusted Executor PEP
+- Intent-before-side-effect journal, provider idempotency/receipt inspection, external UNKNOWN reconciliation and crash recovery
 - Cross-repo ACP/Runtime/Decision/Compute consumers, schema generation, Go/Python/TS hash fixtures
 
 Related blockers: [EngageGuard #3](https://github.com/avaargsh/EngageGuard/issues/3) and [agent-control-panel #3](https://github.com/avaargsh/agent-control-panel/issues/3).
