@@ -42,17 +42,35 @@ func seededWorkspacePermitWithExpiry(t *testing.T, expiresAt time.Time) (*Store,
 	if err != nil {
 		t.Fatal(err)
 	}
+	expiresAt = expiresAt.UTC().Truncate(time.Microsecond)
+	issuedAt := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
+	if !expiresAt.After(issuedAt) {
+		issuedAt = expiresAt.Add(-time.Hour).Truncate(time.Microsecond)
+	}
+	const issuedBy = "test-only-trusted-issuer"
 	var permitID string
 	err = db.QueryRow(`INSERT INTO guard_permits
 			(tenant_id, operation_id, action_hash, binding_digest, audience,
-			 policy_version, issued_by, expires_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+			 policy_version, issued_by, issued_at, expires_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 			RETURNING permit_id::text`,
 		resolved.TenantID, resolved.OperationID, hash,
 		resolved.ToolBindingDigest, resolved.Audience, resolved.PolicyVersion,
-		"test-only-trusted-issuer", expiresAt,
+		issuedBy, issuedAt, expiresAt,
 	).Scan(&permitID)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO guard_permit_authority_evidence
+			(tenant_id,operation_id,permit_id,run_id,runtime_attempt_id,turn_id,
+			 approval_ref,risk_revision,action_hash,binding_digest,audience,
+			 policy_version,issued_by,issued_at,expires_at)
+		VALUES ($1,$2::uuid,$3::uuid,'run-1','run-attempt-1','turn-1',
+		        'approval-1','risk-17',$4,$5,$6,$7,$8,$9,$10)
+	`, resolved.TenantID, resolved.OperationID, permitID, hash,
+		resolved.ToolBindingDigest, resolved.Audience, resolved.PolicyVersion,
+		issuedBy, issuedAt, expiresAt); err != nil {
 		t.Fatal(err)
 	}
 	return store, resolved, permitID

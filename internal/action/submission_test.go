@@ -100,3 +100,36 @@ func TestSubmissionSchemaHasNoServerOwnedFields(t *testing.T) {
 		}
 	}
 }
+
+func TestSubmissionRejectsNonASCIIIdentifiers(t *testing.T) {
+	cases := map[string]func([]byte) []byte{
+		"run": func(raw []byte) []byte {
+			return bytes.Replace(raw, []byte(`"run_id":"run-1"`), []byte(`"run_id":"run-\u200b-1"`), 1)
+		},
+		"decision": func(raw []byte) []byte {
+			return bytes.Replace(raw, []byte(`"decision_id":"dec-1"`), []byte(`"decision_id":"dec-\u202e-1"`), 1)
+		},
+		"plan": func(raw []byte) []byte {
+			return bytes.Replace(raw, []byte(`"plan_id":"plan-1"`), []byte(`"plan_id":"plan-é"`), 1)
+		},
+		"step": func(raw []byte) []byte {
+			return bytes.Replace(raw, []byte(`"step_id":"step-1"`), []byte(`"step_id":"step-\u200b-1"`), 1)
+		},
+		"capability id": func(raw []byte) []byte {
+			return bytes.Replace(raw, []byte(`"id":"workspace.write"`), []byte(`"id":"workspace.\u200bwrite"`), 1)
+		},
+		"capability version": func(raw []byte) []byte {
+			return bytes.Replace(raw, []byte(`"version":"1.0.0"`), []byte(`"version":"1.0.é"`), 1)
+		},
+		"resource": func(raw []byte) []byte {
+			return bytes.Replace(raw, []byte(`"resource_ref":"workspace-1"`), []byte(`"resource_ref":"workspace-\u200b-1"`), 1)
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseActionSubmission(mutate(exampleSubmission())); err == nil {
+				t.Fatal("accepted non-ASCII or invisible caller-supplied identifier")
+			}
+		})
+	}
+}

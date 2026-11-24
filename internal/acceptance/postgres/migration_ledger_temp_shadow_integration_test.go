@@ -29,14 +29,14 @@ func TestMigrationRejectsPermanentChecksumDriftBehindTempLedgerShadow(t *testing
 		t.Fatal(err)
 	}
 	var fakeRows int
-	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM pg_temp.guard_schema_migrations").Scan(&fakeRows); err != nil || fakeRows != 15 {
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM pg_temp.guard_schema_migrations").Scan(&fakeRows); err != nil || fakeRows != 17 {
 		t.Fatalf("temporary migration ledger fixture not populated: rows=%d err=%v", fakeRows, err)
 	}
 
 	var sqlDamage string
 	if err := db.QueryRowContext(ctx, `
 		SELECT pg_catalog.format(
-			'UPDATE %I.guard_schema_migrations SET checksum=$1 WHERE version=15',
+			'UPDATE %I.guard_schema_migrations SET checksum=$1 WHERE version=17',
 			current_schema()
 		)
 	`).Scan(&sqlDamage); err != nil {
@@ -46,7 +46,7 @@ func TestMigrationRejectsPermanentChecksumDriftBehindTempLedgerShadow(t *testing
 		t.Fatal(err)
 	}
 	// The unqualified table name resolves to the fake, intact temp table,
-	// whereas the actual migration ledger now has an invalid v15 checksum.
+	// whereas the actual migration ledger now has an invalid v16 checksum.
 	var isShadowed bool
 	if err := db.QueryRowContext(ctx, `
 		SELECT pg_catalog.to_regclass('guard_schema_migrations') =
@@ -55,7 +55,7 @@ func TestMigrationRejectsPermanentChecksumDriftBehindTempLedgerShadow(t *testing
 		t.Fatalf("test did not establish migration-ledger shadow: shadowed=%t err=%v", isShadowed, err)
 	}
 	if err := Migrate(ctx, db); !errors.Is(err, ErrSchemaDrift) {
-		t.Fatalf("permanent v15 checksum drift concealed by pg_temp ledger: got %v, want ErrSchemaDrift", err)
+		t.Fatalf("permanent v17 checksum drift concealed by pg_temp ledger: got %v, want ErrSchemaDrift", err)
 	}
 }
 
@@ -67,6 +67,7 @@ func TestMigrationRejectsSessionTemporaryProtectedLedgerShadows(t *testing.T) {
 	for _, name := range []string{
 		"guard_permits", "guard_operation_intents", "guard_execution_audit",
 		"guard_operation_unknown_events", "guard_permit_revocations",
+		"guard_permit_authority_evidence",
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, db := integrationStore(t)

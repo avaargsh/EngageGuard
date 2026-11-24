@@ -49,6 +49,7 @@ func TestPermitRoleSeparationRejectsOperatorSchemaMismatch(t *testing.T) {
 		"guard_outbox_events", "guard_schema_migrations", "guard_permits",
 		"guard_operation_intents", "guard_execution_audit",
 		"guard_operation_unknown_events", "guard_permit_revocations",
+		"guard_permit_authority_evidence",
 	} {
 		var statement string
 		if err := db.QueryRowContext(ctx,
@@ -63,9 +64,11 @@ func TestPermitRoleSeparationRejectsOperatorSchemaMismatch(t *testing.T) {
 	for _, grant := range []string{
 		"GRANT USAGE ON SCHEMA " + decoy + " TO " + issuer + ", " + claimer,
 		"GRANT SELECT, INSERT ON " + decoy + ".guard_permits TO " + issuer,
+		"GRANT SELECT, INSERT ON " + decoy + ".guard_permit_authority_evidence TO " + issuer,
 		"GRANT SELECT ON " + decoy + ".guard_action_operations TO " + issuer,
 		"GRANT SELECT ON " + decoy + ".guard_accepted_submission_snapshots TO " + issuer,
 		"GRANT SELECT ON " + decoy + ".guard_permits TO " + claimer,
+		"GRANT SELECT ON " + decoy + ".guard_permit_authority_evidence TO " + claimer,
 		"GRANT UPDATE (state, claimed_at) ON " + decoy + ".guard_permits TO " + claimer,
 		"GRANT SELECT, INSERT ON " + decoy + ".guard_operation_intents TO " + claimer,
 		"GRANT SELECT, INSERT ON " + decoy + ".guard_execution_audit TO " + claimer,

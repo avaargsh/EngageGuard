@@ -21,6 +21,8 @@ SHA-256( UTF8("engageguard/action-hash/v1") || 0x00 || UTF8(JCS(ActionRequest)) 
 The internal `ActionRequest` is constructed only after Guard authentication, Run/Plan verification, trusted capability/ToolBinding resolution and current policy resolution. It binds tenant, subject, actor, workload, Agent/Run/Decision/Plan/Step, Guard-generated operation ID, immutable capability contract digest, target, canonical arguments, ToolBinding digest, policy version and executor audience.
 
 Approval and Permit must reference this exact digest. A caller-supplied ActionHash is rejected from the Runtime wire schema and never trusted.
+Authorization identifiers and binding references are restricted to visible ASCII bytes (0x21-0x7e) at the ActionRequest/ActionSubmission boundary. This restriction does not apply to UTF-8 values inside canonical business arguments.
+
 
 ## RFC 8785 canonicalization
 
