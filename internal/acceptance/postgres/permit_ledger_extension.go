@@ -10,7 +10,7 @@ import (
 )
 
 // The existing admission v1/v2/v3 migration sources and checksums are immutable.
-// All v4-v10 extensions are forward-only and retain historical checksums.
+// All v4-v11 extensions are forward-only and retain historical checksums.
 //
 //go:embed schema_permit_v4.sql
 var permitClaimSchema string
@@ -33,6 +33,9 @@ var permitIdentityFenceSchema string
 //go:embed schema_permit_v10.sql
 var permitCausalCommitSchema string
 
+//go:embed schema_permit_v11.sql
+var permitCausalPinnedSchema string
+
 func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) error {
 	migrations := []struct {
 		version int64
@@ -45,6 +48,14 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 		{8, permitEvidenceFenceSchema},
 		{9, permitIdentityFenceSchema},
 		{10, permitCausalCommitSchema},
+		{11, permitCausalPinnedSchema},
+	}
+	// An existing v10 database must pass its original integrity checks before
+	// replacing the function; never silently bless a tampered baseline.
+	if applied == 10 {
+		if err := verifyPermitLedgerCatalog(ctx, tx, permitCausalCommitSchema); err != nil {
+			return err
+		}
 	}
 	for _, item := range migrations {
 		if applied >= int(item.version) {
@@ -70,10 +81,10 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 			return fmt.Errorf("record forward Permit migration v%d: %w", item.version, err)
 		}
 	}
-	return verifyPermitLedgerCatalog(ctx, tx)
+	return verifyPermitLedgerCatalog(ctx, tx, permitCausalPinnedSchema)
 }
 
-func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
+func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx, causalSource string) error {
 	for _, name := range []string{
 		"guard_permits", "guard_operation_intents", "guard_execution_audit",
 		"guard_operation_unknown_events", "guard_permit_revocations",
@@ -174,13 +185,16 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
 			return fmt.Errorf("%w: Permit v9 write-once trigger %s disabled or changed: %v", ErrSchemaDrift, expected.name, err)
 		}
 	}
-	// Attest the exact function body shipped in the immutable v10 migration.
+	// Attest the exact function body shipped in the applicable immutable migration.
 	// CREATE OR REPLACE FUNCTION can retain the OID while removing enforcement.
-	const prefix = "CREATE FUNCTION guard_claim_causal_commit_v10() RETURNS trigger\nLANGUAGE plpgsql AS $guard$"
-	if strings.Count(permitCausalCommitSchema, prefix) != 1 {
+	prefix := "CREATE FUNCTION guard_claim_causal_commit_v10() RETURNS trigger\nLANGUAGE plpgsql AS $guard$"
+	if causalSource == permitCausalPinnedSchema {
+		prefix = "CREATE OR REPLACE FUNCTION guard_claim_causal_commit_v10() RETURNS trigger\nLANGUAGE plpgsql AS $guard$"
+	}
+	if strings.Count(causalSource, prefix) != 1 {
 		return fmt.Errorf("%w: missing or ambiguous v10 causal function source", ErrSchemaDrift)
 	}
-	body := strings.SplitN(permitCausalCommitSchema, prefix, 2)[1]
+	body := strings.SplitN(causalSource, prefix, 2)[1]
 	end := strings.Index(body, "$guard$;")
 	if end < 0 {
 		return fmt.Errorf("%w: unterminated v10 causal function source", ErrSchemaDrift)
@@ -205,7 +219,7 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
 	}
 	// A function name or migration checksum is not an enforcement gate.
 	// Verify both initially deferred, enabled-always constraint triggers
-	// still invoke the original v10 source function, not a substitute.
+	// still invoke the attested causal function, not a substitute.
 	for _, trigger := range []struct {
 		table, name string
 	}{
