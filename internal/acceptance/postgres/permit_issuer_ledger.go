@@ -66,41 +66,33 @@ func validPermitDraft(d issuer.PermitDraft) bool {
 		v.ExpiresAt.After(v.IssuedAt)
 }
 
-func samePermitDraft(
-	d issuer.PermitDraft,
-	runID, runtimeAttemptID, turnID, approvalRef, riskRevision,
-	decisionID, planID, planHash, stepID, capabilityID, capabilityVersion,
-	capabilityContractSHA256, resourceRef,
-	actionHash, bindingDigest, audience, policyVersion, issuedBy string,
-	issuedAt, expiresAt time.Time,
-) bool {
-	v := d.Values()
-	return v.RunID == runID &&
-		v.RuntimeAttemptID == runtimeAttemptID &&
-		v.TurnID == turnID &&
-		v.ApprovalRef == approvalRef &&
-		v.RiskRevision == riskRevision &&
-		v.DecisionID == decisionID &&
-		v.PlanID == planID &&
-		v.PlanHash == planHash &&
-		v.StepID == stepID &&
-		v.CapabilityID == capabilityID &&
-		v.CapabilityVersion == capabilityVersion &&
-		v.CapabilityContractSHA256 == capabilityContractSHA256 &&
-		v.ResourceRef == resourceRef &&
-		v.ActionHash == actionHash &&
-		v.ToolBindingDigest == bindingDigest &&
-		v.Audience == audience &&
-		v.PolicyVersion == policyVersion &&
-		v.IssuedBy == issuedBy &&
-		v.IssuedAt.Equal(issuedAt) &&
-		v.ExpiresAt.Equal(expiresAt)
+func samePermitAuthority(expected, actual issuer.PermitDraftValues) bool {
+	return expected.TenantID == actual.TenantID &&
+		expected.OperationID == actual.OperationID &&
+		expected.RunID == actual.RunID &&
+		expected.RuntimeAttemptID == actual.RuntimeAttemptID &&
+		expected.TurnID == actual.TurnID &&
+		expected.ApprovalRef == actual.ApprovalRef &&
+		expected.RiskRevision == actual.RiskRevision &&
+		expected.DecisionID == actual.DecisionID &&
+		expected.PlanID == actual.PlanID &&
+		expected.PlanHash == actual.PlanHash &&
+		expected.StepID == actual.StepID &&
+		expected.CapabilityID == actual.CapabilityID &&
+		expected.CapabilityVersion == actual.CapabilityVersion &&
+		expected.CapabilityContractSHA256 == actual.CapabilityContractSHA256 &&
+		expected.ResourceRef == actual.ResourceRef &&
+		expected.ActionHash == actual.ActionHash &&
+		expected.ToolBindingDigest == actual.ToolBindingDigest &&
+		expected.PolicyVersion == actual.PolicyVersion &&
+		expected.Audience == actual.Audience &&
+		expected.IssuedBy == actual.IssuedBy
 }
 
 func (l *PermitIssuerLedger) PersistIssuedPermit(
 	ctx context.Context, draft issuer.PermitDraft, maxTTL time.Duration,
-) (issuer.ScopedPermit, error) {
-	var zero issuer.ScopedPermit
+) (issuer.PersistedPermit, error) {
+	var zero issuer.PersistedPermit
 	if l == nil || l.store == nil || ctx == nil {
 		return zero, issuer.ErrUnavailable
 	}
@@ -133,6 +125,7 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 		values.Audience, values.PolicyVersion, values.IssuedBy, values.IssuedAt, values.ExpiresAt).
 		Scan(&permitID)
 
+	persistedValues := values
 	switch {
 	case err == nil:
 		if _, err := tx.ExecContext(ctx, `
@@ -150,6 +143,13 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 			values.IssuedBy, values.IssuedAt, values.ExpiresAt); err != nil {
 			return zero, fmt.Errorf("%w: persist Permit authority evidence: %w", issuer.ErrUnavailable, err)
 		}
+		// A new Permit must be issued within the allowed clock-skew window.
+		// This check is intentionally limited to new rows; replay returns the
+		// original issuance timestamps and must remain idempotent after restart.
+		if err := verifyPermitIssueWindow(ctx, tx, values, maxTTL); err != nil {
+			return zero, err
+		}
+
 	case errors.Is(err, sql.ErrNoRows):
 		var runID, runtimeAttemptID, turnID, approvalRef, riskRevision string
 		var decisionID, planID, planHash, stepID, capabilityID, capabilityVersion sql.NullString
@@ -161,8 +161,8 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 			       e.run_id,e.runtime_attempt_id,e.turn_id,e.approval_ref,e.risk_revision,
 			       e.decision_id,e.plan_id,e.plan_hash,e.step_id,e.capability_id,e.capability_version,
 			       e.capability_contract_sha256,e.resource_ref,
-			       p.action_hash,p.binding_digest,p.audience,p.policy_version,p.issued_by,
-			       p.issued_at,p.expires_at
+		       p.action_hash,p.binding_digest,p.audience,p.policy_version,p.issued_by,
+		       p.issued_at,p.expires_at
 			FROM guard_permits p
 			JOIN guard_permit_authority_evidence e
 			  ON e.tenant_id=p.tenant_id AND e.operation_id=p.operation_id
@@ -183,36 +183,55 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 		}
 		if !decisionID.Valid || !planID.Valid || !planHash.Valid || !stepID.Valid ||
 			!capabilityID.Valid || !capabilityVersion.Valid ||
-			!capabilityContractSHA256.Valid || !resourceRef.Valid ||
-			!samePermitDraft(draft, runID, runtimeAttemptID, turnID, approvalRef,
-				riskRevision, decisionID.String, planID.String, planHash.String, stepID.String,
-				capabilityID.String, capabilityVersion.String, capabilityContractSHA256.String,
-				resourceRef.String, actionHash, bindingDigest, audience, policyVersion,
-				issuedBy, issuedAt, expiresAt) {
+			!capabilityContractSHA256.Valid || !resourceRef.Valid {
 			return zero, issuer.ErrConflict
 		}
+		persistedValues = issuer.PermitDraftValues{
+			TenantID:                 values.TenantID,
+			OperationID:              values.OperationID,
+			RunID:                    runID,
+			RuntimeAttemptID:         runtimeAttemptID,
+			TurnID:                   turnID,
+			ApprovalRef:              approvalRef,
+			RiskRevision:             riskRevision,
+			DecisionID:               decisionID.String,
+			PlanID:                   planID.String,
+			PlanHash:                 planHash.String,
+			StepID:                   stepID.String,
+			CapabilityID:             capabilityID.String,
+			CapabilityVersion:        capabilityVersion.String,
+			CapabilityContractSHA256: capabilityContractSHA256.String,
+			ResourceRef:              resourceRef.String,
+			ActionHash:               actionHash,
+			ToolBindingDigest:        bindingDigest,
+			PolicyVersion:            policyVersion,
+			Audience:                 audience,
+			IssuedBy:                 issuedBy,
+			IssuedAt:                 issuedAt,
+			ExpiresAt:                expiresAt,
+		}
+		if !samePermitAuthority(values, persistedValues) {
+			return zero, issuer.ErrConflict
+		}
+		if err := verifyPermitReplayWindow(ctx, tx, persistedValues, values.ExpiresAt, maxTTL); err != nil {
+			return zero, err
+		}
+
 	default:
 		return zero, fmt.Errorf("%w: insert Permit: %w", issuer.ErrUnavailable, err)
 	}
 
-	// Validate the issuance window against PostgreSQL's clock in the same
-	// transaction that writes the Permit and immutable authority evidence.
-	// A skewed issuer host clock must not extend the effective Permit lifetime.
-	if err := verifyPermitIssueWindow(ctx, tx, draft, maxTTL); err != nil {
-		return zero, err
-	}
 	if err := tx.Commit(); err != nil {
 		return zero, fmt.Errorf("%w: commit Permit issuance: %w", issuer.ErrUnavailable, err)
 	}
-	return issuer.ScopedPermit{PermitID: permitID, Draft: draft}, nil
+	return issuer.PersistedPermit{PermitID: permitID, Values: persistedValues}, nil
 }
 
 const maxPermitIssuerClockSkew = 30 * time.Second
 
 func verifyPermitIssueWindow(
-	ctx context.Context, tx *sql.Tx, draft issuer.PermitDraft, maxTTL time.Duration,
+	ctx context.Context, tx *sql.Tx, values issuer.PermitDraftValues, maxTTL time.Duration,
 ) error {
-	values := draft.Values()
 	if maxTTL <= 0 || values.ExpiresAt.After(values.IssuedAt.Add(maxTTL)) {
 		return issuer.ErrDenied
 	}
@@ -224,6 +243,29 @@ func verifyPermitIssueWindow(
 		values.IssuedAt.After(dbNow.Add(maxPermitIssuerClockSkew)) ||
 		!values.ExpiresAt.After(dbNow) ||
 		values.ExpiresAt.After(dbNow.Add(maxTTL)) {
+		return issuer.ErrDenied
+	}
+	return nil
+}
+
+func verifyPermitReplayWindow(
+	ctx context.Context, tx *sql.Tx, existing issuer.PermitDraftValues,
+	requestedExpiry time.Time, maxTTL time.Duration,
+) error {
+	if maxTTL <= 0 || existing.IssuedAt.IsZero() ||
+		existing.ExpiresAt.IsZero() ||
+		!existing.ExpiresAt.After(existing.IssuedAt) ||
+		existing.ExpiresAt.After(existing.IssuedAt.Add(maxTTL)) ||
+		existing.ExpiresAt.After(requestedExpiry) {
+		return issuer.ErrDenied
+	}
+	var dbNow time.Time
+	if err := tx.QueryRowContext(ctx, "SELECT clock_timestamp()").Scan(&dbNow); err != nil {
+		return fmt.Errorf("%w: sample PostgreSQL replay clock: %w", issuer.ErrUnavailable, err)
+	}
+	if existing.IssuedAt.After(dbNow.Add(maxPermitIssuerClockSkew)) ||
+		!existing.ExpiresAt.After(dbNow) ||
+		existing.ExpiresAt.After(dbNow.Add(maxTTL)) {
 		return issuer.ErrDenied
 	}
 	return nil
