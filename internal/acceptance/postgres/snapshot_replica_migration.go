@@ -56,6 +56,7 @@ func verifySnapshotReplicaCatalog(ctx context.Context, tx *sql.Tx) error {
                   AND t.tgname=$1 AND NOT t.tgisinternal
                   AND t.tgenabled='A' AND t.tgtype=$2
                   AND t.tgqual IS NULL AND t.tgattr::text=''
+                  AND t.tgnargs=0 AND pg_catalog.octet_length(t.tgargs)=0
                   AND NOT t.tgdeferrable AND NOT t.tginitdeferred
                   AND t.tgfoid=pg_catalog.to_regprocedure('guard_reject_snapshot_mutation()')
             )`, trigger.name, trigger.bits).Scan(&valid)
