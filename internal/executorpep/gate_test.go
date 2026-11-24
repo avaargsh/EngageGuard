@@ -256,17 +256,17 @@ func TestExecutorPreEffectFailClosedForIdentityOrAuthorityDrift(t *testing.T) {
 		liveError error
 		wantError error
 	}{
-		{"no TLS", ca.cert, nil, nil, 0, 0},
-		{"wrong executor SPIFFE", ca.cert, verifiedPeer(t, ca, "spiffe://platform.example/ns/sandbox/sa/attacker"), nil, 0, 0},
+		{"no TLS", ca.cert, nil, nil, 0, 0}, nil, ErrBlocked},
+		{"wrong executor SPIFFE", ca.cert, verifiedPeer(t, ca, "spiffe://platform.example/ns/sandbox/sa/attacker"), nil, 0, 0}, nil, ErrBlocked},
 		// Go x509.Verify permits an absent EKU as unconstrained. A protected
 		// executor must require an explicit client-auth SVID usage.
-		{"missing client-auth EKU", ca.cert, verifiedPeer(t, ca, goodExecutorID, true), nil, 0, 0},
-		{"unrestricted Any EKU", ca.cert, verifiedPeerWithEKUs(t, ca, goodExecutorID, []x509.ExtKeyUsage{x509.ExtKeyUsageAny}), nil, 0, 0},
-		{"mixed client and server EKU", ca.cert, verifiedPeerWithEKUs(t, ca, goodExecutorID, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth}), nil, 0, 0},
-		{"runtime is not executor", ca.cert, verifiedPeer(t, ca, "spiffe://platform.example/ns/agents/sa/agent-runtime"), nil, 0, 0},
-		{"different pinned CA", other.cert, verifiedPeer(t, ca, goodExecutorID), nil, 0, 0},
-		{"tenant drift", ca.cert, verifiedPeer(t, ca, goodExecutorID), func(a *action.WorkspaceWrite) { a.TenantID = "tenant-b" }, 0, 0},
-		{"audience drift", ca.cert, verifiedPeer(t, ca, goodExecutorID), func(a *action.WorkspaceWrite) { a.Audience = "other-executor" }, 0, 0},
+		{"missing client-auth EKU", ca.cert, verifiedPeer(t, ca, goodExecutorID, true), nil, 0, 0}, nil, ErrBlocked},
+		{"unrestricted Any EKU", ca.cert, verifiedPeerWithEKUs(t, ca, goodExecutorID, []x509.ExtKeyUsage{x509.ExtKeyUsageAny}), nil, 0, 0}, nil, ErrBlocked},
+		{"mixed client and server EKU", ca.cert, verifiedPeerWithEKUs(t, ca, goodExecutorID, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth}), nil, 0, 0}, nil, ErrBlocked},
+		{"runtime is not executor", ca.cert, verifiedPeer(t, ca, "spiffe://platform.example/ns/agents/sa/agent-runtime"), nil, 0, 0}, nil, ErrBlocked},
+		{"different pinned CA", other.cert, verifiedPeer(t, ca, goodExecutorID), nil, 0, 0}, nil, ErrBlocked},
+		{"tenant drift", ca.cert, verifiedPeer(t, ca, goodExecutorID), func(a *action.WorkspaceWrite) { a.TenantID = "tenant-b" }, 0, 0}, nil, ErrBlocked},
+		{"audience drift", ca.cert, verifiedPeer(t, ca, goodExecutorID), func(a *action.WorkspaceWrite) { a.Audience = "other-executor" }, 0, 0}, nil, ErrBlocked},
 		{"unavailable live preflight", ca.cert, verifiedPeer(t, ca, goodExecutorID), nil, 1, 0, errors.New("runtime authority timeout"), ErrUnavailable},
 		{"policy revoked after ledger read", ca.cert, verifiedPeer(t, ca, goodExecutorID), nil, 2, 0, ErrLiveDenied, ErrBlocked},
 		{"ledger UNKNOWN/revoked at final check", ca.cert, verifiedPeer(t, ca, goodExecutorID), nil, 0, 2, nil, ErrBlocked},
