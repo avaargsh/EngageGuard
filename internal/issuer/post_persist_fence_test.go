@@ -26,7 +26,10 @@ func TestIssuerPostPersistFence(t *testing.T) {
 	}{
 		{name: "canceled after durable write", cancel: true},
 		{name: "expires during durable write", delay: 2 * time.Minute},
+		{name: "expires before durable write returns", delay: 2*time.Minute + time.Microsecond},
+		{name: "issuer clock regresses", delay: -time.Second},
 		{name: "still valid after durable write", delay: time.Second},
+		{name: "valid one microsecond before expiry", delay: 2*time.Minute - time.Microsecond},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			now := time.Date(2026, 11, 24, 7, 0, 0, 0, time.UTC)
@@ -57,9 +60,9 @@ func TestIssuerPostPersistFence(t *testing.T) {
 				if !errors.Is(err, ErrUnavailable) || !errors.Is(err, context.Canceled) || permit != (ScopedPermit{}) {
 					t.Fatalf("canceled post-persist result: permit=%+v err=%v", permit, err)
 				}
-			case tc.delay == 2*time.Minute:
+			case tc.delay >= 2*time.Minute || tc.delay < 0:
 				if !errors.Is(err, ErrUnavailable) || permit != (ScopedPermit{}) {
-					t.Fatalf("expired post-persist result: permit=%+v err=%v", permit, err)
+					t.Fatalf("invalid post-persist result: permit=%+v err=%v", permit, err)
 				}
 			default:
 				if err != nil || permit.PermitID == "" {
