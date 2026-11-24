@@ -20,14 +20,16 @@ func (a *actionRequestAuthority) VerifyIssue(_ context.Context, _ action.ActionR
 }
 
 type actionRequestLedger struct {
-	last  PermitDraft
-	calls int
-	err   error
+	last   PermitDraft
+	maxTTL time.Duration
+	calls  int
+	err    error
 }
 
-func (l *actionRequestLedger) PersistIssuedPermit(_ context.Context, draft PermitDraft) (ScopedPermit, error) {
+func (l *actionRequestLedger) PersistIssuedPermit(_ context.Context, draft PermitDraft, maxTTL time.Duration) (ScopedPermit, error) {
 	l.calls++
 	l.last = draft
+	l.maxTTL = maxTTL
 	if l.err != nil {
 		return ScopedPermit{}, l.err
 	}
@@ -109,6 +111,9 @@ func TestTrustedIssuerBindsActionRequestV1RunAndCapabilityVersion(t *testing.T) 
 	}
 	if permit.PermitID == "" || ledger.calls != 1 {
 		t.Fatalf("valid ActionRequest was not persisted exactly once: permit=%q calls=%d", permit.PermitID, ledger.calls)
+	}
+	if ledger.maxTTL != 5*time.Minute {
+		t.Fatalf("issuer passed max TTL %s to ledger, want 5m", ledger.maxTTL)
 	}
 	values := ledger.last.Values()
 	if values.TenantID != resolved.TenantID ||
