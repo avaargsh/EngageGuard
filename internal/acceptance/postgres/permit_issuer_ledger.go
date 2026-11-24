@@ -207,8 +207,11 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 			PolicyVersion:            policyVersion,
 			Audience:                 audience,
 			IssuedBy:                 issuedBy,
-			IssuedAt:                 issuedAt,
-			ExpiresAt:                expiresAt,
+			// database/sql returns timestamps with the driver's location
+			// pointer. Normalize to UTC so replay reconstructs the exact
+			// canonical PermitDraft value, not merely an Equal() timestamp.
+			IssuedAt:                 issuedAt.UTC().Truncate(time.Microsecond),
+			ExpiresAt:                expiresAt.UTC().Truncate(time.Microsecond),
 		}
 		if !samePermitAuthority(values, persistedValues) {
 			return zero, issuer.ErrConflict
