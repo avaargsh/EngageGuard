@@ -244,3 +244,49 @@ func TestPermitIssuerLedgerRejectsIssuerClockSkewAgainstPostgres(t *testing.T) {
 		})
 	}
 }
+
+
+func TestPermitIssuerLedgerReplaysExistingPermitAfterIssuerClockAdvances(t *testing.T) {
+	store, db := integrationStore(t)
+	firstService, authority, resolved := acceptedPermitIssuer(t, store)
+	first, err := firstService.Issue(context.Background(), resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate a retry after an issuer restart: the authority evidence and
+	// operation are unchanged, but the new process has a later local clock.
+	retryNow := first.Draft.Values().IssuedAt.Add(time.Second)
+	ledger, err := NewPermitIssuerLedger(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retryService, err := issuer.New(issuer.Config{
+		IssuerIdentity: "spiffe://platform.example/ns/guard/sa/issuer",
+		MaxTTL:         5 * time.Minute,
+		Now:            func() time.Time { return retryNow },
+	}, authority, ledger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := retryService.Issue(context.Background(), resolved)
+	if err != nil {
+		t.Fatalf("valid replay after issuer clock advanced was rejected: %v", err)
+	}
+	if replayed.PermitID != first.PermitID || replayed.Draft != first.Draft {
+		t.Fatalf("retry did not return the original persisted Permit: first=%+v replayed=%+v", first, replayed)
+	}
+
+	var permits, evidence int
+	if err := db.QueryRowContext(context.Background(),
+		"SELECT count(*) FROM guard_permits WHERE operation_id=$1::uuid", resolved.OperationID).Scan(&permits); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(context.Background(),
+		"SELECT count(*) FROM guard_permit_authority_evidence WHERE operation_id=$1::uuid", resolved.OperationID).Scan(&evidence); err != nil {
+		t.Fatal(err)
+	}
+	if permits != 1 || evidence != 1 {
+		t.Fatalf("replay changed durable ledger cardinality: permits=%d evidence=%d, want 1/1", permits, evidence)
+	}
+}
