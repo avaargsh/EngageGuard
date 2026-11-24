@@ -17,7 +17,7 @@ type fakeAuthority struct {
 	calls  int
 }
 
-func (f *fakeAuthority) VerifyIssue(_ context.Context, _ action.WorkspaceWrite) (Authorization, error) {
+func (f *fakeAuthority) VerifyIssue(_ context.Context, _ action.ActionRequest) (Authorization, error) {
 	f.calls++
 	return f.result, f.err
 }
@@ -37,41 +37,12 @@ func (f *fakeLedger) PersistIssuedPermit(_ context.Context, draft PermitDraft) (
 	return ScopedPermit{PermitID: "10000000-0000-4000-8000-000000000010", Draft: draft}, nil
 }
 
-func resolvedAction() action.WorkspaceWrite {
-	return action.WorkspaceWrite{
-		SchemaVersion:     "v0.1",
-		TenantID:          "tenant-a",
-		SubjectID:         "subject-a",
-		AgentID:           "agent-a",
-		OperationID:       "10000000-0000-4000-8000-000000000003",
-		CapabilityID:      "workspace.write",
-		ToolBindingDigest: strings.Repeat("a", 64),
-		PolicyVersion:     "policy-7",
-		Audience:          "trusted-workspace-executor",
-		WorkspaceID:       "workspace-a",
-		RelativePath:      "docs/output.md",
-		ContentDigest:     strings.Repeat("b", 64),
-	}
+func resolvedAction() action.ActionRequest {
+	return resolvedActionRequest()
 }
 
-func validAuthorization(t *testing.T, a action.WorkspaceWrite, now time.Time) Authorization {
-	t.Helper()
-	hash, err := action.Hash(a)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return Authorization{
-		RunID:             "run-1",
-		RuntimeAttemptID:  "run-attempt-1",
-		TurnID:            "turn-1",
-		ApprovalRef:       "approval-1",
-		RiskRevision:      "risk-17",
-		ActionHash:        hash,
-		ToolBindingDigest: a.ToolBindingDigest,
-		PolicyVersion:     a.PolicyVersion,
-		Audience:          a.Audience,
-		ValidUntil:        now.Add(2 * time.Minute),
-	}
+func validAuthorization(t *testing.T, a action.ActionRequest, now time.Time) Authorization {
+	return authorizationForAction(t, a, now)
 }
 
 func TestTrustedIssuerBindsCurrentAuthorityToExactResolvedAction(t *testing.T) {
