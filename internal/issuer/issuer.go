@@ -122,12 +122,15 @@ func validSPIFFEID(value string) bool {
 		identityRE.MatchString(parts[4])
 }
 
+// Authority references are protocol identifiers, not display text. Restrict
+// them to visible ASCII so bidi controls, zero-width format characters,
+// C1 controls and Unicode lookalikes cannot create ambiguous audit identities.
 func validEvidence(value string) bool {
 	if value == "" || value != strings.TrimSpace(value) || len(value) > 512 {
 		return false
 	}
-	for _, r := range value {
-		if r < 0x21 || r == 0x7f {
+	for i := 0; i < len(value); i++ {
+		if value[i] < 0x21 || value[i] > 0x7e {
 			return false
 		}
 	}
@@ -157,7 +160,15 @@ func (s *Service) Issue(ctx context.Context, resolved action.WorkspaceWrite) (Sc
 
 	auth, err := s.authority.VerifyIssue(ctx, resolved)
 	if err != nil {
+		if errors.Is(err, ErrDenied) || errors.Is(err, ErrConflict) {
+			return zero, fmt.Errorf("authority verification: %w", err)
+		}
 		return zero, fmt.Errorf("%w: authority verification: %w", ErrUnavailable, err)
+	}
+	// A source may return after the caller's deadline. Do not let a custom
+	// ledger implementation turn that canceled request into a new Permit.
+	if err := ctx.Err(); err != nil {
+		return zero, fmt.Errorf("%w: context after authority verification: %w", ErrUnavailable, err)
 	}
 	now := s.cfg.Now().UTC().Truncate(time.Microsecond)
 	expiresAt := auth.ValidUntil.UTC().Truncate(time.Microsecond)
@@ -191,6 +202,9 @@ func (s *Service) Issue(ctx context.Context, resolved action.WorkspaceWrite) (Sc
 	}}
 	permit, err := s.ledger.PersistIssuedPermit(ctx, draft)
 	if err != nil {
+		if errors.Is(err, ErrDenied) || errors.Is(err, ErrConflict) {
+			return zero, fmt.Errorf("persist Permit: %w", err)
+		}
 		return zero, fmt.Errorf("%w: persist Permit: %w", ErrUnavailable, err)
 	}
 	if !permitIDRE.MatchString(permit.PermitID) || permit.Draft.Values() != draft.Values() {
