@@ -206,7 +206,7 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 			ToolBindingDigest:        bindingDigest,
 			PolicyVersion:            policyVersion,
 			Audience:                 audience,
-			IssuedBy: issuedBy,
+			IssuedBy:                 issuedBy,
 			// database/sql returns timestamps with the driver's location
 			// pointer. Normalize to UTC so replay reconstructs the exact
 			// canonical PermitDraft value, not merely an Equal() timestamp.
