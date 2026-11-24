@@ -71,6 +71,10 @@ func (s *Store) InspectPreEffectLedger(
 			  AND p.issued_at <= p.claimed_at AND p.claimed_at < p.expires_at
 			  AND p.issued_at <= t.at AND t.at < p.expires_at
 			  AND p.revoked_at IS NULL
+			  AND NOT EXISTS (
+				  SELECT 1 FROM guard_operation_unknown_events e
+				  WHERE e.tenant_id=i.tenant_id AND e.attempt_id=i.attempt_id
+			  )
 			  AND p.action_hash=$5 AND i.action_hash=$5
 			  AND p.binding_digest=$6 AND i.binding_digest=$6
 			  AND p.audience=$7 AND p.policy_version=$8
