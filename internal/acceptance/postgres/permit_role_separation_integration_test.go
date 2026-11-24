@@ -135,6 +135,12 @@ func TestPermitIssuerAndClaimerRoleSeparation(t *testing.T) {
 		{"claimer gained accepted source UPDATE",
 			"GRANT UPDATE (submission_bytes) ON guard_accepted_submission_snapshots TO " + claimer,
 			"REVOKE UPDATE (submission_bytes) ON guard_accepted_submission_snapshots FROM " + claimer},
+		{"claimer gained accepted source column SELECT",
+			"GRANT SELECT (submission_bytes) ON guard_accepted_submission_snapshots TO " + claimer,
+			"REVOKE SELECT (submission_bytes) ON guard_accepted_submission_snapshots FROM " + claimer},
+		{"issuer gained outbox column SELECT",
+			"GRANT SELECT (event_type) ON guard_outbox_events TO " + issuer,
+			"REVOKE SELECT (event_type) ON guard_outbox_events FROM " + issuer},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := db.ExecContext(ctx, tc.grant); err != nil {
