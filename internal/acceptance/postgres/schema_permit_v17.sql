@@ -72,3 +72,24 @@ ALTER TABLE guard_permit_authority_evidence
         length(resource_ref) BETWEEN 1 AND 512
         AND resource_ref !~ '[[:cntrl:][:space:]]'
     ));
+-- Existing v16 evidence may predate the printable-ASCII contract. Do not
+-- fabricate or rewrite those rows during migration. NOT VALID preserves them,
+-- while PostgreSQL enforces this constraint on every new or changed row.
+ALTER TABLE guard_permit_authority_evidence
+    ADD CONSTRAINT guard_permit_authority_v17_ascii_identifiers_check
+    CHECK (
+        run_id COLLATE "C" ~ '^[!-~]{1,512}$'
+        AND runtime_attempt_id COLLATE "C" ~ '^[!-~]{1,512}$'
+        AND turn_id COLLATE "C" ~ '^[!-~]{1,512}$'
+        AND approval_ref COLLATE "C" ~ '^[!-~]{1,512}$'
+        AND risk_revision COLLATE "C" ~ '^[!-~]{1,512}$'
+        AND audience COLLATE "C" ~ '^[!-~]{1,512}$'
+        AND policy_version COLLATE "C" ~ '^[!-~]{1,512}$'
+        AND issued_by COLLATE "C" ~ '^[!-~]{1,512}$'
+        AND (decision_id IS NULL OR decision_id COLLATE "C" ~ '^[!-~]{1,512}$')
+        AND (plan_id IS NULL OR plan_id COLLATE "C" ~ '^[!-~]{1,512}$')
+        AND (step_id IS NULL OR step_id COLLATE "C" ~ '^[!-~]{1,512}$')
+        AND (capability_id IS NULL OR capability_id COLLATE "C" ~ '^[!-~]{1,512}$')
+        AND (capability_version IS NULL OR capability_version COLLATE "C" ~ '^[!-~]{1,512}$')
+        AND (resource_ref IS NULL OR resource_ref COLLATE "C" ~ '^[!-~]{1,512}$')
+    ) NOT VALID;
