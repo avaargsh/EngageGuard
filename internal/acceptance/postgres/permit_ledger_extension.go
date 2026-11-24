@@ -113,6 +113,40 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx, causalSource str
 			return fmt.Errorf("%w: invalid Permit relation %s: %v", ErrSchemaDrift, name, err)
 		}
 	}
+	// Attest the one-time cardinality constraints and their live backing
+	// indexes. A same-named wider UNIQUE key does not fence replays.
+	for _, key := range []struct {
+		table, name, columns string
+	}{
+		{"guard_permits", "guard_permit_operation_unique", "tenant_id,operation_id"},
+		{"guard_operation_intents", "guard_intent_one_per_operation", "tenant_id,operation_id"},
+		{"guard_operation_intents", "guard_intent_one_per_permit", "tenant_id,permit_id"},
+		{"guard_execution_audit", "guard_audit_one_dispatch_event", "tenant_id,operation_id,event_type"},
+		{"guard_operation_unknown_events", "guard_unknown_once_per_attempt", "tenant_id,attempt_id"},
+		{"guard_permit_revocations", "guard_revocation_one_per_permit", "tenant_id,permit_id"},
+	} {
+		var valid bool
+		err := tx.QueryRowContext(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_catalog.pg_constraint c
+				JOIN pg_catalog.pg_index i ON i.indexrelid=c.conindid
+				WHERE c.conrelid=pg_catalog.to_regclass($1) AND c.conname=$2
+				  AND c.contype='u' AND c.convalidated
+				  AND NOT c.condeferrable AND NOT c.condeferred
+				  AND i.indrelid=c.conrelid AND i.indisunique
+				  AND i.indisvalid AND i.indisready AND i.indislive AND i.indimmediate
+				  AND i.indpred IS NULL AND i.indexprs IS NULL
+				  AND i.indnkeyatts=pg_catalog.array_length(c.conkey,1)
+				  AND (SELECT pg_catalog.string_agg(a.attname,',' ORDER BY k.ord)
+				       FROM pg_catalog.unnest(c.conkey) WITH ORDINALITY k(attnum,ord)
+				       JOIN pg_catalog.pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.attnum
+				       WHERE a.attnotnull AND NOT a.attisdropped)=$3
+			)
+		`, key.table, key.name, key.columns).Scan(&valid)
+		if err != nil || !valid {
+			return fmt.Errorf("%w: invalid one-time Permit ledger key %s: %v", ErrSchemaDrift, key.name, err)
+		}
+	}
 	for _, pair := range []struct {
 		table, name, referenced, columns, target string
 	}{
