@@ -56,18 +56,18 @@ func seedV14Claim(t *testing.T, db *sql.DB) (*Store, action.WorkspaceWrite, stri
 		t.Fatalf("historical admission fixture: created=%t err=%v", created, err)
 	}
 	resolved := action.WorkspaceWrite{
-		SchemaVersion: "v0.1",
-		TenantID: "tenant-a",
-		SubjectID: "verified-runtime-subject",
-		AgentID: "verified-agent",
-		OperationID: op.OperationID,
-		CapabilityID: "workspace.write",
+		SchemaVersion:     "v0.1",
+		TenantID:          "tenant-a",
+		SubjectID:         "verified-runtime-subject",
+		AgentID:           "verified-agent",
+		OperationID:       op.OperationID,
+		CapabilityID:      "workspace.write",
 		ToolBindingDigest: strings.Repeat("a", 64),
-		PolicyVersion: "signed-policy-7",
-		Audience: "trusted-workspace-executor",
-		WorkspaceID: "workspace-1",
-		RelativePath: "docs/output.md",
-		ContentDigest: strings.Repeat("b", 64),
+		PolicyVersion:     "signed-policy-7",
+		Audience:          "trusted-workspace-executor",
+		WorkspaceID:       "workspace-1",
+		RelativePath:      "docs/output.md",
+		ContentDigest:     strings.Repeat("b", 64),
 	}
 	hash, err := action.Hash(resolved)
 	if err != nil {
