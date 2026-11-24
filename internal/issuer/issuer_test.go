@@ -202,3 +202,67 @@ func TestPermitDraftIsOpaqueToCallers(t *testing.T) {
 		}
 	}
 }
+
+
+func TestTrustedIssuerPreservesDenialAndConflictClassification(t *testing.T) {
+	now := time.Date(2026, 11, 24, 5, 40, 0, 0, time.UTC)
+	a := resolvedAction()
+	valid := validAuthorization(t, a, now)
+
+	t.Run("authority denial is not availability failure", func(t *testing.T) {
+		auth := &fakeAuthority{result: valid, err: ErrDenied}
+		ledger := &fakeLedger{}
+		svc, err := New(Config{
+			IssuerIdentity: "spiffe://platform.example/ns/guard/sa/issuer",
+			MaxTTL:         5 * time.Minute,
+			Now:            func() time.Time { return now },
+		}, auth, ledger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.Issue(context.Background(), a); !errors.Is(err, ErrDenied) || errors.Is(err, ErrUnavailable) {
+			t.Fatalf("authority denial classification=%v; want ErrDenied without ErrUnavailable", err)
+		}
+		if ledger.calls != 0 {
+			t.Fatalf("denied authority reached ledger: %d", ledger.calls)
+		}
+	})
+
+	t.Run("ledger conflict is not availability failure", func(t *testing.T) {
+		auth := &fakeAuthority{result: valid}
+		ledger := &fakeLedger{err: ErrConflict}
+		svc, err := New(Config{
+			IssuerIdentity: "spiffe://platform.example/ns/guard/sa/issuer",
+			MaxTTL:         5 * time.Minute,
+			Now:            func() time.Time { return now },
+		}, auth, ledger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.Issue(context.Background(), a); !errors.Is(err, ErrConflict) || errors.Is(err, ErrUnavailable) {
+			t.Fatalf("ledger conflict classification=%v; want ErrConflict without ErrUnavailable", err)
+		}
+		if ledger.calls != 1 {
+			t.Fatalf("ledger calls=%d; want 1", ledger.calls)
+		}
+	})
+
+	t.Run("authority outage remains availability failure", func(t *testing.T) {
+		auth := &fakeAuthority{err: errors.New("authority timeout")}
+		ledger := &fakeLedger{}
+		svc, err := New(Config{
+			IssuerIdentity: "spiffe://platform.example/ns/guard/sa/issuer",
+			MaxTTL:         5 * time.Minute,
+			Now:            func() time.Time { return now },
+		}, auth, ledger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.Issue(context.Background(), a); !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("authority outage classification=%v; want ErrUnavailable", err)
+		}
+		if ledger.calls != 0 {
+			t.Fatalf("unavailable authority reached ledger: %d", ledger.calls)
+		}
+	})
+}
