@@ -28,6 +28,13 @@ func TestMigrateRejectsSameNameWeakenedGuardCheckDefinitions(t *testing.T) {
 			},
 		},
 		{
+			name: "v17 printable ASCII identifiers lose the 512-character bound",
+			statements: []string{
+				"ALTER TABLE guard_permit_authority_evidence DROP CONSTRAINT guard_permit_authority_v17_ascii_identifiers_check",
+				"ALTER TABLE guard_permit_authority_evidence ADD CONSTRAINT guard_permit_authority_v17_ascii_identifiers_check CHECK (run_id COLLATE \"C\" ~ '^[!-~]+$') NOT VALID",
+			},
+		},
+		{
 			name: "outbox event type can be changed",
 			statements: []string{
 				"ALTER TABLE guard_outbox_events DROP CONSTRAINT guard_outbox_events_event_type_check",

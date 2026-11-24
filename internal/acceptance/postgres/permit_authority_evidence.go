@@ -178,7 +178,8 @@ func verifyPermitAuthorityEvidence(ctx context.Context, tx *sql.Tx) error {
 			return fmt.Errorf("%w: v17 ASCII evidence constraint lost %s", ErrSchemaDrift, column)
 		}
 	}
-	if strings.Count(asciiExpression, "^[!-~]{1,512}$") != 14 ||
+	if strings.Count(asciiExpression, "^[!-~]+$") != 14 ||
+		strings.Count(asciiExpression, "512") != 14 ||
 		!strings.Contains(asciiExpression, `COLLATE "C"`) {
 		return fmt.Errorf("%w: v17 ASCII evidence constraint was weakened", ErrSchemaDrift)
 	}
