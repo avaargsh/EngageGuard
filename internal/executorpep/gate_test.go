@@ -48,7 +48,7 @@ type fakeLive struct {
 
 type unavailableTestError struct{}
 
-func (unavailableTestError) Error() string { return "test-only ledger database unavailable" }
+func (unavailableTestError) Error() string     { return "test-only ledger database unavailable" }
 func (unavailableTestError) Unavailable() bool { return true }
 
 type unavailableFakeLedger struct {
@@ -166,7 +166,7 @@ func verifiedPeerWithEKUs(t *testing.T, ca testCA, identity string, usages []x50
 	}
 	template := &x509.Certificate{
 		SerialNumber: big.NewInt(now.UnixNano()),
-		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
+		NotBefore:    now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
 		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: usages,
 		URIs: []*url.URL{uri},
 	}
@@ -496,7 +496,6 @@ func TestExecutorPreEffectRealTLS13MTLSHandshake(t *testing.T) {
 		t.Fatal("bad handshake/identity reached authority checks")
 	}
 }
-
 
 // NewGate must own a private copy of the operator-pinned root DER. Mutating
 // the caller's certificate object or Raw slice after construction cannot
