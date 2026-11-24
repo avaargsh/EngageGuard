@@ -423,3 +423,51 @@ func TestReadACPReceiptRejectsAmbiguousRepresentationMetadata(t *testing.T) {
 		})
 	}
 }
+
+
+func TestACPCapabilityClientRejectsMalformedAuthenticatedPrincipalBeforeNetwork(t *testing.T) {
+	serverCert, roots := safetyServerCert(t, testACPPeer)
+	clientCA, signer, clientRoots := newTestTransportCA(t)
+	clientCert := newTestTLSLeaf(t, clientCA, signer, true, testGuardPeer)
+	principal, run, submission := acpTestPrincipal(), acpTestRun(), acpTestSubmission(t)
+	var calls atomic.Int32
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write([]byte("{}"))
+	}))
+	server.TLS = &tls.Config{
+		MinVersion: tls.VersionTLS13, ClientAuth: tls.RequireAndVerifyClientCert,
+		ClientCAs: clientRoots, Certificates: []tls.Certificate{serverCert},
+	}
+	server.StartTLS()
+	defer server.Close()
+	client, err := NewACPCapabilityClient(server.URL, testACPPeer, principal.TenantID, roots, clientCert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.CloseIdleConnections()
+
+	mutations := map[string]func(*Principal){
+		"empty subject": func(p *Principal) { p.SubjectID = "" },
+		"invalid subject": func(p *Principal) { p.SubjectID = "subject-\u200b-1" },
+		"empty actor": func(p *Principal) { p.ActorID = "" },
+		"invalid actor": func(p *Principal) { p.ActorID = "actor with space" },
+		"empty workload": func(p *Principal) { p.WorkloadID = "" },
+		"invalid workload": func(p *Principal) { p.WorkloadID = "-runtime" },
+		"wrong service": func(p *Principal) { p.ServiceID = "agent" },
+	}
+	for name, mutate := range mutations {
+		t.Run(name, func(t *testing.T) {
+			candidate := principal
+			mutate(&candidate)
+			if err := client.VerifyCapabilityAccess(context.Background(), candidate, run, submission); !errors.Is(err, ErrForbidden) {
+				t.Fatalf("malformed principal accepted: %v", err)
+			}
+			if calls.Load() != 0 {
+				t.Fatalf("malformed principal reached ACP authority: calls=%d", calls.Load())
+			}
+		})
+	}
+}
