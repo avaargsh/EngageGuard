@@ -152,8 +152,8 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 		}
 	case errors.Is(err, sql.ErrNoRows):
 		var runID, runtimeAttemptID, turnID, approvalRef, riskRevision string
-		var decisionID, planID, planHash, stepID, capabilityID, capabilityVersion string
-		var capabilityContractSHA256, resourceRef string
+		var decisionID, planID, planHash, stepID, capabilityID, capabilityVersion sql.NullString
+		var capabilityContractSHA256, resourceRef sql.NullString
 		var actionHash, bindingDigest, audience, policyVersion, issuedBy string
 		var issuedAt, expiresAt time.Time
 		err = tx.QueryRowContext(ctx, `
@@ -181,10 +181,14 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 		if err != nil {
 			return zero, fmt.Errorf("%w: inspect existing Permit: %w", issuer.ErrUnavailable, err)
 		}
-		if !samePermitDraft(draft, runID, runtimeAttemptID, turnID, approvalRef,
-			riskRevision, decisionID, planID, planHash, stepID, capabilityID, capabilityVersion,
-			capabilityContractSHA256, resourceRef, actionHash, bindingDigest, audience, policyVersion,
-			issuedBy, issuedAt, expiresAt) {
+		if !decisionID.Valid || !planID.Valid || !planHash.Valid || !stepID.Valid ||
+			!capabilityID.Valid || !capabilityVersion.Valid ||
+			!capabilityContractSHA256.Valid || !resourceRef.Valid ||
+			!samePermitDraft(draft, runID, runtimeAttemptID, turnID, approvalRef,
+				riskRevision, decisionID.String, planID.String, planHash.String, stepID.String,
+				capabilityID.String, capabilityVersion.String, capabilityContractSHA256.String,
+				resourceRef.String, actionHash, bindingDigest, audience, policyVersion,
+				issuedBy, issuedAt, expiresAt) {
 			return zero, issuer.ErrConflict
 		}
 	default:
