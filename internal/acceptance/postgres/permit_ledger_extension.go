@@ -155,6 +155,9 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx, causalSource str
 					  AND t.tgenabled = 'A'
 					  AND NOT t.tgisinternal
 					  AND t.tgtype = $3
+					  AND t.tgqual IS NULL AND t.tgattr::text=''
+					  AND t.tgnargs=0 AND pg_catalog.octet_length(t.tgargs)=0
+					  AND NOT t.tgdeferrable AND NOT t.tginitdeferred
 					  AND t.tgfoid = to_regprocedure('guard_reject_snapshot_mutation()')
 				)
 			`, table, table+trigger.suffix, trigger.kind).Scan(&valid)
@@ -178,6 +181,9 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx, causalSource str
 			  WHERE t.tgrelid=to_regclass('guard_permits')
 			    AND t.tgname=$1 AND t.tgtype=$2
 			    AND NOT t.tgisinternal AND t.tgenabled='A'
+			    AND t.tgqual IS NULL AND t.tgattr::text=''
+			    AND t.tgnargs=0 AND pg_catalog.octet_length(t.tgargs)=0
+			    AND NOT t.tgdeferrable AND NOT t.tginitdeferred
 			    AND t.tgfoid=to_regprocedure($3)
 			)
 			`, expected.name, expected.tgtype, expected.function).Scan(&intact)
