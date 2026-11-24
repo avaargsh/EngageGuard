@@ -3,6 +3,7 @@ package issuer
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -177,5 +178,19 @@ func TestTrustedIssuerRejectsIncompleteConstruction(t *testing.T) {
 				t.Fatal("incomplete trusted issuer construction accepted")
 			}
 		})
+	}
+}
+
+
+// PermitDraft crosses the issuer/ledger package boundary, but only the
+// issuer service may construct trusted issuance evidence. Exported fields
+// would let arbitrary in-process callers fabricate approval and risk claims.
+func TestPermitDraftIsOpaqueToCallers(t *testing.T) {
+	typ := reflect.TypeOf(PermitDraft{})
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if field.PkgPath == "" {
+			t.Fatalf("PermitDraft exposes writable field %q outside issuer package", field.Name)
+		}
 	}
 }
