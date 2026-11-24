@@ -44,12 +44,17 @@ func (s *Store) GetDispatchState(ctx context.Context, tenant, operationID, attem
 	if !tenantIDPattern.MatchString(tenant) || !validDispatchUUID(operationID) || !validDispatchUUID(attemptID) {
 		return value, ErrDispatchNotFound
 	}
+	tx, err := s.beginLedgerTx(ctx, true)
+	if err != nil {
+		return DispatchState{}, fmt.Errorf("begin Guard dispatch inspection: %w", err)
+	}
+	defer tx.Rollback()
 	var reason sql.NullString
 	var claimed, audited bool
 	// A standalone Intent is not proof of a committed dispatch. Bind the
 	// CLAIMED Permit and exact immutable dispatch Audit in the same query,
 	// without trusting a caller-supplied state or permitting redispatch.
-	err := s.db.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		SELECT i.tenant_id, i.operation_id::text, i.permit_id::text,
 		       i.attempt_id::text, i.action_hash, i.state, e.reason,
 		       EXISTS (
@@ -92,6 +97,9 @@ func (s *Store) GetDispatchState(ctx context.Context, tenant, operationID, attem
 		(value.State == "DISPATCHING" && value.Reason != "") {
 		return DispatchState{}, ErrUnknownConflict
 	}
+	if err := tx.Commit(); err != nil {
+		return DispatchState{}, fmt.Errorf("commit Guard dispatch inspection: %w", err)
+	}
 	return value, nil
 }
 
@@ -130,7 +138,7 @@ func (s *Store) MarkDispatchUnknown(
 	if !validUnknownReason(reason) {
 		return empty, ErrUnknownCause
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	tx, err := s.beginLedgerTx(ctx, true)
 	if err != nil {
 		return empty, fmt.Errorf("begin Guard UNKNOWN journal: %w", err)
 	}
