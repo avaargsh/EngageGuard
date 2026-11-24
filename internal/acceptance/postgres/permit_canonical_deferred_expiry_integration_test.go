@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -105,5 +106,24 @@ func TestCanonicalPermitRejectsLateCommitWithExactCausalEvidence(t *testing.T) {
 		"SELECT (SELECT count(*) FROM guard_operation_intents),(SELECT count(*) FROM guard_execution_audit)").
 		Scan(&intents, &audits); err != nil || intents != 0 || audits != 0 {
 		t.Fatalf("late claim left durable intent/audit: %d/%d err=%v", intents, audits, err)
+	}
+}
+
+func TestCanonicalPermitExpiryFenceRejectsDisabledOrReplacedTrigger(t *testing.T) {
+	for _, ddl := range []string{
+		"ALTER TABLE guard_permits DISABLE TRIGGER guard_permit_claim_expiry_v12",
+		"ALTER TABLE guard_permits ENABLE TRIGGER guard_permit_claim_expiry_v12",
+		"CREATE OR REPLACE FUNCTION guard_permit_claim_expiry_v12() RETURNS trigger LANGUAGE plpgsql AS $guard$ BEGIN RETURN NEW; END; $guard$",
+	} {
+		t.Run(ddl, func(t *testing.T) {
+			store, _, _ := seededWorkspacePermit(t)
+			ctx := context.Background()
+			if _, err := store.db.ExecContext(ctx, ddl); err != nil {
+				t.Fatal(err)
+			}
+			if err := Migrate(ctx, store.db); !errors.Is(err, ErrSchemaDrift) {
+				t.Fatalf("weakened expiry fence accepted: %v", err)
+			}
+		})
 	}
 }
