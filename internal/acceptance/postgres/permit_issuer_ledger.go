@@ -40,21 +40,22 @@ func validPermitEvidence(value string) bool {
 }
 
 func validPermitDraft(d issuer.PermitDraft) bool {
-	return tenantIDPattern.MatchString(d.TenantID) &&
-		validDispatchUUID(d.OperationID) &&
-		validPermitEvidence(d.RunID) &&
-		validPermitEvidence(d.RuntimeAttemptID) &&
-		validPermitEvidence(d.TurnID) &&
-		validPermitEvidence(d.ApprovalRef) &&
-		validPermitEvidence(d.RiskRevision) &&
-		permitDigestRE.MatchString(d.ActionHash) &&
-		permitDigestRE.MatchString(d.ToolBindingDigest) &&
-		validPermitEvidence(d.PolicyVersion) &&
-		validPermitEvidence(d.Audience) &&
-		validPermitEvidence(d.IssuedBy) &&
-		!d.IssuedAt.IsZero() && d.IssuedAt.Equal(d.IssuedAt.Truncate(time.Microsecond)) &&
-		!d.ExpiresAt.IsZero() && d.ExpiresAt.Equal(d.ExpiresAt.Truncate(time.Microsecond)) &&
-		d.ExpiresAt.After(d.IssuedAt)
+	v := d.Values()
+	return tenantIDPattern.MatchString(v.TenantID) &&
+		validDispatchUUID(v.OperationID) &&
+		validPermitEvidence(v.RunID) &&
+		validPermitEvidence(v.RuntimeAttemptID) &&
+		validPermitEvidence(v.TurnID) &&
+		validPermitEvidence(v.ApprovalRef) &&
+		validPermitEvidence(v.RiskRevision) &&
+		permitDigestRE.MatchString(v.ActionHash) &&
+		permitDigestRE.MatchString(v.ToolBindingDigest) &&
+		validPermitEvidence(v.PolicyVersion) &&
+		validPermitEvidence(v.Audience) &&
+		validPermitEvidence(v.IssuedBy) &&
+		!v.IssuedAt.IsZero() && v.IssuedAt.Equal(v.IssuedAt.Truncate(time.Microsecond)) &&
+		!v.ExpiresAt.IsZero() && v.ExpiresAt.Equal(v.ExpiresAt.Truncate(time.Microsecond)) &&
+		v.ExpiresAt.After(v.IssuedAt)
 }
 
 func samePermitDraft(
@@ -63,18 +64,18 @@ func samePermitDraft(
 	actionHash, bindingDigest, audience, policyVersion, issuedBy string,
 	issuedAt, expiresAt time.Time,
 ) bool {
-	return d.RunID == runID &&
-		d.RuntimeAttemptID == runtimeAttemptID &&
-		d.TurnID == turnID &&
-		d.ApprovalRef == approvalRef &&
-		d.RiskRevision == riskRevision &&
-		d.ActionHash == actionHash &&
-		d.ToolBindingDigest == bindingDigest &&
-		d.Audience == audience &&
-		d.PolicyVersion == policyVersion &&
-		d.IssuedBy == issuedBy &&
-		d.IssuedAt.Equal(issuedAt) &&
-		d.ExpiresAt.Equal(expiresAt)
+	return v.RunID == runID &&
+		v.RuntimeAttemptID == runtimeAttemptID &&
+		v.TurnID == turnID &&
+		v.ApprovalRef == approvalRef &&
+		v.RiskRevision == riskRevision &&
+		v.ActionHash == actionHash &&
+		v.ToolBindingDigest == bindingDigest &&
+		v.Audience == audience &&
+		v.PolicyVersion == policyVersion &&
+		v.IssuedBy == issuedBy &&
+		v.IssuedAt.Equal(issuedAt) &&
+		v.ExpiresAt.Equal(expiresAt)
 }
 
 func (l *PermitIssuerLedger) PersistIssuedPermit(
@@ -90,6 +91,7 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 	if !validPermitDraft(draft) {
 		return zero, issuer.ErrDenied
 	}
+	values := draft.Values()
 
 	tx, err := l.store.beginLedgerTx(ctx, true)
 	if err != nil {
@@ -108,8 +110,8 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 		VALUES ($1,$2::uuid,$3,$4,$5,$6,$7,$8,$9)
 		ON CONFLICT (tenant_id,operation_id) DO NOTHING
 		RETURNING permit_id::text
-	`, draft.TenantID, draft.OperationID, draft.ActionHash, draft.ToolBindingDigest,
-		draft.Audience, draft.PolicyVersion, draft.IssuedBy, draft.IssuedAt, draft.ExpiresAt).
+	`, values.TenantID, values.OperationID, values.ActionHash, values.ToolBindingDigest,
+		values.Audience, values.PolicyVersion, values.IssuedBy, values.IssuedAt, values.ExpiresAt).
 		Scan(&permitID)
 
 	switch {
@@ -120,10 +122,10 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 				 approval_ref,risk_revision,action_hash,binding_digest,audience,
 				 policy_version,issued_by,issued_at,expires_at)
 			VALUES ($1,$2::uuid,$3::uuid,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-		`, draft.TenantID, draft.OperationID, permitID, draft.RunID,
-			draft.RuntimeAttemptID, draft.TurnID, draft.ApprovalRef, draft.RiskRevision,
-			draft.ActionHash, draft.ToolBindingDigest, draft.Audience, draft.PolicyVersion,
-			draft.IssuedBy, draft.IssuedAt, draft.ExpiresAt); err != nil {
+		`, values.TenantID, values.OperationID, permitID, values.RunID,
+			values.RuntimeAttemptID, values.TurnID, values.ApprovalRef, values.RiskRevision,
+			values.ActionHash, values.ToolBindingDigest, values.Audience, values.PolicyVersion,
+			values.IssuedBy, values.IssuedAt, values.ExpiresAt); err != nil {
 			return zero, fmt.Errorf("%w: persist Permit authority evidence: %w", issuer.ErrUnavailable, err)
 		}
 	case errors.Is(err, sql.ErrNoRows):
@@ -140,7 +142,7 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 			  ON e.tenant_id=p.tenant_id AND e.operation_id=p.operation_id
 			 AND e.permit_id=p.permit_id
 			WHERE p.tenant_id=$1 AND p.operation_id=$2::uuid
-		`, draft.TenantID, draft.OperationID).Scan(
+		`, values.TenantID, values.OperationID).Scan(
 			&permitID, &runID, &runtimeAttemptID, &turnID, &approvalRef, &riskRevision,
 			&actionHash, &bindingDigest, &audience, &policyVersion, &issuedBy,
 			&issuedAt, &expiresAt,

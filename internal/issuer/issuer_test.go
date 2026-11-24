@@ -94,18 +94,19 @@ func TestTrustedIssuerBindsCurrentAuthorityToExactResolvedAction(t *testing.T) {
 	if got.PermitID == "" || ledger.calls != 1 || auth.calls != 1 {
 		t.Fatalf("issuer did not persist exactly once: permit=%q ledger=%d authority=%d", got.PermitID, ledger.calls, auth.calls)
 	}
-	if ledger.last.TenantID != a.TenantID || ledger.last.OperationID != a.OperationID ||
-		ledger.last.ActionHash != auth.result.ActionHash ||
-		ledger.last.ToolBindingDigest != a.ToolBindingDigest ||
-		ledger.last.PolicyVersion != a.PolicyVersion || ledger.last.Audience != a.Audience ||
-		ledger.last.RunID != auth.result.RunID || ledger.last.RuntimeAttemptID != auth.result.RuntimeAttemptID ||
-		ledger.last.TurnID != auth.result.TurnID || ledger.last.ApprovalRef != auth.result.ApprovalRef ||
-		ledger.last.RiskRevision != auth.result.RiskRevision ||
-		ledger.last.IssuedBy != "spiffe://platform.example/ns/guard/sa/issuer" {
-		t.Fatalf("persisted Permit draft lost authority binding: %+v", ledger.last)
+	last := ledger.last.Values()
+	if last.TenantID != a.TenantID || last.OperationID != a.OperationID ||
+		last.ActionHash != auth.result.ActionHash ||
+		last.ToolBindingDigest != a.ToolBindingDigest ||
+		last.PolicyVersion != a.PolicyVersion || last.Audience != a.Audience ||
+		last.RunID != auth.result.RunID || last.RuntimeAttemptID != auth.result.RuntimeAttemptID ||
+		last.TurnID != auth.result.TurnID || last.ApprovalRef != auth.result.ApprovalRef ||
+		last.RiskRevision != auth.result.RiskRevision ||
+		last.IssuedBy != "spiffe://platform.example/ns/guard/sa/issuer" {
+		t.Fatalf("persisted Permit draft lost authority binding: %+v", last)
 	}
-	if !ledger.last.ExpiresAt.Equal(auth.result.ValidUntil) {
-		t.Fatalf("expiry=%v want authority bound %v", ledger.last.ExpiresAt, auth.result.ValidUntil)
+	if !last.ExpiresAt.Equal(auth.result.ValidUntil) {
+		t.Fatalf("expiry=%v want authority bound %v", last.ExpiresAt, auth.result.ValidUntil)
 	}
 }
 

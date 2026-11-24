@@ -34,10 +34,9 @@ type DispatchIntent struct {
 	State       string
 }
 
-// ClaimAuthorizedIntent is ONLY for the future trusted Guard authorization
-// service after verifying authentic Permit issuance, policy/revocation, Run
-// authority, and resolved Action. No API or trusted issuer exists in this
-// release. It atomically claims one pre-existing Permit, journals the attempt,
+// ClaimAuthorizedIntent accepts only a Permit with immutable authority
+// evidence persisted by the trusted issuer. It atomically claims one
+// pre-existing Permit, journals the attempt,
 // and appends a pre-dispatch audit event BEFORE any external side effect.
 // This function never dispatches. Failure to commit returns no dispatch right.
 func (s *Store) ClaimAuthorizedIntent(ctx context.Context, permitID string, resolved action.WorkspaceWrite) (DispatchIntent, error) {

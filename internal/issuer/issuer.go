@@ -35,14 +35,20 @@ type Authorization struct {
 	ValidUntil        time.Time
 }
 
-// PermitDraft is the exact trusted evidence that a persistence adapter may
-// atomically bind to one one-time Permit ID. No caller may fill this directly.
+// PermitDraft is opaque outside this package. Only Service.Issue may
+// construct a non-zero draft after validating an authority result.
 type PermitDraft struct {
+	values PermitDraftValues
+}
+
+// PermitDraftValues is a read-only snapshot of the values carried by a
+// PermitDraft. Mutating this returned value never mutates the original draft.
+type PermitDraftValues struct {
 	TenantID          string
 	OperationID       string
 	RunID             string
 	RuntimeAttemptID  string
-	TurnID            string
+	TurnID             string
 	ApprovalRef       string
 	RiskRevision      string
 	ActionHash        string
@@ -52,6 +58,10 @@ type PermitDraft struct {
 	IssuedBy          string
 	IssuedAt          time.Time
 	ExpiresAt         time.Time
+}
+
+func (d PermitDraft) Values() PermitDraftValues {
+	return d.values
 }
 
 // ScopedPermit is an internal issuance result. It is not a signed bearer token
@@ -68,7 +78,7 @@ type Authority interface {
 }
 
 // PermitLedger must persist a one-time Permit atomically and enforce replay
-// fencing. A future PostgreSQL adapter will implement this contract.
+// fencing. Only Service.Issue can construct a non-zero PermitDraft.
 type PermitLedger interface {
 	PersistIssuedPermit(context.Context, PermitDraft) (ScopedPermit, error)
 }
@@ -163,7 +173,7 @@ func (s *Service) Issue(ctx context.Context, resolved action.WorkspaceWrite) (Sc
 		return zero, ErrDenied
 	}
 
-	draft := PermitDraft{
+	draft := PermitDraft{values: PermitDraftValues{
 		TenantID:          resolved.TenantID,
 		OperationID:       resolved.OperationID,
 		RunID:             auth.RunID,
@@ -178,12 +188,12 @@ func (s *Service) Issue(ctx context.Context, resolved action.WorkspaceWrite) (Sc
 		IssuedBy:          s.cfg.IssuerIdentity,
 		IssuedAt:          now,
 		ExpiresAt:         expiresAt,
-	}
+	}}
 	permit, err := s.ledger.PersistIssuedPermit(ctx, draft)
 	if err != nil {
 		return zero, fmt.Errorf("%w: persist Permit: %w", ErrUnavailable, err)
 	}
-	if !permitIDRE.MatchString(permit.PermitID) || permit.Draft != draft {
+	if !permitIDRE.MatchString(permit.PermitID) || permit.Draft.Values() != draft.Values() {
 		return zero, fmt.Errorf("%w: ledger returned inconsistent Permit", ErrUnavailable)
 	}
 	return permit, nil
