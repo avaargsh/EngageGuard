@@ -186,7 +186,6 @@ func TestTrustedIssuerRejectsIncompleteConstruction(t *testing.T) {
 	}
 }
 
-
 // PermitDraft crosses the issuer/ledger package boundary, but only the
 // issuer service may construct trusted issuance evidence. Exported fields
 // would let arbitrary in-process callers fabricate approval and risk claims.
