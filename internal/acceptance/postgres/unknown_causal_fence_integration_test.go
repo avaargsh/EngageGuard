@@ -98,7 +98,6 @@ func TestUnknownCausalFenceRejectsReturnToDispatching(t *testing.T) {
 	}
 }
 
-
 func TestUnknownCausalFenceRejectsDisabledTrigger(t *testing.T) {
 	for _, target := range []struct {
 		table, trigger string
