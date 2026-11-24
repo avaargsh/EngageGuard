@@ -97,6 +97,12 @@ func TestPermitRoleSeparationRejectsOperatorSchemaMismatch(t *testing.T) {
 	if active != decoy || !baseline {
 		t.Fatalf("decoy startup baseline not established: schema=%q baseline=%t", active, baseline)
 	}
+	// Prove the decoy itself carries a complete, safe-looking role boundary.
+	// A current_schema-only audit would certify this namespace even though the
+	// actual operator-pinned Guard schema has a dangerous issuer UPDATE grant.
+	if err := VerifyPermitRoleSeparation(ctx, decoyDB, decoy, issuer, claimer); err != nil {
+		t.Fatalf("decoy fixture should pass when incorrectly selected as trusted: %v", err)
+	}
 
 	err = VerifyPermitRoleSeparation(ctx, decoyDB, trusted, issuer, claimer)
 	if !errors.Is(err, ErrPermitRoleUnsafe) || err == nil {
