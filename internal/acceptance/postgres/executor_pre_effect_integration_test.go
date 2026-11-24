@@ -25,7 +25,7 @@ type localCurrentAuthority struct {
 	calls int
 }
 
-func (a *localCurrentAuthority) VerifyCurrent(_ context.Context, _, _ string, _ action.WorkspaceWrite) error {
+func (a *localCurrentAuthority) VerifyCurrent(_ context.Context, _, _, _ string, _ action.WorkspaceWrite) error {
 	a.calls++
 	return nil
 }
@@ -38,7 +38,7 @@ type mutatingCurrentAuthority struct {
 	onSecond func() error
 }
 
-func (a *mutatingCurrentAuthority) VerifyCurrent(_ context.Context, _, _ string, _ action.WorkspaceWrite) error {
+func (a *mutatingCurrentAuthority) VerifyCurrent(_ context.Context, _, _, _ string, _ action.WorkspaceWrite) error {
 	a.calls++
 	if a.calls == 2 && a.onSecond != nil {
 		return a.onSecond()
