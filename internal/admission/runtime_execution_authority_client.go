@@ -35,6 +35,29 @@ type RuntimeExecutionAuthoritySnapshot struct {
 	BreakerVersion      int64  `json:"breaker_version"`
 }
 
+func (a RuntimeExecutionAuthoritySnapshot) validate(tenant, runID, turnID string) error {
+	if a.SchemaVersion != runtimeExecutionAuthoritySchema ||
+		a.TenantID != tenant || a.RunID != runID || a.TurnID != turnID ||
+		!validIdentity(a.TenantID) ||
+		!validACPAuthorityIdentifier(a.AgentID) ||
+		!validACPAuthorityIdentifier(a.AgentReleaseID) ||
+		!validACPAuthorityIdentifier(a.SessionID) ||
+		a.WorkflowID != "agent-run/v1/"+a.RunID ||
+		a.InvocationID != a.TurnID ||
+		a.Status != "RUNNING" || a.BreakerState != "CLOSED" ||
+		a.AttemptGeneration != 1 || a.AttemptBreakerEpoch != 1 ||
+		a.BreakerEpoch != a.AttemptBreakerEpoch || a.BreakerVersion != 1 ||
+		a.TurnIndex < 1 || a.TurnIndex > 10000 {
+		return ErrForbidden
+	}
+	for _, id := range []string{a.RunID, a.TemporalExecutionID, a.RunAttemptID, a.TurnID, a.InvocationID} {
+		if !canonicalSafetyRunID.MatchString(id) {
+			return ErrForbidden
+		}
+	}
+	return nil
+}
+
 type RuntimeGuardExecutionAuthorityClient struct {
 	base *acpAuthorityHTTPClient
 }
@@ -90,15 +113,8 @@ func (c *RuntimeGuardExecutionAuthorityClient) GetGuardExecutionAuthority(ctx co
 	if err != nil || ctx.Err() != nil {
 		return zero, ErrAuthorityUnavailable
 	}
-	if a.TenantID != tenant || a.RunID != runID || a.TurnID != turnID ||
-		!validACPAuthorityIdentifier(a.AgentID) || !validACPAuthorityIdentifier(a.AgentReleaseID) ||
-		!validACPAuthorityIdentifier(a.SessionID) ||
-		!canonicalSafetyRunID.MatchString(a.RunAttemptID) || !canonicalSafetyRunID.MatchString(a.TemporalExecutionID) ||
-		a.InvocationID != turnID || a.WorkflowID != "agent-run/v1/"+runID ||
-		a.Status != "RUNNING" || a.BreakerState != "CLOSED" ||
-		a.AttemptGeneration != 1 || a.AttemptBreakerEpoch != 1 || a.BreakerEpoch != 1 ||
-		a.BreakerVersion != 1 || a.TurnIndex < 1 || a.TurnIndex > 10000 {
-		return zero, ErrForbidden
+	if err := a.validate(tenant, runID, turnID); err != nil {
+		return zero, err
 	}
 	return a, nil
 }
