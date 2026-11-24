@@ -93,6 +93,16 @@ func TestGuardDecisionClientReadsExactFreshMTLSPlanNotCallerApproval(t *testing.
 	if err := client.VerifyDecisionPlanStep(context.Background(), principal, snapshot, bad); !errors.Is(err, ErrForbidden) || count.Load() != original {
 		t.Fatalf("unreviewed mutating SRE capability reached Decision verifier: %v", err)
 	}
+	bad = submission
+	bad.Capability.Version = "2.0.0"
+	if err := client.VerifyDecisionPlanStep(context.Background(), principal, snapshot, bad); !errors.Is(err, ErrForbidden) || count.Load() != original {
+		t.Fatalf("unreviewed read-only capability version reached Decision verifier: %v", err)
+	}
+	bad = submission
+	bad.PlanHash = "not-a-sha256"
+	if err := client.VerifyDecisionPlanStep(context.Background(), principal, snapshot, bad); !errors.Is(err, ErrForbidden) || count.Load() != original {
+		t.Fatalf("malformed ActionSubmission reached Decision verifier: %v", err)
+	}
 	for _, tc := range []struct {
 		status int
 		body   string
