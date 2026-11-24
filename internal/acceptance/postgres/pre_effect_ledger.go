@@ -17,7 +17,7 @@ var ErrPreEffectBlocked = errors.New("Guard pre-effect ledger does not support a
 // importing this PostgreSQL package or creating an import cycle.
 type preEffectUnavailableError struct{}
 
-func (preEffectUnavailableError) Error() string { return "Guard pre-effect ledger source unavailable" }
+func (preEffectUnavailableError) Error() string     { return "Guard pre-effect ledger source unavailable" }
 func (preEffectUnavailableError) Unavailable() bool { return true }
 
 // ErrPreEffectUnavailable means the required trusted DB snapshot could not
