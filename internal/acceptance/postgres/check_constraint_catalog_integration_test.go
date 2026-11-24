@@ -80,7 +80,6 @@ func TestMigrateRejectsSameNameReorderedOutboxIndex(t *testing.T) {
 	}
 }
 
-
 // Every v17 authority-evidence CHECK must be attested as a complete expression.
 // Keeping the original expression as a subexpression while appending OR TRUE
 // preserves all expected tokens but disables the constraint semantically.
