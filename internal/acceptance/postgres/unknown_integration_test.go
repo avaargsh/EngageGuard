@@ -33,7 +33,8 @@ func TestLostACKUnknownIsOneDurableAttemptAndNeverSecondDispatch(t *testing.T) {
 			t.Fatalf("same lost ACK must be idempotent: %v", err)
 		}
 	}
-	observed, err := New(store.db).GetDispatchState(context.Background(), resolved.TenantID, resolved.OperationID, intent.AttemptID)
+	reconstructed := newPinnedStoreCopy(t, store)
+	observed, err := reconstructed.GetDispatchState(context.Background(), resolved.TenantID, resolved.OperationID, intent.AttemptID)
 	if err != nil || observed.State != "UNKNOWN" || observed.AttemptID != intent.AttemptID ||
 		observed.Reason != "ACK_LOST" || observed.PermitID != permitID {
 		t.Fatalf("unknown not durable: %+v %v", observed, err)
