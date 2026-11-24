@@ -181,11 +181,6 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 		if err != nil {
 			return zero, fmt.Errorf("%w: inspect existing Permit: %w", issuer.ErrUnavailable, err)
 		}
-		// Normalize driver-decoded timestamptz values to UTC. This preserves
-		// the same immutable instant and avoids location-pointer differences
-		// across first issuance and idempotent replay.
-		issuedAt = issuedAt.UTC()
-		expiresAt = expiresAt.UTC()
 		if !decisionID.Valid || !planID.Valid || !planHash.Valid || !stepID.Valid ||
 			!capabilityID.Valid || !capabilityVersion.Valid ||
 			!capabilityContractSHA256.Valid || !resourceRef.Valid {
@@ -212,8 +207,11 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 			PolicyVersion:            policyVersion,
 			Audience:                 audience,
 			IssuedBy:                 issuedBy,
-			IssuedAt:                 issuedAt,
-			ExpiresAt:                expiresAt,
+			// database/sql returns timestamps with the driver's location
+			// pointer. Normalize to UTC so replay reconstructs the exact
+			// canonical PermitDraft value, not merely an Equal() timestamp.
+			IssuedAt:  issuedAt.UTC().Truncate(time.Microsecond),
+			ExpiresAt: expiresAt.UTC().Truncate(time.Microsecond),
 		}
 		if !samePermitAuthority(values, persistedValues) {
 			return zero, issuer.ErrConflict
