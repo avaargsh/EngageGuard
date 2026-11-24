@@ -454,7 +454,6 @@ func TestReadACPReceiptRejectsAmbiguousRepresentationMetadata(t *testing.T) {
 	}
 }
 
-
 func TestACPCapabilityClientRejectsMalformedAuthenticatedPrincipalBeforeNetwork(t *testing.T) {
 	serverCert, roots := safetyServerCert(t, testACPPeer)
 	clientCA, signer, clientRoots := newTestTransportCA(t)
@@ -480,13 +479,13 @@ func TestACPCapabilityClientRejectsMalformedAuthenticatedPrincipalBeforeNetwork(
 	defer client.CloseIdleConnections()
 
 	mutations := map[string]func(*Principal){
-		"empty subject": func(p *Principal) { p.SubjectID = "" },
-		"invalid subject": func(p *Principal) { p.SubjectID = "subject-\u200b-1" },
-		"empty actor": func(p *Principal) { p.ActorID = "" },
-		"invalid actor": func(p *Principal) { p.ActorID = "actor with space" },
-		"empty workload": func(p *Principal) { p.WorkloadID = "" },
+		"empty subject":    func(p *Principal) { p.SubjectID = "" },
+		"invalid subject":  func(p *Principal) { p.SubjectID = "subject-\u200b-1" },
+		"empty actor":      func(p *Principal) { p.ActorID = "" },
+		"invalid actor":    func(p *Principal) { p.ActorID = "actor with space" },
+		"empty workload":   func(p *Principal) { p.WorkloadID = "" },
 		"invalid workload": func(p *Principal) { p.WorkloadID = "-runtime" },
-		"wrong service": func(p *Principal) { p.ServiceID = "agent" },
+		"wrong service":    func(p *Principal) { p.ServiceID = "agent" },
 	}
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {
@@ -502,7 +501,6 @@ func TestACPCapabilityClientRejectsMalformedAuthenticatedPrincipalBeforeNetwork(
 		})
 	}
 }
-
 
 func TestNewACPPinnedHTTPClientRejectsNonClientCredential(t *testing.T) {
 	serverCert, roots := safetyServerCert(t, testACPPeer)
