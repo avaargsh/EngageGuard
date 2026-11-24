@@ -357,7 +357,6 @@ func TestAdmissionRejectsAmbiguousContentTypeBeforeRunVerification(t *testing.T)
 	}
 }
 
-
 // Admission accepts exact, unencoded submission bytes only. A declared
 // Content-Encoding must never be ignored, even when the body is valid JSON.
 func TestAdmissionRejectsContentEncodingBeforeRunVerification(t *testing.T) {
