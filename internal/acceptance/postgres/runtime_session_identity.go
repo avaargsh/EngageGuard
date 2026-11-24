@@ -23,7 +23,7 @@ func (s *Store) beginLedgerTx(ctx context.Context, permit bool) (*sql.Tx, error)
 		return nil, err
 	}
 	var safe bool
-	err = tx.QueryRowContext(ctx, \`
+	err = tx.QueryRowContext(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM pg_catalog.pg_settings s
 			WHERE s.name='search_path' AND s.setting=s.reset_val
@@ -54,7 +54,7 @@ func (s *Store) beginLedgerTx(ctx context.Context, permit bool) (*sql.Tx, error)
 				pg_catalog.format('%I.%I',pg_catalog.current_schema(),'guard_schema_migrations'))
 			WHERE $2::boolean OR NOT r.permit_only
 		),false)
-	\`, s.trustedSchema, permit).Scan(&safe)
+	`, s.trustedSchema, permit).Scan(&safe)
 	if err != nil || !safe {
 		_ = tx.Rollback()
 		return nil, fmt.Errorf("%w: runtime ledger relation identity: %v", ErrSchemaDrift, err)
