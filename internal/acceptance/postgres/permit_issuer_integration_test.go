@@ -191,3 +191,58 @@ func TestPermitIssuerAuthorityEvidenceIsImmutable(t *testing.T) {
 		t.Fatalf("authority evidence drifted: risk=%q err=%v", risk, err)
 	}
 }
+
+
+// A Permit's maximum lifetime must be bounded by PostgreSQL's clock, not
+// only by the issuer process clock. Otherwise host clock skew can extend a
+// short-lived Permit or persist one that is already expired in the DB.
+func TestPermitIssuerLedgerRejectsIssuerClockSkewAgainstPostgres(t *testing.T) {
+	store, db := integrationStore(t)
+	_, authority, resolved := acceptedPermitIssuer(t, store)
+	ctx := context.Background()
+
+	var dbNow time.Time
+	if err := db.QueryRowContext(ctx, "SELECT clock_timestamp()").Scan(&dbNow); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name   string
+		offset time.Duration
+	}{
+		{name: "issuer clock ahead", offset: 10 * time.Minute},
+		{name: "issuer clock behind", offset: -10 * time.Minute},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			issuerNow := dbNow.Add(tc.offset).UTC().Truncate(time.Microsecond)
+			authority.result.ValidUntil = issuerNow.Add(2 * time.Minute)
+			ledger, err := NewPermitIssuerLedger(store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			service, err := issuer.New(issuer.Config{
+				IssuerIdentity: "spiffe://platform.example/ns/guard/sa/issuer",
+				MaxTTL:         5 * time.Minute,
+				Now:            func() time.Time { return issuerNow },
+			}, authority, ledger)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := service.Issue(ctx, resolved)
+			if !errors.Is(err, issuer.ErrDenied) || got.PermitID != "" {
+				t.Fatalf("issuer clock skew created or returned a Permit: permit=%+v err=%v", got, err)
+			}
+			var permits, evidence int
+			if err := db.QueryRowContext(ctx,
+				"SELECT count(*) FROM guard_permits WHERE operation_id=$1::uuid", resolved.OperationID).Scan(&permits); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.QueryRowContext(ctx,
+				"SELECT count(*) FROM guard_permit_authority_evidence WHERE operation_id=$1::uuid", resolved.OperationID).Scan(&evidence); err != nil {
+				t.Fatal(err)
+			}
+			if permits != 0 || evidence != 0 {
+				t.Fatalf("clock-skew denial persisted ledger rows: permits=%d evidence=%d", permits, evidence)
+			}
+		})
+	}
+}
