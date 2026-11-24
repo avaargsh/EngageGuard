@@ -145,28 +145,6 @@ func verifyPermitAuthorityEvidence(ctx context.Context, tx *sql.Tx) error {
 		return err
 	}
 
-func verifyPermitAuthorityCheck(
-	ctx context.Context, tx *sql.Tx, name, expected string, requireValidated bool,
-) error {
-	var actual string
-	query := `
-		SELECT pg_catalog.pg_get_expr(c.conbin,c.conrelid)
-		FROM pg_catalog.pg_constraint c
-		WHERE c.conrelid=pg_catalog.to_regclass('guard_permit_authority_evidence')
-		  AND c.conname=$1 AND c.contype='c'
-		  AND NOT c.condeferrable AND NOT c.condeferred
-	`
-	if requireValidated {
-		query += " AND c.convalidated"
-	}
-	if err := tx.QueryRowContext(ctx, query, name).Scan(&actual); err != nil {
-		return fmt.Errorf("%w: missing v17 ActionRequest check %s: %v", ErrSchemaDrift, name, err)
-	}
-	if actual != expected {
-		return fmt.Errorf("%w: v17 ActionRequest check %s definition drifted", ErrSchemaDrift, name)
-	}
-	return nil
-}
 	for _, trigger := range []struct {
 		name string
 		kind int
@@ -189,6 +167,29 @@ func verifyPermitAuthorityCheck(
 		`, trigger.name, trigger.kind).Scan(&intact); err != nil || !intact {
 			return fmt.Errorf("%w: v16 authority-evidence trigger %s drift: %v", ErrSchemaDrift, trigger.name, err)
 		}
+	}
+	return nil
+}
+
+func verifyPermitAuthorityCheck(
+	ctx context.Context, tx *sql.Tx, name, expected string, requireValidated bool,
+) error {
+	var actual string
+	query := `
+		SELECT pg_catalog.pg_get_expr(c.conbin,c.conrelid)
+		FROM pg_catalog.pg_constraint c
+		WHERE c.conrelid=pg_catalog.to_regclass('guard_permit_authority_evidence')
+		  AND c.conname=$1 AND c.contype='c'
+		  AND NOT c.condeferrable AND NOT c.condeferred
+	`
+	if requireValidated {
+		query += " AND c.convalidated"
+	}
+	if err := tx.QueryRowContext(ctx, query, name).Scan(&actual); err != nil {
+		return fmt.Errorf("%w: missing v17 ActionRequest check %s: %v", ErrSchemaDrift, name, err)
+	}
+	if actual != expected {
+		return fmt.Errorf("%w: v17 ActionRequest check %s definition drifted", ErrSchemaDrift, name)
 	}
 	return nil
 }
