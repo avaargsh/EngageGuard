@@ -177,7 +177,7 @@ func TestV3UpgradesPreviouslyAppliedOriginalV2Checksum(t *testing.T) {
 		"SELECT count(*) FROM guard_schema_migrations").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if oldChecksum != after || count != 16 {
+	if oldChecksum != after || count != 17 {
 		t.Fatalf("v2 checksum changed or v3 ledger missing: old=%s new=%s versions=%d",
 			oldChecksum, after, count)
 	}
