@@ -10,7 +10,7 @@ import (
 )
 
 // The existing admission v1/v2/v3 migration sources and checksums are immutable.
-// All v4-v14 extensions are forward-only and retain historical checksums.
+// All v4-v15 extensions are forward-only and retain historical checksums.
 //
 //go:embed schema_permit_v4.sql
 var permitClaimSchema string
@@ -45,6 +45,9 @@ var permitInitialStateSchema string
 //go:embed schema_permit_v14.sql
 var permitRevocationCausalSchema string
 
+//go:embed schema_permit_v15.sql
+var permitUnknownCausalSchema string
+
 func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) error {
 	migrations := []struct {
 		version int64
@@ -61,6 +64,7 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 		{12, permitExpiryFenceSchema},
 		{13, permitInitialStateSchema},
 		{14, permitRevocationCausalSchema},
+		{15, permitUnknownCausalSchema},
 	}
 	// An existing v10 database must pass its original integrity checks before
 	// replacing the function; never silently bless a tampered baseline.
@@ -126,7 +130,10 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 	if err := verifyPermitInitialStateFence(ctx, tx); err != nil {
 		return err
 	}
-	return verifyPermitRevocationCausalFence(ctx, tx)
+	if err := verifyPermitRevocationCausalFence(ctx, tx); err != nil {
+		return err
+	}
+	return verifyUnknownCausalFence(ctx, tx)
 }
 
 func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx, causalSource string) error {

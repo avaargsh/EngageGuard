@@ -29,7 +29,7 @@ func TestMigrationRejectsPermanentChecksumDriftBehindTempLedgerShadow(t *testing
 		t.Fatal(err)
 	}
 	var fakeRows int
-	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM pg_temp.guard_schema_migrations").Scan(&fakeRows); err != nil || fakeRows != 14 {
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM pg_temp.guard_schema_migrations").Scan(&fakeRows); err != nil || fakeRows != 15 {
 		t.Fatalf("temporary migration ledger fixture not populated: rows=%d err=%v", fakeRows, err)
 	}
 
