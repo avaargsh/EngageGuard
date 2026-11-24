@@ -86,7 +86,7 @@ func trustedRuntimeExecutionAuthority(s RunSafetySnapshot) *testRuntimeExecution
 
 func trustedDecisionPlanReceipt(s RunSafetySnapshot) DecisionPlanReceipt {
 	return DecisionPlanReceipt{
-		RunID:               s.RunID,
+		RunID:        s.RunID,
 		RunAttemptID:        runtimeGuardAttempt,
 		TurnID:              runtimeGuardTurn,
 	}
