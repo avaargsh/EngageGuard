@@ -24,14 +24,14 @@ var permitIDRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[
 type Authorization struct {
 	RunID             string
 	RuntimeAttemptID  string
-	TurnID             string
-	ApprovalRef        string
-	RiskRevision       string
-	ActionHash         string
-	ToolBindingDigest  string
-	PolicyVersion      string
-	Audience           string
-	ValidUntil         time.Time
+	TurnID            string
+	ApprovalRef       string
+	RiskRevision      string
+	ActionHash        string
+	ToolBindingDigest string
+	PolicyVersion     string
+	Audience          string
+	ValidUntil        time.Time
 }
 
 // PermitDraft is the exact trusted evidence that a persistence adapter may
@@ -41,7 +41,7 @@ type PermitDraft struct {
 	OperationID       string
 	RunID             string
 	RuntimeAttemptID  string
-	TurnID             string
+	TurnID            string
 	ApprovalRef       string
 	RiskRevision      string
 	ActionHash        string
@@ -162,20 +162,20 @@ func (s *Service) Issue(ctx context.Context, resolved action.WorkspaceWrite) (Sc
 	}
 
 	draft := PermitDraft{
-		TenantID: resolved.TenantID,
-		OperationID: resolved.OperationID,
-		RunID: auth.RunID,
-		RuntimeAttemptID: auth.RuntimeAttemptID,
-		TurnID: auth.TurnID,
-		ApprovalRef: auth.ApprovalRef,
-		RiskRevision: auth.RiskRevision,
-		ActionHash: actionHash,
+		TenantID:          resolved.TenantID,
+		OperationID:       resolved.OperationID,
+		RunID:             auth.RunID,
+		RuntimeAttemptID:  auth.RuntimeAttemptID,
+		TurnID:            auth.TurnID,
+		ApprovalRef:       auth.ApprovalRef,
+		RiskRevision:      auth.RiskRevision,
+		ActionHash:        actionHash,
 		ToolBindingDigest: resolved.ToolBindingDigest,
-		PolicyVersion: resolved.PolicyVersion,
-		Audience: resolved.Audience,
-		IssuedBy: s.cfg.IssuerIdentity,
-		IssuedAt: now,
-		ExpiresAt: auth.ValidUntil.UTC(),
+		PolicyVersion:     resolved.PolicyVersion,
+		Audience:          resolved.Audience,
+		IssuedBy:          s.cfg.IssuerIdentity,
+		IssuedAt:          now,
+		ExpiresAt:         auth.ValidUntil.UTC(),
 	}
 	permit, err := s.ledger.PersistIssuedPermit(ctx, draft)
 	if err != nil {
