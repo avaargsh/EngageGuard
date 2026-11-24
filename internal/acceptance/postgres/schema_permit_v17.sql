@@ -81,41 +81,41 @@ ALTER TABLE guard_permit_authority_evidence
     CHECK (
         run_id COLLATE "C" ~ '^[!-~]+$'
         AND length(run_id) BETWEEN 1 AND 512
-        AND         runtime_attempt_id COLLATE "C" ~ '^[!-~]+$'
+        AND runtime_attempt_id COLLATE "C" ~ '^[!-~]+$'
         AND length(runtime_attempt_id) BETWEEN 1 AND 512
-        AND         turn_id COLLATE "C" ~ '^[!-~]+$'
+        AND turn_id COLLATE "C" ~ '^[!-~]+$'
         AND length(turn_id) BETWEEN 1 AND 512
-        AND         approval_ref COLLATE "C" ~ '^[!-~]+$'
+        AND approval_ref COLLATE "C" ~ '^[!-~]+$'
         AND length(approval_ref) BETWEEN 1 AND 512
-        AND         risk_revision COLLATE "C" ~ '^[!-~]+$'
+        AND risk_revision COLLATE "C" ~ '^[!-~]+$'
         AND length(risk_revision) BETWEEN 1 AND 512
-        AND         audience COLLATE "C" ~ '^[!-~]+$'
+        AND audience COLLATE "C" ~ '^[!-~]+$'
         AND length(audience) BETWEEN 1 AND 512
-        AND         policy_version COLLATE "C" ~ '^[!-~]+$'
+        AND policy_version COLLATE "C" ~ '^[!-~]+$'
         AND length(policy_version) BETWEEN 1 AND 512
-        AND         issued_by COLLATE "C" ~ '^[!-~]+$'
+        AND issued_by COLLATE "C" ~ '^[!-~]+$'
         AND length(issued_by) BETWEEN 1 AND 512
-        AND         AND (decision_id IS NULL OR (
+        AND (decision_id IS NULL OR (
             decision_id COLLATE "C" ~ '^[!-~]+$'
             AND length(decision_id) BETWEEN 1 AND 512
         ))
-        AND         AND (plan_id IS NULL OR (
+        AND (plan_id IS NULL OR (
             plan_id COLLATE "C" ~ '^[!-~]+$'
             AND length(plan_id) BETWEEN 1 AND 512
         ))
-        AND         AND (step_id IS NULL OR (
+        AND (step_id IS NULL OR (
             step_id COLLATE "C" ~ '^[!-~]+$'
             AND length(step_id) BETWEEN 1 AND 512
         ))
-        AND         AND (capability_id IS NULL OR (
+        AND (capability_id IS NULL OR (
             capability_id COLLATE "C" ~ '^[!-~]+$'
             AND length(capability_id) BETWEEN 1 AND 512
         ))
-        AND         AND (capability_version IS NULL OR (
+        AND (capability_version IS NULL OR (
             capability_version COLLATE "C" ~ '^[!-~]+$'
             AND length(capability_version) BETWEEN 1 AND 512
         ))
-        AND         AND (resource_ref IS NULL OR (
+        AND (resource_ref IS NULL OR (
             resource_ref COLLATE "C" ~ '^[!-~]+$'
             AND length(resource_ref) BETWEEN 1 AND 512
         ))
