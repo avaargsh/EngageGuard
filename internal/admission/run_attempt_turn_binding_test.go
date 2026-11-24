@@ -79,6 +79,11 @@ func trustedRuntimeExecutionBinding(s RunSafetySnapshot) RuntimeExecutionAuthori
 	}
 }
 
+func trustedRuntimeExecutionAuthority(s RunSafetySnapshot) *testRuntimeExecutionAuthority {
+	snapshot := trustedRuntimeExecutionBinding(s)
+	return &testRuntimeExecutionAuthority{snapshots: []RuntimeExecutionAuthoritySnapshot{snapshot, snapshot}}
+}
+
 func trustedDecisionPlanReceipt(s RunSafetySnapshot) DecisionPlanReceipt {
 	return DecisionPlanReceipt{
 		RunID: s.RunID,
