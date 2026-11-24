@@ -127,17 +127,43 @@ func verifyPermitAuthorityEvidence(ctx context.Context, tx *sql.Tx) error {
 		expected string
 	}{
 		{
-			"guard_permit_authority_action_request_v17_all_or_none_check",
-			[]string{"decision_id", "plan_id", "plan_hash", "step_id", "capability_id", "capability_version", "capability_contract_sha256", "resource_ref", "IS NULL", "="},
+			name: "guard_permit_authority_action_request_v17_all_or_none_check",
+			required: []string{"decision_id", "plan_id", "plan_hash", "step_id", "capability_id", "capability_version", "capability_contract_sha256", "resource_ref", "IS NULL", "="},
 		},
-		{"guard_permit_authority_action_request_v17_decision_check", []string{"decision_id", "IS NULL", "length", "!~", "[[:cntrl:][:space:]]"}},
-		{"guard_permit_authority_action_request_v17_plan_check", []string{"plan_id", "IS NULL", "length", "!~", "[[:cntrl:][:space:]]"}},
-		{"guard_permit_authority_action_request_v17_plan_hash_check", []string{"plan_hash", "IS NULL", "~", "^[0-9a-f]{64}$"}, "((plan_hash IS NULL) OR (plan_hash ~ '^[0-9a-f]{64}		{"guard_permit_authority_action_request_v17_step_check", []string{"step_id", "IS NULL", "length", "!~", "[[:cntrl:][:space:]]"}},
-		{"guard_permit_authority_action_request_v17_capability_check", []string{"capability_id", "IS NULL", "length", "!~", "[[:cntrl:][:space:]]"}},
-		{"guard_permit_authority_action_request_v17_capability_version_check", []string{"capability_version", "IS NULL", "length", "!~", "[[:cntrl:][:space:]]"}},
-		{"guard_permit_authority_action_request_v17_capability_contract_check", []string{"capability_contract_sha256", "IS NULL", "~", "^[0-9a-f]{64}$"}},
-		{"guard_permit_authority_action_request_v17_resource_check", []string{"resource_ref", "IS NULL", "length", "!~", "[[:cntrl:][:space:]]"}},
-	} {
+		{
+			name: "guard_permit_authority_action_request_v17_decision_check",
+			required: []string{"decision_id", "IS NULL", "length", "!~", "[[:cntrl:][:space:]]"},
+		},
+		{
+			name: "guard_permit_authority_action_request_v17_plan_check",
+			required: []string{"plan_id", "IS NULL", "length", "!~", "[[:cntrl:][:space:]]"},
+		},
+		{
+			name: "guard_permit_authority_action_request_v17_plan_hash_check",
+			required: []string{"plan_hash", "IS NULL", "~", "^[0-9a-f]{64}$"},
+			expected: "((plan_hash IS NULL) OR (plan_hash ~ '^[0-9a-f]{64}$'::text))",
+		},
+		{
+			name: "guard_permit_authority_action_request_v17_step_check",
+			required: []string{"step_id", "IS NULL", "length", "!~", "[[:cntrl:][:space:]]"},
+		},
+		{
+			name: "guard_permit_authority_action_request_v17_capability_check",
+			required: []string{"capability_id", "IS NULL", "length", "!~", "[[:cntrl:][:space:]]"},
+		},
+		{
+			name: "guard_permit_authority_action_request_v17_capability_version_check",
+			required: []string{"capability_version", "IS NULL", "length", "!~", "[[:cntrl:][:space:]]"},
+		},
+		{
+			name: "guard_permit_authority_action_request_v17_capability_contract_check",
+			required: []string{"capability_contract_sha256", "IS NULL", "~", "^[0-9a-f]{64}$"},
+		},
+		{
+			name: "guard_permit_authority_action_request_v17_resource_check",
+			required: []string{"resource_ref", "IS NULL", "length", "!~", "[[:cntrl:][:space:]]"},
+		},
+	}{
 		var expression string
 		if err := tx.QueryRowContext(ctx, `
 			SELECT pg_catalog.pg_get_expr(c.conbin,c.conrelid)
