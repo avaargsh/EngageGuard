@@ -230,7 +230,6 @@ type acpCapabilityReceipt struct {
 	Status            string `json:"status"`
 }
 
-
 // validACPAuthorityIdentifier applies the same printable-ASCII boundary to
 // Runtime and ACP authority identifiers while retaining the Runtime wire
 // contract's 255-byte limit.
