@@ -185,6 +185,11 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx, causalSource str
 			return fmt.Errorf("%w: Permit v9 write-once trigger %s disabled or changed: %v", ErrSchemaDrift, expected.name, err)
 		}
 	}
+	// The v9 write-once function can be replaced without changing its OID.
+	// Compare its original body and security attributes before trusting it.
+	if err := verifyPermitV9ImmutableFunction(ctx, tx); err != nil {
+		return err
+	}
 	// Attest the exact function body shipped in the applicable immutable migration.
 	// CREATE OR REPLACE FUNCTION can retain the OID while removing enforcement.
 	prefix := "CREATE FUNCTION guard_claim_causal_commit_v10() RETURNS trigger\nLANGUAGE plpgsql AS $guard$"
@@ -286,6 +291,37 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx, causalSource str
 	`).Scan(&consistent); err != nil || !consistent {
 		return fmt.Errorf("%w: Guard v10 claimed Permit/Intent/Audit graph corrupt: %v",
 			ErrSchemaDrift, err)
+	}
+	return nil
+}
+
+func verifyPermitV9ImmutableFunction(ctx context.Context, tx *sql.Tx) error {
+	const prefix = "CREATE FUNCTION guard_permit_immutable_row_v9() RETURNS trigger\nLANGUAGE plpgsql AS $guard$"
+	if strings.Count(permitIdentityFenceSchema, prefix) != 1 {
+		return fmt.Errorf("%w: missing or ambiguous v9 immutable function source", ErrSchemaDrift)
+	}
+	body := strings.SplitN(permitIdentityFenceSchema, prefix, 2)[1]
+	end := strings.Index(body, "$guard$;")
+	if end < 0 {
+		return fmt.Errorf("%w: unterminated v9 immutable function source", ErrSchemaDrift)
+	}
+	var actualBody string
+	var attributesSafe bool
+	err := tx.QueryRowContext(ctx, `
+		SELECT p.prosrc,
+		       NOT p.prosecdef AND NOT p.proleakproof
+		       AND p.provolatile='v' AND NOT p.proisstrict
+		       AND p.proparallel='u' AND p.proconfig IS NULL
+		       AND p.prolang=(SELECT oid FROM pg_catalog.pg_language WHERE lanname='plpgsql')
+		       AND p.pronamespace=current_schema()::regnamespace
+		       AND p.prorettype='pg_catalog.trigger'::regtype AND p.pronargs=0
+		FROM pg_catalog.pg_proc p
+		WHERE p.oid=pg_catalog.to_regprocedure(
+			pg_catalog.format('%I.%I()', current_schema(), 'guard_permit_immutable_row_v9'))
+		  AND p.oid=pg_catalog.to_regprocedure('guard_permit_immutable_row_v9()')
+	`).Scan(&actualBody, &attributesSafe)
+	if err != nil || !attributesSafe || actualBody != body[:end] {
+		return fmt.Errorf("%w: v9 immutable function definition or security attributes drifted: %v", ErrSchemaDrift, err)
 	}
 	return nil
 }
