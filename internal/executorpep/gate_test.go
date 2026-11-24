@@ -43,6 +43,7 @@ func (f *fakeLedger) InspectPreEffectLedger(_ context.Context, _, _ string, _ ac
 type fakeLive struct {
 	calls    int
 	failAt   int
+	failure  error
 	identity string
 }
 
@@ -64,7 +65,10 @@ func (f *fakeLive) VerifyCurrent(_ context.Context, executorSPIFFEID, _, _ strin
 	f.calls++
 	f.identity = executorSPIFFEID
 	if f.calls == f.failAt {
-		return errors.New("live authority revoked or unavailable")
+		if f.failure != nil {
+			return f.failure
+		}
+		return errors.New("live authority source unavailable")
 	}
 	return nil
 }
@@ -249,6 +253,8 @@ func TestExecutorPreEffectFailClosedForIdentityOrAuthorityDrift(t *testing.T) {
 		peer                 *tls.ConnectionState
 		action               func(*action.WorkspaceWrite)
 		liveFail, ledgerFail int
+		liveError error
+		wantError error
 	}{
 		{"no TLS", ca.cert, nil, nil, 0, 0},
 		{"wrong executor SPIFFE", ca.cert, verifiedPeer(t, ca, "spiffe://platform.example/ns/sandbox/sa/attacker"), nil, 0, 0},
@@ -261,20 +267,24 @@ func TestExecutorPreEffectFailClosedForIdentityOrAuthorityDrift(t *testing.T) {
 		{"different pinned CA", other.cert, verifiedPeer(t, ca, goodExecutorID), nil, 0, 0},
 		{"tenant drift", ca.cert, verifiedPeer(t, ca, goodExecutorID), func(a *action.WorkspaceWrite) { a.TenantID = "tenant-b" }, 0, 0},
 		{"audience drift", ca.cert, verifiedPeer(t, ca, goodExecutorID), func(a *action.WorkspaceWrite) { a.Audience = "other-executor" }, 0, 0},
-		{"unavailable live preflight", ca.cert, verifiedPeer(t, ca, goodExecutorID), nil, 1, 0},
-		{"policy revoked after ledger read", ca.cert, verifiedPeer(t, ca, goodExecutorID), nil, 2, 0},
-		{"ledger UNKNOWN/revoked at final check", ca.cert, verifiedPeer(t, ca, goodExecutorID), nil, 0, 2},
+		{"unavailable live preflight", ca.cert, verifiedPeer(t, ca, goodExecutorID), nil, 1, 0, errors.New("runtime authority timeout"), ErrUnavailable},
+		{"policy revoked after ledger read", ca.cert, verifiedPeer(t, ca, goodExecutorID), nil, 2, 0, ErrLiveDenied, ErrBlocked},
+		{"ledger UNKNOWN/revoked at final check", ca.cert, verifiedPeer(t, ca, goodExecutorID), nil, 0, 2, nil, ErrBlocked},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			l := &fakeLedger{failAt: tc.ledgerFail}
-			v := &fakeLive{failAt: tc.liveFail}
+			v := &fakeLive{failAt: tc.liveFail, failure: tc.liveError}
 			g := makeGate(t, tc.ca, l, v)
 			a := resolvedWorkspaceWrite()
 			if tc.action != nil {
 				tc.action(&a)
 			}
-			if err := g.Check(context.Background(), tc.peer, testPermitID, testAttemptID, a); err == nil {
+			err := g.Check(context.Background(), tc.peer, testPermitID, testAttemptID, a)
+			if err == nil {
 				t.Fatal("identity or live-authority drift passed necessary gate")
+			}
+			if tc.wantError != nil && !errors.Is(err, tc.wantError) {
+				t.Fatalf("unexpected fail-closed classification: got=%v want=%v", err, tc.wantError)
 			}
 			if tc.name == "no TLS" || tc.name == "wrong executor SPIFFE" || tc.name == "missing client-auth EKU" || tc.name == "runtime is not executor" || tc.name == "different pinned CA" || tc.name == "tenant drift" || tc.name == "audience drift" {
 				if l.calls != 0 || v.calls != 0 {
