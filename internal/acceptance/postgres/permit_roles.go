@@ -79,20 +79,26 @@ func VerifyPermitRoleSeparation(
 	if err != nil || !issuerSafe || !claimerSafe {
 		return unsafe("missing or privileged database role", err)
 	}
-	var inheritedMembership bool
+	var unsafeMembership bool
 	err = conn.QueryRowContext(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM pg_catalog.pg_roles r
-			WHERE r.rolname NOT IN ($1::name, $2::name)
-			  AND (
-				pg_catalog.pg_has_role($1::name, r.rolname, 'MEMBER')
-				OR pg_catalog.pg_has_role($2::name, r.rolname, 'MEMBER')
-			  )
-		)
-	`, issuerRole, claimerRole).Scan(&inheritedMembership)
-	if err != nil || inheritedMembership {
-		return unsafe("issuer/claimer role inherits or can SET ROLE to another database role", err)
+		SELECT
+			pg_catalog.pg_has_role($1::name, $2::name, 'MEMBER')
+			OR pg_catalog.pg_has_role($2::name, $1::name, 'MEMBER')
+			OR EXISTS (
+				SELECT 1
+				FROM pg_catalog.pg_roles r
+				WHERE r.rolname NOT IN ($1::name, $2::name)
+				  AND NOT r.rolsuper
+				  AND (
+					pg_catalog.pg_has_role($1::name, r.rolname, 'MEMBER')
+					OR pg_catalog.pg_has_role($2::name, r.rolname, 'MEMBER')
+					OR pg_catalog.pg_has_role(r.rolname, $1::name, 'MEMBER')
+					OR pg_catalog.pg_has_role(r.rolname, $2::name, 'MEMBER')
+				  )
+			)
+	`, issuerRole, claimerRole).Scan(&unsafeMembership)
+	if err != nil || unsafeMembership {
+		return unsafe("issuer/claimer role has inbound or outbound membership with another database role", err)
 	}
 
 	// PostgreSQL commonly grants TEMPORARY on newly created databases to
