@@ -233,11 +233,19 @@ func (g *Gate) Check(
 			}
 			return fmt.Errorf("%w: live authority unavailable: %w", ErrUnavailable, err)
 		}
+		// Do not start a second authority read after the request is canceled,
+		// even if the preceding source returned a successful observation.
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("%w: context after live authority: %w", ErrUnavailable, err)
+		}
 		if err := g.ledger.InspectPreEffectLedger(ctx, permitID, attemptID, resolved); err != nil {
 			if isLedgerUnavailable(err) {
 				return fmt.Errorf("%w: ledger inspection: %w", ErrUnavailable, err)
 			}
 			return fmt.Errorf("%w: ledger inspection: %w", ErrBlocked, err)
+		}
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("%w: context after ledger inspection: %w", ErrUnavailable, err)
 		}
 	}
 
