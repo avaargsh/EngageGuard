@@ -23,6 +23,7 @@ const (
 	acpProtectedWorkspaceSchema            = "acp.guard-protected-workspace.v1"
 	acpProtectedWorkspacePath              = "/internal/v1/guard-protected-workspaces:verify"
 	acpReadOnlyCapabilityID                = "sre.metrics.read"
+	acpReadOnlyCapabilityVersion           = "1.0.0"
 	acpProtectedWorkspaceCapabilityVersion = "1.0.0"
 	maxACPAuthorityReceipt                 = 4096
 	maxACPAuthorityHeaders                 = 8 * 1024
@@ -247,7 +248,7 @@ func (c *ACPCapabilityClient) VerifyCapabilityAccess(
 	// SRE capability. A namespace prefix or a caller-provided effect label
 	// cannot classify a future tool as safe.
 	if submission.Capability.ID != acpReadOnlyCapabilityID ||
-		submission.Capability.Version != acpProtectedWorkspaceCapabilityVersion ||
+		submission.Capability.Version != acpReadOnlyCapabilityVersion ||
 		!bytes.Equal(submission.Arguments, []byte("{}")) {
 		return ErrForbidden
 	}
@@ -365,7 +366,7 @@ func (c *ACPProtectedWorkspaceClient) CloseIdleConnections() {
 }
 
 // ObserveProtectedWorkspace derives every selector from a live Runtime
-// snapshot and a trusted, canonical WorkspaceWrite resolved by Guard. The
+// snapshot and a trusted, canonical ActionRequest v1 resolved by Guard. The
 // resolved SubjectID is the original human subject; it is never inferred
 // from the Runtime service workload principal.
 func (c *ACPProtectedWorkspaceClient) ObserveProtectedWorkspace(
@@ -397,11 +398,11 @@ func (c *ACPProtectedWorkspaceClient) ObserveProtectedWorkspace(
 
 	payload := acpProtectedWorkspaceRequest{
 		SchemaVersion: acpProtectedWorkspaceSchema,
-		RunID: run.RunID, AgentID: run.AgentID,
+		RunID:         run.RunID, AgentID: run.AgentID,
 		AgentReleaseID: run.AgentReleaseID, SessionID: run.SessionID,
 		SubjectID: resolved.SubjectID, CapabilityID: resolved.Capability.ID,
 		CapabilityVersion: resolved.Capability.Version, PolicyRevision: resolved.PolicyVersion,
-		WorkspaceID: resolved.ResourceRef,
+		WorkspaceID:       resolved.ResourceRef,
 		ToolBindingDigest: resolved.ToolBindingDigest, Audience: resolved.Audience,
 	}
 	response, err := c.base.postJSON(ctx, acpProtectedWorkspacePath, payload)
