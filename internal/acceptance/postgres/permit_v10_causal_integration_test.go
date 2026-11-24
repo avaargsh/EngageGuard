@@ -162,4 +162,3 @@ func TestPermitV10StartupRejectsReplacedCausalFunctionBody(t *testing.T) {
 		t.Fatalf("replaced v10 causal function body passed startup attestation: %v", err)
 	}
 }
-
