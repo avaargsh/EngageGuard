@@ -307,6 +307,16 @@ func TestACPProtectedWorkspaceClientBindsExactResolvedActionAndNeverIssuesPermit
 	if _, err := client.ObserveProtectedWorkspace(context.Background(), principal, run, wrongVersion); !errors.Is(err, ErrForbidden) || calls.Load() != initialCalls {
 		t.Fatalf("unreviewed protected capability version reached ACP: err=%v calls=%d", err, calls.Load())
 	}
+	wrongActor := resolved
+	wrongActor.ActorID = "different-actor"
+	if _, err := client.ObserveProtectedWorkspace(context.Background(), principal, run, wrongActor); !errors.Is(err, ErrForbidden) || calls.Load() != initialCalls {
+		t.Fatalf("ActionRequest actor not bound to authenticated Principal: err=%v calls=%d", err, calls.Load())
+	}
+	wrongWorkload := resolved
+	wrongWorkload.WorkloadID = "different-workload"
+	if _, err := client.ObserveProtectedWorkspace(context.Background(), principal, run, wrongWorkload); !errors.Is(err, ErrForbidden) || calls.Load() != initialCalls {
+		t.Fatalf("ActionRequest workload not bound to authenticated Principal: err=%v calls=%d", err, calls.Load())
+	}
 
 	for _, tc := range []struct{ name, body string }{
 		{"different subject", strings.Replace(string(body), `"subject_id":"original-human-subject"`, `"subject_id":"attacker"`, 1)},
