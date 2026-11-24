@@ -10,7 +10,7 @@ import (
 )
 
 // The existing admission v1/v2/v3 migration sources and checksums are immutable.
-// All v4-v16 extensions are forward-only and retain historical checksums.
+// All v4-v17 extensions are forward-only and retain historical checksums.
 //
 //go:embed schema_permit_v4.sql
 var permitClaimSchema string
@@ -51,6 +51,9 @@ var permitUnknownCausalSchema string
 //go:embed schema_permit_v16.sql
 var permitAuthorityEvidenceSchema string
 
+//go:embed schema_permit_v17.sql
+var permitActionRequestEvidenceSchema string
+
 func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) error {
 	migrations := []struct {
 		version int64
@@ -69,6 +72,7 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 		{14, permitRevocationCausalSchema},
 		{15, permitUnknownCausalSchema},
 		{16, permitAuthorityEvidenceSchema},
+		{17, permitActionRequestEvidenceSchema},
 	}
 	// An existing v10 database must pass its original integrity checks before
 	// replacing the function; never silently bless a tampered baseline.
