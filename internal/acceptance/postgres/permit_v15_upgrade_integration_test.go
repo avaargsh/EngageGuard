@@ -84,7 +84,7 @@ func seedV14Claim(t *testing.T, db *sql.DB) (*Store, action.WorkspaceWrite, stri
 		resolved.Audience, resolved.PolicyVersion, time.Now().UTC().Add(time.Hour)).Scan(&permitID); err != nil {
 		t.Fatal(err)
 	}
-	// Historical v14 has no v16 trusted-issuer evidence relation. Seed the
+	// Historical v14 has no v16/v17 ActionRequest evidence relation. Seed the
 	// exact pre-v15 causal claim directly so this test can exercise migration
 	// preservation without invoking the current trusted claim API.
 	tx, err := db.BeginTx(ctx, nil)
