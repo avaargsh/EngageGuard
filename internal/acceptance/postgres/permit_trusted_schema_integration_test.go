@@ -103,3 +103,15 @@ func TestUnknownTransitionRequiresOperatorPinnedSchema(t *testing.T) {
 		t.Fatalf("unconfigured Store created %d UNKNOWN events", events)
 	}
 }
+
+func newPinnedStoreCopy(t *testing.T, store *Store) *Store {
+	t.Helper()
+	if store == nil {
+		t.Fatal("cannot reconstruct a nil Guard Store")
+	}
+	reconstructed, err := NewWithTrustedSchema(store.db, store.trustedSchema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reconstructed
+}
