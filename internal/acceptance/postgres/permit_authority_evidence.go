@@ -155,6 +155,34 @@ func verifyPermitAuthorityEvidence(ctx context.Context, tx *sql.Tx) error {
 		}
 	}
 
+	// v17's NOT VALID ASCII constraint preserves immutable legacy v16 rows
+	// without blessing them as ActionRequest v1 evidence. PostgreSQL still
+	// enforces the constraint for every new/changed row, including issuer-role
+	// writes which bypass Go's printable-ASCII validator.
+	var asciiExpression string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT pg_catalog.pg_get_expr(c.conbin,c.conrelid)
+		FROM pg_catalog.pg_constraint c
+		WHERE c.conrelid=pg_catalog.to_regclass('guard_permit_authority_evidence')
+		  AND c.conname='guard_permit_authority_v17_ascii_identifiers_check'
+		  AND c.contype='c' AND NOT c.condeferrable AND NOT c.condeferred
+	`).Scan(&asciiExpression); err != nil {
+		return fmt.Errorf("%w: missing v17 ASCII authority-evidence constraint: %v", ErrSchemaDrift, err)
+	}
+	for _, column := range []string{
+		"run_id", "runtime_attempt_id", "turn_id", "approval_ref", "risk_revision",
+		"audience", "policy_version", "issued_by", "decision_id", "plan_id",
+		"step_id", "capability_id", "capability_version", "resource_ref",
+	} {
+		if !strings.Contains(asciiExpression, column) {
+			return fmt.Errorf("%w: v17 ASCII evidence constraint lost %s", ErrSchemaDrift, column)
+		}
+	}
+	if strings.Count(asciiExpression, "^[!-~]{1,512}$") != 14 ||
+		!strings.Contains(asciiExpression, `COLLATE "C"`) {
+		return fmt.Errorf("%w: v17 ASCII evidence constraint was weakened", ErrSchemaDrift)
+	}
+
 	for _, trigger := range []struct {
 		name string
 		kind int
