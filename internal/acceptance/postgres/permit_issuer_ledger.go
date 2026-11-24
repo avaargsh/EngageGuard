@@ -31,8 +31,8 @@ func validPermitEvidence(value string) bool {
 	if value == "" || value != strings.TrimSpace(value) || len(value) > 512 {
 		return false
 	}
-	for _, r := range value {
-		if r <= 0x20 || r == 0x7f {
+	for i := 0; i < len(value); i++ {
+		if value[i] < 0x21 || value[i] > 0x7e {
 			return false
 		}
 	}
