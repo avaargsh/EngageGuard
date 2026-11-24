@@ -72,6 +72,7 @@ ALTER TABLE guard_permit_authority_evidence
         length(resource_ref) BETWEEN 1 AND 512
         AND resource_ref !~ '[[:cntrl:][:space:]]'
     ));
+-- statement break
 -- Existing v16 evidence may predate the printable-ASCII contract. Do not
 -- fabricate or rewrite those rows during migration. NOT VALID preserves them,
 -- while PostgreSQL enforces this constraint on every new or changed row.
