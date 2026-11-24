@@ -17,46 +17,64 @@ type permitTestAuthority struct {
 	err    error
 }
 
-func (a *permitTestAuthority) VerifyIssue(_ context.Context, _ action.WorkspaceWrite) (issuer.Authorization, error) {
+func (a *permitTestAuthority) VerifyIssue(_ context.Context, _ action.ActionRequest) (issuer.Authorization, error) {
 	return a.result, a.err
 }
 
-func acceptedPermitIssuer(t *testing.T, store *Store) (*issuer.Service, *permitTestAuthority, action.WorkspaceWrite) {
+func acceptedPermitIssuer(t *testing.T, store *Store) (*issuer.Service, *permitTestAuthority, action.ActionRequest) {
 	t.Helper()
 	op, created, err := store.Accept(context.Background(), "tenant-a", "issuer-ledger-source", sampleSubmission())
 	if err != nil || !created {
 		t.Fatalf("accept source: created=%t err=%v", created, err)
 	}
-	resolved := action.WorkspaceWrite{
-		SchemaVersion:     "v0.1",
-		TenantID:          "tenant-a",
-		SubjectID:         "verified-runtime-subject",
-		AgentID:           "verified-agent",
-		OperationID:       op.OperationID,
-		CapabilityID:      "workspace.write",
+	 resolved := action.ActionRequest{
+		SchemaVersion: "action-request.v1",
+		TenantID: "tenant-a",
+		SubjectID: "verified-runtime-subject",
+		ActorID: "verified-actor",
+		WorkloadID: "verified-runtime",
+		AgentID: "verified-agent",
+		RunID: "run-1",
+		DecisionID: "decision-1",
+		PlanID: "plan-1",
+		PlanHash: strings.Repeat("f", 64),
+		StepID: "step-1",
+		OperationID: op.OperationID,
+		Capability: action.ActionCapabilityRef{
+			ID: "workspace.write",
+			Version: "1.0.0",
+			ContractSHA256: strings.Repeat("a", 64),
+		},
+		ResourceRef: "workspace-1",
+		Arguments: []byte(`{"path":"docs/output.md","content_sha256":"` + strings.Repeat("c", 64) + `"}`),
 		ToolBindingDigest: strings.Repeat("b", 64),
-		PolicyVersion:     "policy-7",
-		Audience:          "trusted-workspace-executor",
-		WorkspaceID:       "workspace-1",
-		RelativePath:      "docs/output.md",
-		ContentDigest:     strings.Repeat("c", 64),
+		PolicyVersion: "policy-7",
+		Audience: "trusted-workspace-executor",
 	}
-	hash, err := action.Hash(resolved)
+	hash, err := action.ActionHash(resolved)
 	if err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	authority := &permitTestAuthority{result: issuer.Authorization{
-		RunID:             "run-1",
-		RuntimeAttemptID:  "run-attempt-1",
-		TurnID:            "turn-1",
-		ApprovalRef:       "approval-1",
-		RiskRevision:      "risk-17",
-		ActionHash:        hash,
+		TenantID: resolved.TenantID,
+		RunID: resolved.RunID,
+		RuntimeAttemptID: "run-attempt-1",
+		TurnID: "turn-1",
+		ApprovalRef: "approval-1",
+		RiskRevision: "risk-17",
+		DecisionID: resolved.DecisionID,
+		PlanID: resolved.PlanID,
+		PlanHash: resolved.PlanHash,
+		StepID: resolved.StepID,
+		CapabilityID: resolved.Capability.ID,
+		CapabilityVersion: resolved.Capability.Version,
+		CapabilityContractSHA256: resolved.Capability.ContractSHA256,
+		ActionHash: hash,
 		ToolBindingDigest: resolved.ToolBindingDigest,
-		PolicyVersion:     resolved.PolicyVersion,
-		Audience:          resolved.Audience,
-		ValidUntil:        now.Add(2 * time.Minute),
+		PolicyVersion: resolved.PolicyVersion,
+		Audience: resolved.Audience,
+		ValidUntil: now.Add(2 * time.Minute),
 	}}
 	ledger, err := NewPermitIssuerLedger(store)
 	if err != nil {
