@@ -161,6 +161,8 @@ func (c *DecisionPlanClient) VerifyDecisionPlanStep(
 		return ErrAuthorityUnavailable
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// Prevent transparent decompression before signed authority verification.
+	req.Header.Set("Accept-Encoding", "identity")
 	req.Header.Set("Cache-Control", "no-store")
 	res, err := c.http.Do(req)
 	if err != nil {
@@ -173,8 +175,19 @@ func (c *DecisionPlanClient) VerifyDecisionPlanStep(
 	if res.StatusCode != http.StatusOK {
 		return ErrAuthorityUnavailable
 	}
-	media, _, err := mime.ParseMediaType(res.Header.Get("Content-Type"))
-	if err != nil || media != "application/json" || res.Header.Get("Cache-Control") != "no-store" {
+	// A valid mTLS peer cannot make duplicated representation or cache
+	// metadata authoritative. Header.Get silently ignores later values.
+	if res.Uncompressed || len(res.Header.Values("Content-Encoding")) != 0 {
+		return ErrAuthorityUnavailable
+	}
+	contentTypes := res.Header.Values("Content-Type")
+	cacheControls := res.Header.Values("Cache-Control")
+	if len(contentTypes) != 1 || len(cacheControls) != 1 ||
+		cacheControls[0] != "no-store" {
+		return ErrAuthorityUnavailable
+	}
+	media, _, err := mime.ParseMediaType(contentTypes[0])
+	if err != nil || media != "application/json" {
 		return ErrAuthorityUnavailable
 	}
 	body, err := io.ReadAll(io.LimitReader(res.Body, 4097))

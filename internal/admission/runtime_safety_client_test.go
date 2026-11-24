@@ -221,3 +221,67 @@ func TestRuntimeSafetyClientRejectsServerWithoutDigitalSignatureKeyUsage(t *test
 		t.Fatal("server handler served a safety read using a non-signing certificate")
 	}
 }
+
+// A cryptographically authenticated Runtime peer is not authority to send
+// ambiguous HTTP response metadata. Duplicate Content-Type/Cache-Control
+// values must fail closed even when the first header is acceptable.
+func TestRuntimeSafetyClientRejectsAmbiguousResponseHeaders(t *testing.T) {
+	serverCert, roots := safetyServerCert(t, safetyPeer)
+	clientCA, signer, clientRoots := newTestTransportCA(t)
+	clientCert := newTestTLSLeaf(t, clientCA, signer, true, "spiffe://platform.example/ns/guard/sa/engageguard")
+	good := `{"schema_version":"runtime.run-safety.v1","tenant_id":"tenant-1","run_id":"` +
+		safetyRun + `","agent_id":"agent-1","agent_release_id":"release-1","session_id":"session-1","status":"RUNNING","breaker_state":"CLOSED","breaker_epoch":1,"breaker_version":1}`
+	cases := []struct {
+		name          string
+		contentTypes  []string
+		cacheControls []string
+		valid         bool
+	}{
+		{"single-canonical", []string{"application/json"}, []string{"no-store"}, true},
+		{"duplicate-identical-type", []string{"application/json", "application/json"}, []string{"no-store"}, false},
+		{"duplicate-conflicting-type", []string{"application/json", "text/plain"}, []string{"no-store"}, false},
+		{"duplicate-identical-cache", []string{"application/json"}, []string{"no-store", "no-store"}, false},
+		{"duplicate-conflicting-cache", []string{"application/json"}, []string{"no-store", "public"}, false},
+	}
+	var selected atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		current := cases[int(selected.Load())]
+		for _, value := range current.contentTypes {
+			w.Header().Add("Content-Type", value)
+		}
+		for _, value := range current.cacheControls {
+			w.Header().Add("Cache-Control", value)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(good))
+	}))
+	srv.TLS = &tls.Config{
+		MinVersion:   tls.VersionTLS13,
+		Certificates: []tls.Certificate{serverCert},
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    clientRoots,
+	}
+	srv.StartTLS()
+	defer srv.Close()
+	client, err := NewRuntimeRunSafetyClient(srv.URL, safetyPeer, safetyTenant, roots, clientCert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.CloseIdleConnections()
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			selected.Store(int32(i))
+			snapshot, err := client.GetRunSafetySnapshot(context.Background(), safetyTenant, safetyRun)
+			if tc.valid {
+				if err != nil || snapshot.RunID != safetyRun || snapshot.BreakerEpoch != 1 {
+					t.Fatalf("canonical response rejected: snapshot=%+v err=%v", snapshot, err)
+				}
+				return
+			}
+			if !errors.Is(err, ErrAuthorityUnavailable) || snapshot.RunID != "" {
+				t.Fatalf("ambiguous Runtime safety metadata accepted: content-types=%q cache-controls=%q snapshot=%+v err=%v",
+					tc.contentTypes, tc.cacheControls, snapshot, err)
+			}
+		})
+	}
+}

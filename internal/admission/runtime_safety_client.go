@@ -115,6 +115,8 @@ func (c *RuntimeRunSafetyClient) GetRunSafetySnapshot(ctx context.Context, tenan
 		return empty, ErrAuthorityUnavailable
 	}
 	req.Header.Set("Accept", "application/json")
+	// Never let Go's default transport silently decompress authority bytes.
+	req.Header.Set("Accept-Encoding", "identity")
 	req.Header.Set("Cache-Control", "no-store")
 	res, err := c.http.Do(req)
 	if err != nil {
@@ -128,8 +130,19 @@ func (c *RuntimeRunSafetyClient) GetRunSafetySnapshot(ctx context.Context, tenan
 	default:
 		return empty, ErrAuthorityUnavailable
 	}
-	media, _, err := mime.ParseMediaType(res.Header.Get("Content-Type"))
-	if err != nil || media != "application/json" || res.Header.Get("Cache-Control") != "no-store" {
+	// Header.Get only returns the first field. A valid mTLS peer must not
+	// supply conflicting or duplicated HTTP representation/cache metadata.
+	if res.Uncompressed || len(res.Header.Values("Content-Encoding")) != 0 {
+		return empty, ErrAuthorityUnavailable
+	}
+	contentTypes := res.Header.Values("Content-Type")
+	cacheControls := res.Header.Values("Cache-Control")
+	if len(contentTypes) != 1 || len(cacheControls) != 1 ||
+		cacheControls[0] != "no-store" {
+		return empty, ErrAuthorityUnavailable
+	}
+	media, _, err := mime.ParseMediaType(contentTypes[0])
+	if err != nil || media != "application/json" {
 		return empty, ErrAuthorityUnavailable
 	}
 	raw, err := io.ReadAll(io.LimitReader(res.Body, maxSafetyResponse+1))
