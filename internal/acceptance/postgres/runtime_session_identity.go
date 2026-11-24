@@ -3,21 +3,27 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 )
 
 // beginLedgerTx checks authority on the same physical session used for the
 // ensuing ledger operation. Startup Migrate cannot attest later pool sessions.
-// Explicitly provisioned schema identity is preferred; the legacy New
-// constructor retains the connection's reset search_path for compatibility
-// only. Production still requires trusted configuration and separate DDL roles.
+// Explicitly provisioned schema identity is mandatory for Permit-ledger
+// operations; the legacy New constructor is admission-only.
 func (s *Store) beginLedgerTx(ctx context.Context, permit bool) (*sql.Tx, error) {
+	if s == nil || s.db == nil {
+		return nil, errors.New("Guard database unavailable")
+	}
+	if permit && s.trustedSchema == "" {
+		return nil, fmt.Errorf("%w: Permit ledger access requires NewWithTrustedSchema", ErrSchemaDrift)
+	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return nil, err
 	}
 	var safe bool
-	err = tx.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, \`
 		SELECT EXISTS (
 			SELECT 1 FROM pg_catalog.pg_settings s
 			WHERE s.name='search_path' AND s.setting=s.reset_val
@@ -48,7 +54,7 @@ func (s *Store) beginLedgerTx(ctx context.Context, permit bool) (*sql.Tx, error)
 				pg_catalog.format('%I.%I',pg_catalog.current_schema(),'guard_schema_migrations'))
 			WHERE $2::boolean OR NOT r.permit_only
 		),false)
-	`, s.trustedSchema, permit).Scan(&safe)
+	\`, s.trustedSchema, permit).Scan(&safe)
 	if err != nil || !safe {
 		_ = tx.Rollback()
 		return nil, fmt.Errorf("%w: runtime ledger relation identity: %v", ErrSchemaDrift, err)
