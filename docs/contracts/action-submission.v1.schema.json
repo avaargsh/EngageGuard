@@ -22,17 +22,20 @@
     "run_id": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 512
+      "maxLength": 512,
+      "pattern": "^[!-~]{1,512}$"
     },
     "decision_id": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 512
+      "maxLength": 512,
+      "pattern": "^[!-~]{1,512}$"
     },
     "plan_id": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 512
+      "maxLength": 512,
+      "pattern": "^[!-~]{1,512}$"
     },
     "plan_hash": {
       "$ref": "#/$defs/sha256"
@@ -40,7 +43,8 @@
     "step_id": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 512
+      "maxLength": 512,
+      "pattern": "^[!-~]{1,512}$"
     },
     "capability": {
       "$ref": "#/$defs/capability"
@@ -48,7 +52,8 @@
     "resource_ref": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 512
+      "maxLength": 512,
+      "pattern": "^[!-~]{1,512}$"
     },
     "arguments": {
       "type": "object"
@@ -70,15 +75,17 @@
         "id": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 512
+          "maxLength": 512,
+          "pattern": "^[!-~]{1,512}$"
         },
         "version": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 128
+          "maxLength": 128,
+          "pattern": "^[!-~]{1,128}$"
         }
       }
     }
   },
-  "description": "Caller-supplied untrusted intent only. Capability contract digests, identity, operation IDs, ToolBinding, policy and executor audience are resolved by EngageGuard from trusted sources."
+  "description": "Caller-supplied untrusted intent only. Capability contract digests, identity, operation IDs, ToolBinding, policy and executor audience are resolved by EngageGuard from trusted sources. Identifier and binding-reference strings are restricted to visible ASCII (0x21-0x7e); arbitrary UTF-8 remains valid inside arguments."
 }
