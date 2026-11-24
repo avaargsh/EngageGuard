@@ -23,16 +23,24 @@ var permitIDRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[
 // Authorization is a fresh result from independently authenticated authority
 // sources. It is not accepted from an Agent request and is not itself a Permit.
 type Authorization struct {
-	RunID             string
-	RuntimeAttemptID  string
-	TurnID            string
-	ApprovalRef       string
-	RiskRevision      string
-	ActionHash        string
-	ToolBindingDigest string
-	PolicyVersion     string
-	Audience          string
-	ValidUntil        time.Time
+	TenantID                  string
+	RunID                     string
+	RuntimeAttemptID          string
+	TurnID                    string
+	ApprovalRef               string
+	RiskRevision              string
+	DecisionID                string
+	PlanID                    string
+	PlanHash                  string
+	StepID                    string
+	CapabilityID              string
+	CapabilityVersion         string
+	CapabilityContractSHA256  string
+	ActionHash                string
+	ToolBindingDigest         string
+	PolicyVersion              string
+	Audience                   string
+	ValidUntil                 time.Time
 }
 
 // PermitDraft is opaque outside this package. Only Service.Issue may
@@ -44,20 +52,28 @@ type PermitDraft struct {
 // PermitDraftValues is a read-only snapshot of the values carried by a
 // PermitDraft. Mutating this returned value never mutates the original draft.
 type PermitDraftValues struct {
-	TenantID          string
-	OperationID       string
-	RunID             string
-	RuntimeAttemptID  string
-	TurnID            string
-	ApprovalRef       string
-	RiskRevision      string
-	ActionHash        string
-	ToolBindingDigest string
-	PolicyVersion     string
-	Audience          string
-	IssuedBy          string
-	IssuedAt          time.Time
-	ExpiresAt         time.Time
+	TenantID                 string
+	OperationID              string
+	RunID                    string
+	RuntimeAttemptID         string
+	TurnID                   string
+	ApprovalRef               string
+	RiskRevision              string
+	DecisionID                string
+	PlanID                    string
+	PlanHash                  string
+	StepID                    string
+	CapabilityID              string
+	CapabilityVersion         string
+	CapabilityContractSHA256  string
+	ResourceRef               string
+	ActionHash                string
+	ToolBindingDigest         string
+	PolicyVersion              string
+	Audience                   string
+	IssuedBy                   string
+	IssuedAt                   time.Time
+	ExpiresAt                  time.Time
 }
 
 func (d PermitDraft) Values() PermitDraftValues {
@@ -74,7 +90,7 @@ type ScopedPermit struct {
 // Authority must independently verify current Run/Attempt/Turn, Decision,
 // capability/tool binding, policy, approval and risk before returning success.
 type Authority interface {
-	VerifyIssue(context.Context, action.WorkspaceWrite) (Authorization, error)
+	VerifyIssue(context.Context, action.ActionRequest) (Authorization, error)
 }
 
 // PermitLedger must persist a one-time Permit atomically and enforce replay
@@ -145,7 +161,7 @@ func New(cfg Config, authority Authority, ledger PermitLedger) (*Service, error)
 	return &Service{cfg: cfg, authority: authority, ledger: ledger}, nil
 }
 
-func (s *Service) Issue(ctx context.Context, resolved action.WorkspaceWrite) (ScopedPermit, error) {
+func (s *Service) Issue(ctx context.Context, resolved action.ActionRequest) (ScopedPermit, error) {
 	var zero ScopedPermit
 	if s == nil || ctx == nil || missing(s.authority) || missing(s.ledger) || s.cfg.Now == nil {
 		return zero, ErrUnavailable
@@ -153,9 +169,14 @@ func (s *Service) Issue(ctx context.Context, resolved action.WorkspaceWrite) (Sc
 	if err := ctx.Err(); err != nil {
 		return zero, fmt.Errorf("%w: context: %w", ErrUnavailable, err)
 	}
-	actionHash, err := action.Hash(resolved)
+	if err := resolved.Validate(); err != nil ||
+		!identityRE.MatchString(resolved.TenantID) ||
+		!permitIDRE.MatchString(resolved.OperationID) {
+		return zero, fmt.Errorf("%w: invalid resolved ActionRequest v1", ErrDenied)
+	}
+	actionHash, err := action.ActionHash(resolved)
 	if err != nil {
-		return zero, fmt.Errorf("%w: invalid resolved action", ErrDenied)
+		return zero, fmt.Errorf("%w: invalid resolved ActionRequest v1", ErrDenied)
 	}
 
 	auth, err := s.authority.VerifyIssue(ctx, resolved)
@@ -172,9 +193,22 @@ func (s *Service) Issue(ctx context.Context, resolved action.WorkspaceWrite) (Sc
 	}
 	now := s.cfg.Now().UTC().Truncate(time.Microsecond)
 	expiresAt := auth.ValidUntil.UTC().Truncate(time.Microsecond)
-	if !validEvidence(auth.RunID) || !validEvidence(auth.RuntimeAttemptID) ||
+	if auth.TenantID != resolved.TenantID ||
+		auth.RunID != resolved.RunID ||
+		auth.DecisionID != resolved.DecisionID ||
+		auth.PlanID != resolved.PlanID ||
+		auth.PlanHash != resolved.PlanHash ||
+		auth.StepID != resolved.StepID ||
+		auth.CapabilityID != resolved.Capability.ID ||
+		auth.CapabilityVersion != resolved.Capability.Version ||
+		auth.CapabilityContractSHA256 != resolved.Capability.ContractSHA256 ||
+		!validEvidence(auth.RunID) || !validEvidence(auth.RuntimeAttemptID) ||
 		!validEvidence(auth.TurnID) || !validEvidence(auth.ApprovalRef) ||
 		!validEvidence(auth.RiskRevision) ||
+		!validEvidence(resolved.DecisionID) || !validEvidence(resolved.PlanID) ||
+		!validEvidence(resolved.StepID) || !validEvidence(resolved.Capability.ID) ||
+		!validEvidence(resolved.Capability.Version) || !validEvidence(resolved.ResourceRef) ||
+		!permitIDRE.MatchString(resolved.OperationID) ||
 		auth.ActionHash != actionHash ||
 		auth.ToolBindingDigest != resolved.ToolBindingDigest ||
 		auth.PolicyVersion != resolved.PolicyVersion ||
@@ -186,16 +220,24 @@ func (s *Service) Issue(ctx context.Context, resolved action.WorkspaceWrite) (Sc
 
 	draft := PermitDraft{values: PermitDraftValues{
 		TenantID:          resolved.TenantID,
-		OperationID:       resolved.OperationID,
-		RunID:             auth.RunID,
-		RuntimeAttemptID:  auth.RuntimeAttemptID,
-		TurnID:            auth.TurnID,
-		ApprovalRef:       auth.ApprovalRef,
-		RiskRevision:      auth.RiskRevision,
-		ActionHash:        actionHash,
-		ToolBindingDigest: resolved.ToolBindingDigest,
-		PolicyVersion:     resolved.PolicyVersion,
-		Audience:          resolved.Audience,
+		OperationID:              resolved.OperationID,
+		RunID:                    resolved.RunID,
+		RuntimeAttemptID:         auth.RuntimeAttemptID,
+		TurnID:                   auth.TurnID,
+		ApprovalRef:              auth.ApprovalRef,
+		RiskRevision:             auth.RiskRevision,
+		DecisionID:               resolved.DecisionID,
+		PlanID:                   resolved.PlanID,
+		PlanHash:                 resolved.PlanHash,
+		StepID:                   resolved.StepID,
+		CapabilityID:             resolved.Capability.ID,
+		CapabilityVersion:        resolved.Capability.Version,
+		CapabilityContractSHA256: resolved.Capability.ContractSHA256,
+		ResourceRef:              resolved.ResourceRef,
+		ActionHash:               actionHash,
+		ToolBindingDigest:        resolved.ToolBindingDigest,
+		PolicyVersion:            resolved.PolicyVersion,
+		Audience:                 resolved.Audience,
 		IssuedBy:          s.cfg.IssuerIdentity,
 		IssuedAt:          now,
 		ExpiresAt:         expiresAt,
