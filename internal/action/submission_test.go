@@ -101,7 +101,6 @@ func TestSubmissionSchemaHasNoServerOwnedFields(t *testing.T) {
 	}
 }
 
-
 func TestSubmissionRejectsNonASCIIIdentifiers(t *testing.T) {
 	cases := map[string]func([]byte) []byte{
 		"run": func(raw []byte) []byte {
