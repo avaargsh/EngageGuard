@@ -179,18 +179,18 @@ func verifyPermitAuthorityEvidence(ctx context.Context, tx *sql.Tx) error {
 	}
 	for _, check := range checks {
 		var expression string
+		var validated bool
 		if err := tx.QueryRowContext(ctx, `
-			SELECT pg_catalog.pg_get_expr(c.conbin,c.conrelid)
+			SELECT pg_catalog.pg_get_expr(c.conbin,c.conrelid), c.convalidated
 			FROM pg_catalog.pg_constraint c
 			WHERE c.conrelid=pg_catalog.to_regclass('guard_permit_authority_evidence')
 			  AND c.conname=$1 AND c.contype='c'
 			  AND NOT c.condeferrable AND NOT c.condeferred
-			  AND ($2::boolean = false OR c.convalidated)
-		`, check.name, check.requireValidated).Scan(&expression); err != nil {
+		`, check.name).Scan(&expression, &validated); err != nil {
 			return fmt.Errorf("%w: missing v17 ActionRequest check %s: %v", ErrSchemaDrift, check.name, err)
 		}
-		if expression != check.expression {
-			return fmt.Errorf("%w: v17 ActionRequest check %s definition drifted", ErrSchemaDrift, check.name)
+		if expression != check.expression || validated != check.requireValidated {
+			return fmt.Errorf("%w: v17 ActionRequest check %s definition or validation state drifted", ErrSchemaDrift, check.name)
 		}
 	}
 
