@@ -98,7 +98,7 @@ func samePermitDraft(
 }
 
 func (l *PermitIssuerLedger) PersistIssuedPermit(
-	ctx context.Context, draft issuer.PermitDraft,
+	ctx context.Context, draft issuer.PermitDraft, maxTTL time.Duration,
 ) (issuer.ScopedPermit, error) {
 	var zero issuer.ScopedPermit
 	if l == nil || l.store == nil || ctx == nil {
@@ -195,8 +195,36 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 		return zero, fmt.Errorf("%w: insert Permit: %w", issuer.ErrUnavailable, err)
 	}
 
+	// Validate the issuance window against PostgreSQL's clock in the same
+	// transaction that writes the Permit and immutable authority evidence.
+	// A skewed issuer host clock must not extend the effective Permit lifetime.
+	if err := verifyPermitIssueWindow(ctx, tx, draft, maxTTL); err != nil {
+		return zero, err
+	}
 	if err := tx.Commit(); err != nil {
 		return zero, fmt.Errorf("%w: commit Permit issuance: %w", issuer.ErrUnavailable, err)
 	}
 	return issuer.ScopedPermit{PermitID: permitID, Draft: draft}, nil
+}
+
+const maxPermitIssuerClockSkew = 30 * time.Second
+
+func verifyPermitIssueWindow(
+	ctx context.Context, tx *sql.Tx, draft issuer.PermitDraft, maxTTL time.Duration,
+) error {
+	values := draft.Values()
+	if maxTTL <= 0 || values.ExpiresAt.After(values.IssuedAt.Add(maxTTL)) {
+		return issuer.ErrDenied
+	}
+	var dbNow time.Time
+	if err := tx.QueryRowContext(ctx, "SELECT clock_timestamp()").Scan(&dbNow); err != nil {
+		return fmt.Errorf("%w: sample PostgreSQL issuance clock: %w", issuer.ErrUnavailable, err)
+	}
+	if values.IssuedAt.Before(dbNow.Add(-maxPermitIssuerClockSkew)) ||
+		values.IssuedAt.After(dbNow.Add(maxPermitIssuerClockSkew)) ||
+		!values.ExpiresAt.After(dbNow) ||
+		values.ExpiresAt.After(dbNow.Add(maxTTL)) {
+		return issuer.ErrDenied
+	}
+	return nil
 }
