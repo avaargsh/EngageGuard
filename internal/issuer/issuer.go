@@ -258,8 +258,19 @@ func (s *Service) Issue(ctx context.Context, resolved action.ActionRequest) (Sco
 		}
 		return zero, fmt.Errorf("%w: persist Permit: %w", ErrUnavailable, err)
 	}
+	// A successful durable write may outlive the caller's context or
+	// the Permit validity window. Do not return an actionable result in
+	// either case; preserve the ledger row for fresh, idempotent replay.
+	postPersistNow := s.cfg.Now().UTC().Truncate(time.Microsecond)
+	if err := ctx.Err(); err != nil {
+		return zero, fmt.Errorf("%w: context after Permit persistence: %w", ErrUnavailable, err)
+	}
+	if postPersistNow.Before(now) {
+		// A regressed clock cannot establish that the Permit is still fresh.
+		return zero, fmt.Errorf("%w: issuer clock regressed during Permit persistence", ErrUnavailable)
+	}
 	if !permitIDRE.MatchString(persisted.PermitID) ||
-		!samePersistedPermit(draft.Values(), persisted.Values, now, s.cfg.MaxTTL) {
+		!samePersistedPermit(draft.Values(), persisted.Values, postPersistNow, s.cfg.MaxTTL) {
 		return zero, fmt.Errorf("%w: ledger returned inconsistent Permit", ErrUnavailable)
 	}
 	return ScopedPermit{
