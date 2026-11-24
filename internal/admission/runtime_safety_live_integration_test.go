@@ -63,6 +63,9 @@ func TestLiveRuntimeRunSafetyAuthority(t *testing.T) {
 	if _, err := db.Exec(ctx, "UPDATE runs SET status='RUNNING',updated_at=clock_timestamp() WHERE tenant_id=$1 AND run_id=$2::uuid", tenant, runID); err != nil {
 		t.Fatal(err)
 	}
+	// A RUNNING Run without Runtime's current Attempt pointer cannot
+	// authorize new Guard admission, even when its breaker is CLOSED.
+	assertDenied()
 	snapshot, err := client.GetRunSafetySnapshot(ctx, tenant, runID)
 	if err != nil || snapshot.TenantID != tenant || snapshot.RunID != runID ||
 		snapshot.AgentID != "agent-1" || snapshot.AgentReleaseID != "release-1" || snapshot.SessionID != "session-1" ||
