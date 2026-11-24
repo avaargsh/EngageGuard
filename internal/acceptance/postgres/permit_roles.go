@@ -117,9 +117,9 @@ func VerifyPermitRoleSeparation(
 		}
 	}
 
-	// Table grants and column grants are separate in PostgreSQL. Query the
-	// latter too: an INSERT(column) or UPDATE(identity_column) grant must not
-	// silently pass a check looking only at whole-table privileges.
+	// Table grants and column grants are separate in PostgreSQL. Probe any
+	// column-level SELECT/INSERT/UPDATE grant as well as table-level rights;
+	// a narrow grant must not bypass the intended read/write boundary.
 	type probe struct {
 		role, table, column, privilege string
 		want                           bool
