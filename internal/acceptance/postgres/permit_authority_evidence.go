@@ -120,7 +120,6 @@ func verifyPermitAuthorityEvidence(ctx context.Context, tx *sql.Tx) error {
 		return fmt.Errorf("%w: v17 ActionRequest evidence columns drift: %v", ErrSchemaDrift, err)
 	}
 
-
 	// pg_get_expr is PostgreSQL's canonical deparse of the installed CHECK
 	// expression. Compare the complete expression, not selected substrings:
 	// a same-name CHECK with the expected tokens plus "OR TRUE" is disabled.
