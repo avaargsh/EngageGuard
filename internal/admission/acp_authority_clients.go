@@ -446,4 +446,5 @@ func (c *ACPProtectedWorkspaceClient) ObserveProtectedWorkspace(
 	}, nil
 }
 
+var _ CapabilityAuthority = (*ACPCapabilityClient)(nil)
 var _ ProtectedWorkspaceAuthority = (*ACPProtectedWorkspaceClient)(nil)
