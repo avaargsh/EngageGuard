@@ -55,7 +55,30 @@ func newACPPinnedHTTPClient(
 		len(credential.Certificate) == 0 || credential.PrivateKey == nil {
 		return nil, ErrAuthorityUnavailable
 	}
-	if _, err := x509.ParseCertificate(credential.Certificate[0]); err != nil {
+	leaf, err := x509.ParseCertificate(credential.Certificate[0])
+	if err != nil || leaf == nil || leaf.IsCA ||
+		leaf.KeyUsage&x509.KeyUsageDigitalSignature == 0 {
+		return nil, ErrAuthorityUnavailable
+	}
+	now := time.Now()
+	if now.Before(leaf.NotBefore) || !now.Before(leaf.NotAfter) ||
+		len(leaf.URIs) != 1 || leaf.URIs[0] == nil {
+		return nil, ErrAuthorityUnavailable
+	}
+	// Guard only presents a provisioned workload credential to ACP. Do not
+	// send a server-only, unconstrained, expired or non-SPIFFE certificate as
+	// an mTLS client identity, even if the remote listener is misconfigured.
+	if _, err := validateRuntimeSPIFFE(leaf.URIs[0].String(), leaf.URIs[0].Host); err != nil {
+		return nil, ErrAuthorityUnavailable
+	}
+	clientAuth := false
+	for _, usage := range leaf.ExtKeyUsage {
+		if usage == x509.ExtKeyUsageClientAuth {
+			clientAuth = true
+			break
+		}
+	}
+	if !clientAuth {
 		return nil, ErrAuthorityUnavailable
 	}
 
@@ -207,6 +230,22 @@ type acpCapabilityReceipt struct {
 	Status            string `json:"status"`
 }
 
+
+// validACPAuthorityIdentifier applies the same printable-ASCII boundary to
+// Runtime and ACP authority identifiers while retaining the Runtime wire
+// contract's 255-byte limit.
+func validACPAuthorityIdentifier(value string) bool {
+	if !validRuntimeIdentity(value) {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		if value[i] < 0x21 || value[i] > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
 // ACPCapabilityClient is a fresh, read-only capability observation. It never
 // caches a positive result and cannot approve or execute an action.
 type ACPCapabilityClient struct {
@@ -235,13 +274,17 @@ func (c *ACPCapabilityClient) VerifyCapabilityAccess(
 	if c == nil || c.base == nil || c.base.http == nil || ctx == nil {
 		return ErrAuthorityUnavailable
 	}
-	if principal.ServiceID != "agent-runtime" || principal.TenantID != c.base.tenant ||
+	if principal.ServiceID != "agent-runtime" ||
+		!validIdentity(principal.TenantID) || principal.TenantID != c.base.tenant ||
+		!validIdentity(principal.SubjectID) || !validIdentity(principal.ActorID) ||
+		!validIdentity(principal.WorkloadID) ||
 		run.TenantID != c.base.tenant || run.RunID != submission.RunID ||
 		run.Status != "RUNNING" || run.BreakerState != "CLOSED" ||
 		run.BreakerEpoch == 0 || run.BreakerVersion == 0 ||
 		!canonicalSafetyRunID.MatchString(run.RunID) ||
-		!validRuntimeIdentity(run.AgentID) || !validRuntimeIdentity(run.AgentReleaseID) ||
-		!validRuntimeIdentity(run.SessionID) || submission.Validate() != nil {
+		!validACPAuthorityIdentifier(run.AgentID) ||
+		!validACPAuthorityIdentifier(run.AgentReleaseID) ||
+		!validACPAuthorityIdentifier(run.SessionID) || submission.Validate() != nil {
 		return ErrForbidden
 	}
 	// This client is intentionally limited to the one reviewed read-only
@@ -285,7 +328,7 @@ func (c *ACPCapabilityClient) VerifyCapabilityAccess(
 		receipt.CapabilityVersion != submission.Capability.Version ||
 		receipt.ResourceRef != submission.ResourceRef ||
 		!canonicalSHA256(receipt.ContractSHA256) ||
-		!validRuntimeIdentity(receipt.PolicyRevision) || ctx.Err() != nil {
+		!validACPAuthorityIdentifier(receipt.PolicyRevision) || ctx.Err() != nil {
 		return ErrAuthorityUnavailable
 	}
 	return nil
@@ -386,6 +429,7 @@ func (c *ACPProtectedWorkspaceClient) ObserveProtectedWorkspace(
 		!validIdentity(run.SessionID) || resolved.Validate() != nil ||
 		resolved.TenantID != c.base.tenant || resolved.RunID != run.RunID ||
 		resolved.AgentID != run.AgentID ||
+		resolved.ActorID != principal.ActorID || resolved.WorkloadID != principal.WorkloadID ||
 		!canonicalSafetyRunID.MatchString(resolved.OperationID) ||
 		resolved.Capability.ID != "workspace.write" ||
 		resolved.Capability.Version != acpProtectedWorkspaceCapabilityVersion ||
