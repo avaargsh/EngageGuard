@@ -21,7 +21,7 @@ type postflightSafetyAuthority struct {
 
 func (a *postflightSafetyAuthority) GetRunSafetySnapshot(_ context.Context, tenantID, runID string) (RunSafetySnapshot, error) {
 	a.calls++
-	if tenantID != "tenant-verified" || runID != "run-1" {
+	if tenantID != "tenant-verified" || runID != safetyRun {
 		return RunSafetySnapshot{}, ErrForbidden
 	}
 	if a.calls > 1 {
@@ -68,7 +68,7 @@ func TestComposedVerifierPostflightRunSafetyCannotChangeDuringAuthorityReads(t *
 			reader := &postflightSafetyAuthority{first: initial, second: after, secondError: tc.err}
 			decision := &testDecisionPlanAuthority{}
 			capability := &flippingCapabilityAuthority{}
-			verifier, err := NewComposedRunVerifier(reader, decision, capability)
+			verifier, err := NewComposedRunVerifier(reader, decision, capability, trustedRuntimeExecutionAuthority(initial))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -91,7 +91,7 @@ func TestGuardHTTPNeverWritesAfterPostflightBreakerChange(t *testing.T) {
 	after.BreakerEpoch++
 	after.BreakerVersion++
 	reader := &postflightSafetyAuthority{first: before, second: after}
-	verifier, err := NewComposedRunVerifier(reader, &testDecisionPlanAuthority{}, &flippingCapabilityAuthority{})
+	verifier, err := NewComposedRunVerifier(reader, &testDecisionPlanAuthority{}, &flippingCapabilityAuthority{}, trustedRuntimeExecutionAuthority(before))
 	if err != nil {
 		t.Fatal(err)
 	}
