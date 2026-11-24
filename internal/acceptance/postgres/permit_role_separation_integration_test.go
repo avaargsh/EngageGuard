@@ -25,6 +25,14 @@ func TestPermitIssuerAndClaimerRoleSeparation(t *testing.T) {
 	serial := time.Now().UnixNano()
 	issuer := fmt.Sprintf("guard_issuer_%d", serial)
 	claimer := fmt.Sprintf("guard_claimer_%d", serial)
+	group := fmt.Sprintf("guard_role_group_%d", serial)
+	if _, err := db.ExecContext(ctx, "CREATE ROLE "+group+" NOLOGIN"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(context.Background(), "REVOKE "+group+" FROM "+issuer)
+		_, _ = db.ExecContext(context.Background(), "DROP ROLE "+group)
+	})
 	for _, role := range []string{issuer, claimer} {
 		if _, err := db.ExecContext(ctx, "CREATE ROLE "+role+" NOLOGIN"); err != nil {
 			t.Fatal(err)
@@ -138,6 +146,9 @@ func TestPermitIssuerAndClaimerRoleSeparation(t *testing.T) {
 		{"claimer gained accepted source column SELECT",
 			"GRANT SELECT (submission_bytes) ON guard_accepted_submission_snapshots TO " + claimer,
 			"REVOKE SELECT (submission_bytes) ON guard_accepted_submission_snapshots FROM " + claimer},
+		{"issuer gained external role membership",
+			"GRANT " + group + " TO " + issuer,
+			"REVOKE " + group + " FROM " + issuer},
 		{"issuer gained outbox column SELECT",
 			"GRANT SELECT (event_type) ON guard_outbox_events TO " + issuer,
 			"REVOKE SELECT (event_type) ON guard_outbox_events FROM " + issuer},
