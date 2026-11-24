@@ -490,13 +490,14 @@ func TestACPCapabilityClientRejectsMalformedAuthenticatedPrincipalBeforeNetwork(
 	}
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {
+			before := calls.Load()
 			candidate := principal
 			mutate(&candidate)
 			if err := client.VerifyCapabilityAccess(context.Background(), candidate, run, submission); !errors.Is(err, ErrForbidden) {
 				t.Fatalf("malformed principal accepted: %v", err)
 			}
-			if calls.Load() != 0 {
-				t.Fatalf("malformed principal reached ACP authority: calls=%d", calls.Load())
+			if calls.Load() != before {
+				t.Fatalf("malformed principal reached ACP authority: before=%d after=%d", before, calls.Load())
 			}
 		})
 	}
