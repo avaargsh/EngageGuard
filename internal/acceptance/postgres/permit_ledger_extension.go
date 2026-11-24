@@ -220,6 +220,8 @@ func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx) error {
 				  AND t.tgname=$2 AND t.tgtype=21
 				  AND t.tgenabled='A' AND NOT t.tgisinternal
 				  AND t.tgdeferrable AND t.tginitdeferred
+				  AND t.tgqual IS NULL AND t.tgattr::text=''
+				  AND t.tgnargs=0 AND pg_catalog.octet_length(t.tgargs)=0
 				  AND t.tgfoid=to_regprocedure('guard_claim_causal_commit_v10()')
 			)
 		`, trigger.table, trigger.name).Scan(&intact)
