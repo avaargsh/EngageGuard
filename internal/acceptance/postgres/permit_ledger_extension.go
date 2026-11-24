@@ -10,7 +10,7 @@ import (
 )
 
 // The existing admission v1/v2/v3 migration sources and checksums are immutable.
-// All v4-v11 extensions are forward-only and retain historical checksums.
+// All v4-v12 extensions are forward-only and retain historical checksums.
 //
 //go:embed schema_permit_v4.sql
 var permitClaimSchema string
@@ -36,6 +36,9 @@ var permitCausalCommitSchema string
 //go:embed schema_permit_v11.sql
 var permitCausalPinnedSchema string
 
+//go:embed schema_permit_v12.sql
+var permitExpiryFenceSchema string
+
 func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) error {
 	migrations := []struct {
 		version int64
@@ -49,11 +52,17 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 		{9, permitIdentityFenceSchema},
 		{10, permitCausalCommitSchema},
 		{11, permitCausalPinnedSchema},
+		{12, permitExpiryFenceSchema},
 	}
 	// An existing v10 database must pass its original integrity checks before
 	// replacing the function; never silently bless a tampered baseline.
 	if applied == 10 {
 		if err := verifyPermitLedgerCatalog(ctx, tx, permitCausalCommitSchema); err != nil {
+			return err
+		}
+	}
+	if applied == 11 {
+		if err := verifyPermitLedgerCatalog(ctx, tx, permitCausalPinnedSchema); err != nil {
 			return err
 		}
 	}
@@ -81,7 +90,10 @@ func applyPermitLedgerExtension(ctx context.Context, tx *sql.Tx, applied int) er
 			return fmt.Errorf("record forward Permit migration v%d: %w", item.version, err)
 		}
 	}
-	return verifyPermitLedgerCatalog(ctx, tx, permitCausalPinnedSchema)
+	if err := verifyPermitLedgerCatalog(ctx, tx, permitCausalPinnedSchema); err != nil {
+		return err
+	}
+	return verifyPermitExpiryFence(ctx, tx)
 }
 
 func verifyPermitLedgerCatalog(ctx context.Context, tx *sql.Tx, causalSource string) error {
