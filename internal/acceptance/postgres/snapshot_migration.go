@@ -113,6 +113,8 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 		    AND t.tgtype=27
 		    AND t.tgqual IS NULL
 		    AND t.tgattr::text=''
+		    AND t.tgnargs=0 AND pg_catalog.octet_length(t.tgargs)=0
+		    AND NOT t.tgdeferrable AND NOT t.tginitdeferred
 		    AND t.tgfoid=to_regprocedure('guard_reject_snapshot_mutation()')
 		)
 	`).Scan(&valid)
@@ -130,6 +132,8 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 		    AND t.tgtype=34
 		    AND t.tgqual IS NULL
 		    AND t.tgattr::text=''
+		    AND t.tgnargs=0 AND pg_catalog.octet_length(t.tgargs)=0
+		    AND NOT t.tgdeferrable AND NOT t.tginitdeferred
 		    AND t.tgfoid=to_regprocedure('guard_reject_snapshot_mutation()')
 		)
 	`).Scan(&valid)
@@ -155,11 +159,21 @@ func verifySnapshotCatalog(ctx context.Context, tx *sql.Tx) error {
 	// A same-named enabled trigger must still execute the exact immutable
 	// implementation, not a replaced no-op function.
 	var functionBody string
+	var attributesSafe bool
 	err = tx.QueryRowContext(ctx, `
-		SELECT p.prosrc FROM pg_proc p
-		WHERE p.oid=to_regprocedure('guard_reject_snapshot_mutation()')
-	`).Scan(&functionBody)
-	if err != nil || strings.TrimSpace(functionBody) != "BEGIN\n    RAISE EXCEPTION 'accepted Guard submission snapshots are immutable';\nEND;" {
+		SELECT p.prosrc,
+		       NOT p.prosecdef AND NOT p.proleakproof
+		       AND p.provolatile='v' AND NOT p.proisstrict
+		       AND p.proparallel='u' AND p.proconfig IS NULL
+		       AND p.prolang=(SELECT oid FROM pg_catalog.pg_language WHERE lanname='plpgsql')
+		       AND p.pronamespace=pg_catalog.current_schema()::regnamespace
+		       AND p.prorettype='pg_catalog.trigger'::regtype AND p.pronargs=0
+		FROM pg_catalog.pg_proc p
+		WHERE p.oid=pg_catalog.to_regprocedure(
+			pg_catalog.format('%I.%I()', pg_catalog.current_schema(), 'guard_reject_snapshot_mutation'))
+		  AND p.oid=pg_catalog.to_regprocedure('guard_reject_snapshot_mutation()')
+	`).Scan(&functionBody, &attributesSafe)
+	if err != nil || !attributesSafe || strings.TrimSpace(functionBody) != "BEGIN\n    RAISE EXCEPTION 'accepted Guard submission snapshots are immutable';\nEND;" {
 		return fmt.Errorf("%w: snapshot mutation trigger function changed: %v", ErrSchemaDrift, err)
 	}
 	// At least retain exact BYTEA type, NOT NULL, and the CHECK name/column.
