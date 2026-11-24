@@ -17,7 +17,7 @@ func acceptedPermitDraft(t *testing.T, store *Store) issuer.PermitDraft {
 	if err != nil || !created {
 		t.Fatalf("accept source: created=%t err=%v", created, err)
 	}
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	return issuer.PermitDraft{
 		TenantID:          "tenant-a",
 		OperationID:       op.OperationID,

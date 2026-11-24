@@ -14,6 +14,7 @@ import (
 )
 
 var ErrDenied = errors.New("trusted Permit issuance denied")
+var ErrConflict = errors.New("trusted Permit issuance conflicts with existing authority evidence")
 var ErrUnavailable = errors.New("trusted Permit issuer unavailable")
 
 var identityRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
@@ -148,7 +149,8 @@ func (s *Service) Issue(ctx context.Context, resolved action.WorkspaceWrite) (Sc
 	if err != nil {
 		return zero, fmt.Errorf("%w: authority verification: %w", ErrUnavailable, err)
 	}
-	now := s.cfg.Now().UTC()
+	now := s.cfg.Now().UTC().Truncate(time.Microsecond)
+	expiresAt := auth.ValidUntil.UTC().Truncate(time.Microsecond)
 	if !validEvidence(auth.RunID) || !validEvidence(auth.RuntimeAttemptID) ||
 		!validEvidence(auth.TurnID) || !validEvidence(auth.ApprovalRef) ||
 		!validEvidence(auth.RiskRevision) ||
@@ -156,8 +158,8 @@ func (s *Service) Issue(ctx context.Context, resolved action.WorkspaceWrite) (Sc
 		auth.ToolBindingDigest != resolved.ToolBindingDigest ||
 		auth.PolicyVersion != resolved.PolicyVersion ||
 		auth.Audience != resolved.Audience ||
-		!auth.ValidUntil.After(now) ||
-		auth.ValidUntil.After(now.Add(s.cfg.MaxTTL)) {
+		!expiresAt.After(now) ||
+		expiresAt.After(now.Add(s.cfg.MaxTTL)) {
 		return zero, ErrDenied
 	}
 
@@ -175,7 +177,7 @@ func (s *Service) Issue(ctx context.Context, resolved action.WorkspaceWrite) (Sc
 		Audience:          resolved.Audience,
 		IssuedBy:          s.cfg.IssuerIdentity,
 		IssuedAt:          now,
-		ExpiresAt:         auth.ValidUntil.UTC(),
+		ExpiresAt:         expiresAt,
 	}
 	permit, err := s.ledger.PersistIssuedPermit(ctx, draft)
 	if err != nil {

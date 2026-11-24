@@ -103,7 +103,7 @@ func TestCanonicalV15UpgradesAuthenticV14Unknown(t *testing.T) {
 	}
 	for range 2 {
 		if err := Migrate(ctx, db); err != nil {
-			t.Fatalf("v14 -> v15 upgrade/restart failed: %v", err)
+			t.Fatalf("v14 -> current upgrade preserving v15 failed: %v", err)
 		}
 	}
 	var versions int
@@ -118,7 +118,7 @@ func TestCanonicalV15UpgradesAuthenticV14Unknown(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantChecksum := fmt.Sprintf("%x", sha256.Sum256([]byte(permitUnknownCausalSchema)))
-	if versions != 15 || checksum != wantChecksum || !installed {
+	if versions != 16 || checksum != wantChecksum || !installed {
 		t.Fatalf("v15 migration evidence invalid: versions=%d checksum=%s installed=%t",
 			versions, checksum, installed)
 	}
