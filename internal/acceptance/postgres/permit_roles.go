@@ -66,7 +66,7 @@ func VerifyPermitRoleSeparation(
 		)
 	`, trustedSchema).Scan(&pathIntact)
 	if err != nil || !pathIntact {
-		return unsafe("role audit search_path differs from connection baseline", err)
+		return unsafe("role audit search_path/current_schema differs from operator-pinned trusted schema or connection baseline", err)
 	}
 	var issuerSafe, claimerSafe bool
 	err = conn.QueryRowContext(ctx, `
@@ -187,11 +187,10 @@ func VerifyPermitRoleSeparation(
 			}
 		}
 	}
-	// Resolve every relation explicitly inside the operator-pinned schema. Unqualified
-	// to_regclass($2) searches pg_temp first, even when pg_temp is absent from
-	// search_path; a same-named temporary table could otherwise mask unsafe
-	// grants on the authoritative Guard ledger. Keep privilege functions in
-	// pg_catalog too, so caller-controlled search_path cannot shadow them.
+	// Resolve every relation by explicit schema qualification. This bypasses
+	// pg_temp name precedence and ensures privileges are checked on the
+	// operator-pinned permanent Guard objects, not session-local lookalikes.
+	// Keep privilege functions in pg_catalog so search_path cannot shadow them.
 	for _, pr := range probes {
 		var got bool
 		var q string
@@ -203,7 +202,7 @@ func VerifyPermitRoleSeparation(
 			err = conn.QueryRowContext(ctx, q, pr.role, pr.table, pr.privilege, trustedSchema).Scan(&got)
 		} else {
 			q = "SELECT pg_catalog.has_table_privilege($1::name, pg_catalog.to_regclass(pg_catalog.format('%I.%I', $5::text, $2::text)), $3::text)"
-			err = conn.QueryRowContext(ctx, q, pr.role, pr.table, pr.privilege).Scan(&got)
+			err = conn.QueryRowContext(ctx, q, pr.role, pr.table, pr.privilege, trustedSchema).Scan(&got)
 		}
 		if err != nil || got != pr.want {
 			return unsafe(fmt.Sprintf("unexpected %s %s.%s privilege for %s", pr.privilege, pr.table, pr.column, pr.role), err)
