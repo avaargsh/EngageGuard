@@ -231,7 +231,7 @@ func TestComposedRunVerifierFailsClosedWhenRuntimeExecutionAuthorityUnavailable(
 	safety := trustedRuntimeRunForExecutionBinding()
 	for _, tc := range []struct {
 		name   string
-		err  error
+		err   error
 		want error
 	}{
 		{"denied", ErrForbidden, ErrForbidden},
