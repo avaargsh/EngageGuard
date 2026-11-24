@@ -108,6 +108,10 @@ func TestTrustedIssuerBindsCurrentAuthorityToExactResolvedAction(t *testing.T) {
 	if !last.ExpiresAt.Equal(auth.result.ValidUntil) {
 		t.Fatalf("expiry=%v want authority bound %v", last.ExpiresAt, auth.result.ValidUntil)
 	}
+	last.RiskRevision = "caller-mutated-copy"
+	if got := ledger.last.Values().RiskRevision; got != auth.result.RiskRevision {
+		t.Fatalf("mutating returned PermitDraftValues changed the opaque draft: %q", got)
+	}
 }
 
 func TestTrustedIssuerFailsClosedOnAuthorityOrActionDrift(t *testing.T) {

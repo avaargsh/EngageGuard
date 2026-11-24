@@ -64,6 +64,7 @@ func samePermitDraft(
 	actionHash, bindingDigest, audience, policyVersion, issuedBy string,
 	issuedAt, expiresAt time.Time,
 ) bool {
+	v := d.Values()
 	return v.RunID == runID &&
 		v.RuntimeAttemptID == runtimeAttemptID &&
 		v.TurnID == turnID &&
