@@ -159,6 +159,7 @@ func TestPermitIssuerAndClaimerRoleSeparation(t *testing.T) {
 // checker must inspect the relation in current_schema(), not the session shadow.
 func TestPermitRoleSeparationDoesNotTrustTemporaryRelationShadow(t *testing.T) {
 	_, db := integrationStore(t)
+	restrictPublicDatabaseTempForPermitTest(t, db)
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	ctx := context.Background()
@@ -247,6 +248,7 @@ func TestPermitRoleSeparationDoesNotTrustTemporaryRelationShadow(t *testing.T) {
 // search_path before certifying issuer/claimer privilege separation.
 func TestPermitRoleSeparationRejectsAlternateSearchPathSchema(t *testing.T) {
 	_, db := integrationStore(t)
+	restrictPublicDatabaseTempForPermitTest(t, db)
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	ctx := context.Background()
