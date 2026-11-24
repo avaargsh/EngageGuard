@@ -41,7 +41,7 @@ The standard-library JCS implementation in `internal/action/jcs.go` rejects dupl
 
 For `workspace.write`, the resolved arguments contain exactly `path` and `content_sha256`. Lexical validation rejects traversal, absolute paths, empty segments, backslashes, NUL and Windows drive-relative/absolute prefixes. This is **not** filesystem confinement. A Trusted Executor must still use root-relative, symlink-safe and TOCTOU-resistant OS operations.
 
-Go verification covers the generic numeric and resolved-action vectors. The separate Go/Python/TypeScript vectors in PR #6 exercise only the fixed all-string `WorkspaceWrite` compatibility shape; they do not prove full generic ActionRequest interoperability. Python and TypeScript parity for the generic resolved-action fixture remains a contract gate.
+CI verifies the shared generic resolved-ActionRequest hash and numeric vectors in Go, Python and TypeScript. A separate compatibility check covers the historical fixed all-string `WorkspaceWrite` v0.1 subset; that compatibility fixture is not a substitute for the generic ActionRequest vector.
 
 ## Acceptance still required
 
