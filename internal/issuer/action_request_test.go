@@ -96,8 +96,8 @@ func TestTrustedIssuerBindsActionRequestV1RunAndCapabilityVersion(t *testing.T) 
 	ledger := &actionRequestLedger{}
 	service, err := New(Config{
 		IssuerIdentity: "spiffe://platform.example/ns/guard/sa/issuer",
-		MaxTTL: 5 * time.Minute,
-		Now: func() time.Time { return now },
+		MaxTTL:         5 * time.Minute,
+		Now:            func() time.Time { return now },
 	}, authority, ledger)
 	if err != nil {
 		t.Fatal(err)
@@ -129,7 +129,7 @@ func TestTrustedIssuerBindsActionRequestV1RunAndCapabilityVersion(t *testing.T) 
 func TestTrustedIssuerRejectsRunAndCapabilityVersionDrift(t *testing.T) {
 	now := time.Date(2026, 11, 24, 7, 0, 0, 0, time.UTC)
 	for _, tc := range []struct {
-		name string
+		name   string
 		change func(*Authorization)
 	}{
 		{"wrong tenant", func(a *Authorization) { a.TenantID = "tenant-b" }},
