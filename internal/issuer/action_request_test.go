@@ -150,8 +150,8 @@ func TestTrustedIssuerRejectsRunAndCapabilityVersionDrift(t *testing.T) {
 			ledger := &actionRequestLedger{}
 			service, err := New(Config{
 				IssuerIdentity: "spiffe://platform.example/ns/guard/sa/issuer",
-				MaxTTL: 5 * time.Minute,
-				Now: func() time.Time { return now },
+				MaxTTL:         5 * time.Minute,
+				Now:            func() time.Time { return now },
 			}, authority, ledger)
 			if err != nil {
 				t.Fatal(err)

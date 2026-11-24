@@ -23,7 +23,10 @@ func (a *permitTestAuthority) VerifyIssue(_ context.Context, _ action.ActionRequ
 
 func acceptedPermitIssuer(t *testing.T, store *Store) (*issuer.Service, *permitTestAuthority, action.ActionRequest) {
 	t.Helper()
-	op, created, err := store.Accept(context.Background(), "tenant-a", "issuer-ledger-source", sampleSubmission())
+	raw := []byte(`{"schema_version":"action-submission.v1","run_id":"run-1","decision_id":"decision-1","plan_id":"plan-1","plan_hash":"` +
+		strings.Repeat("f", 64) + `","step_id":"step-1","capability":{"id":"workspace.write","version":"1.0.0"},"resource_ref":"workspace-1","arguments":{"path":"docs/output.md","content_sha256":"` +
+		strings.Repeat("c", 64) + `"}}`)
+	op, created, err := store.Accept(context.Background(), "tenant-a", "issuer-ledger-source", raw)
 	if err != nil || !created {
 		t.Fatalf("accept source: created=%t err=%v", created, err)
 	}
@@ -50,6 +53,9 @@ func acceptedPermitIssuer(t *testing.T, store *Store) (*issuer.Service, *permitT
 		ToolBindingDigest: strings.Repeat("b", 64),
 		PolicyVersion:     "policy-7",
 		Audience:          "trusted-workspace-executor",
+	}
+	if err := resolved.Validate(); err != nil {
+		t.Fatalf("validate resolved ActionRequest v1: %v", err)
 	}
 	hash, err := action.ActionHash(resolved)
 	if err != nil {

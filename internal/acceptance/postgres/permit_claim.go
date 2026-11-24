@@ -65,7 +65,7 @@ func (s *Store) ClaimAuthorizedIntent(
 	}
 	return s.claimAuthorizedIntent(ctx, permitID, permitClaimBinding{
 		TenantID: resolved.TenantID, OperationID: resolved.OperationID,
-		ToolBindingDigest:        resolved.ToolBindingDigest,
+		ToolBindingDigest: resolved.ToolBindingDigest,
 		PolicyVersion:     resolved.PolicyVersion, Audience: resolved.Audience,
 		ActionHash: hash,
 	})
@@ -94,8 +94,8 @@ func (s *Store) ClaimResolvedActionIntent(
 		CapabilityVersion:        resolved.Capability.Version,
 		CapabilityContractSHA256: resolved.Capability.ContractSHA256,
 		ResourceRef:              resolved.ResourceRef,
-		ToolBindingDigest: resolved.ToolBindingDigest,
-		PolicyVersion: resolved.PolicyVersion, Audience: resolved.Audience,
+		ToolBindingDigest:        resolved.ToolBindingDigest,
+		PolicyVersion:            resolved.PolicyVersion, Audience: resolved.Audience,
 		ActionHash: hash, RequireActionRequestV1: true,
 	})
 }
