@@ -66,6 +66,38 @@ func TestLiveRuntimeRunSafetyAuthority(t *testing.T) {
 	// A RUNNING Run without Runtime's current Attempt pointer cannot
 	// authorize new Guard admission, even when its breaker is CLOSED.
 	assertDenied()
+
+	// Fixture setup only: the actual Runtime service supplies Run/principal/
+	// breaker authority; create a matching immutable generation-one Attempt
+	// and pointer in one transaction. A synthetic Temporal execution UUID in
+	// this isolated database is NOT a production execution attestation.
+	// The Guard client below still reads through the real mTLS Runtime API.
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	var attemptID string
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO runtime_run_attempts
+		(tenant_id, run_id, run_attempt_id, workflow_id, temporal_execution_id)
+		SELECT r.tenant_id, r.run_id, pg_catalog.gen_random_uuid(),
+		       r.workflow_id, pg_catalog.gen_random_uuid()
+		FROM runs r WHERE r.tenant_id=$1 AND r.run_id=$2::uuid
+		RETURNING run_attempt_id::text
+	`, tenant, runID).Scan(&attemptID); err != nil {
+		t.Fatalf("create isolated Runtime Attempt fixture: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO runtime_current_attempts
+		(tenant_id,run_id,attempt_id,generation,breaker_epoch)
+		VALUES ($1,$2::uuid,$3::uuid,1,1)
+	`, tenant, runID, attemptID); err != nil {
+		t.Fatalf("create isolated current Attempt fixture: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit isolated current Attempt fixture: %v", err)
+	}
 	snapshot, err := client.GetRunSafetySnapshot(ctx, tenant, runID)
 	if err != nil || snapshot.TenantID != tenant || snapshot.RunID != runID ||
 		snapshot.AgentID != "agent-1" || snapshot.AgentReleaseID != "release-1" || snapshot.SessionID != "session-1" ||
