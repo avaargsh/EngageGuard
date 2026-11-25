@@ -290,7 +290,6 @@ func TestPermitIssuerLedgerReplaysExistingPermitAfterIssuerClockAdvances(t *test
 	}
 }
 
-
 func TestPermitIssuerReplayRejectsRevokedPermit(t *testing.T) {
 	store, _ := integrationStore(t)
 	service, _, resolved := acceptedPermitIssuer(t, store)
