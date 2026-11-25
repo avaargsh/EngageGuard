@@ -66,3 +66,9 @@ run_demo_test ./internal/acceptance/postgres TestPermitIssuerPostCommitCancellat
 run_demo_test ./internal/acceptance/postgres TestExecutorNecessaryGateAgainstRealPostgresClaimRevokeAndUnknown
 
 run_demo_test ./internal/acceptance/postgres TestUnknownRecoveryAcrossIndependentStorePools
+
+if [[ "$(uname -s)" == Linux ]]; then
+  run_demo_test ./internal/acceptance/postgres TestUnknownJournalSurvivesWorkerProcessKill
+else
+  printf '%s\n' 'Linux-only worker termination test not run on this platform.'
+fi

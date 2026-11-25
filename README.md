@@ -37,7 +37,8 @@ bash scripts/demo-local-admission.sh
 ```
 
 The script initializes a temporary PostgreSQL cluster with a private Unix socket
-and removes it on exit. The first Go run may download modules. Look for four passing tests.
+and removes it on exit. The first Go run may download modules. Look for five passing tests on Linux, or four on other supported platforms
+with an explicit message that the Linux-only worker termination test was not run.
 
 - HTTP admission persists one Operation and outbox record. Identical replay
   returns the original Operation ID, and changing the body under the same key
@@ -49,9 +50,13 @@ and removes it on exit. The first Go run may download modules. Look for four pas
 - Two independent PostgreSQL connection pools recover the same UNKNOWN attempt
   and retain one durable journal event after the original pool closes. This is
   not a two-process crash or real provider recovery test.
+- On Linux, a separate local test process commits the UNKNOWN journal and is
+  terminated. The surviving process verifies durable state and idempotent
+  recovery. No real provider or deployed service is involved.
 
 The demo uses fixture authorities and exercises the HTTP handler in process.
-It starts only the temporary database and performs zero protected actions.
+It starts a temporary database and, on Linux, a local test child process.
+It performs zero protected actions.
 
 ## Still required before protected execution
 
