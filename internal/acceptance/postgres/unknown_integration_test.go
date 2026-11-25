@@ -161,7 +161,6 @@ func TestMarkDispatchUnknownRejectsClaimedAttemptMissingImmutableAudit(t *testin
 	}
 }
 
-
 // Revoking a Permit after dispatch has become uncertain must not erase or
 // hide the already committed attempt. Revocation blocks new effects; it does
 // not prove that an in-flight external effect did not happen.
