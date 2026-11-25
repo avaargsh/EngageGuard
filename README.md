@@ -26,6 +26,30 @@ EngageGuard owns canonical action resolution, authorization decisions, risk eval
 - PostgreSQL v16/v17 immutable Permit authority evidence and exact replay/conflict fencing; v17 records the resolved ActionRequest metadata while preserving old v16 rows as legacy-only.
 - `ClaimResolvedActionIntent` atomically verifies exact v1 authority evidence and claims one Permit with Intent/Audit; it does not dispatch.
 
+## Run the local admission and Permit demo
+
+Install Git, Bash, Go 1.26 or newer, and PostgreSQL server tools (`initdb` and `pg_ctl`).
+Put them on `PATH` or make sure `pg_config --bindir` points to their installation.
+Run this command as a regular user from the root of your EngageGuard checkout.
+
+```sh
+bash scripts/demo-local-admission.sh
+```
+
+The script initializes a temporary PostgreSQL cluster with a private Unix socket
+and removes it on exit. The first Go run may download modules. Look for three passing tests.
+
+- HTTP admission persists one Operation and outbox record. Identical replay
+  returns the original Operation ID, and changing the body under the same key
+  returns HTTP 409.
+- Permit issuance interrupted after commit returns no usable Permit. Recovery
+  checks current authority before returning the original durable Permit.
+- The executor preflight checks real ledger state, including revocation and
+  UNKNOWN, before any protected effect could be considered.
+
+The demo uses fixture authorities and exercises the HTTP handler in process.
+It starts only the temporary database and performs zero protected actions.
+
 ## Still required before protected execution
 
 The HTTP Admission, PostgreSQL acceptance, migration, SPIFFE identity, Permit-claim and ledger-integrity work is being developed as a stacked Draft PR series. These slices are not a production authorization path by themselves. The following remain release gates:
