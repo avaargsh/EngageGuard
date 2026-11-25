@@ -289,3 +289,26 @@ func TestPermitIssuerLedgerReplaysExistingPermitAfterIssuerClockAdvances(t *test
 		t.Fatalf("replay changed durable ledger cardinality: permits=%d evidence=%d, want 1/1", permits, evidence)
 	}
 }
+
+
+func TestPermitIssuerReplayRejectsRevokedPermit(t *testing.T) {
+	store, _ := integrationStore(t)
+	service, _, resolved := acceptedPermitIssuer(t, store)
+	ctx := context.Background()
+
+	issued, err := service.Issue(ctx, resolved)
+	if err != nil {
+		t.Fatalf("issue initial Permit: %v", err)
+	}
+	revoked, err := store.RevokeScopedPermit(
+		ctx, resolved.TenantID, issued.PermitID, "security-review-42", "SECURITY_RESPONSE",
+	)
+	if err != nil || !revoked {
+		t.Fatalf("revoke initial Permit: revoked=%t err=%v", revoked, err)
+	}
+
+	replayed, err := service.Issue(ctx, resolved)
+	if !errors.Is(err, issuer.ErrDenied) || replayed != (issuer.ScopedPermit{}) {
+		t.Fatalf("revoked Permit replay returned an issuance result: replay=%+v err=%v; want ErrDenied and no Permit", replayed, err)
+	}
+}
