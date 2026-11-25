@@ -44,6 +44,12 @@ jobs:
         run: |
           test "$(go env GOVERSION)" = "go1.26.11"
           go version
+      - name: Verify local demo exit-status regression
+        shell: bash
+        run: |
+          bash -n scripts/demo-local-admission.sh
+          bash -n scripts/test-demo-local-admission.sh
+          bash scripts/test-demo-local-admission.sh
       - run: go mod verify
       - run: go test -race -count=1 ./...
       - run: go vet ./...
