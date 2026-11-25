@@ -50,6 +50,17 @@ fi
 
 export GUARD_PG_DSN="host=$demo_dir dbname=postgres user=guard_demo"
 
-go test -count=1 -v ./internal/admission -run '^TestHTTPAdmissionUsesPostgresOperationReplayAndConflict$'
-go test -count=1 -v ./internal/acceptance/postgres \
-  -run '^(TestPermitIssuerPostCommitCancellationPreservesReplayEvidence|TestExecutorNecessaryGateAgainstRealPostgresClaimRevokeAndUnknown)$'
+# go test can exit successfully when a selected test is skipped or absent.
+# Require a top-level PASS for each named fixture before reporting demo success.
+run_demo_test() {
+  local package=$1 test_name=$2
+  go test -count=1 -v "$package" -run "^${test_name}$" | tee "$demo_dir/test.log"
+  if ! grep -q "^--- PASS: ${test_name} (" "$demo_dir/test.log"; then
+    printf 'Required demo test did not pass: %s\n' "$test_name" >&2
+    return 1
+  fi
+}
+
+run_demo_test ./internal/admission TestHTTPAdmissionUsesPostgresOperationReplayAndConflict
+run_demo_test ./internal/acceptance/postgres TestPermitIssuerPostCommitCancellationPreservesReplayEvidence
+run_demo_test ./internal/acceptance/postgres TestExecutorNecessaryGateAgainstRealPostgresClaimRevokeAndUnknown
