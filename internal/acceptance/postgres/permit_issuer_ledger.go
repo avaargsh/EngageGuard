@@ -156,13 +156,14 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 		var capabilityContractSHA256, resourceRef sql.NullString
 		var actionHash, bindingDigest, audience, policyVersion, issuedBy string
 		var issuedAt, expiresAt time.Time
+		var revokedAt sql.NullTime
 		err = tx.QueryRowContext(ctx, `
 			SELECT p.permit_id::text,
 			       e.run_id,e.runtime_attempt_id,e.turn_id,e.approval_ref,e.risk_revision,
 			       e.decision_id,e.plan_id,e.plan_hash,e.step_id,e.capability_id,e.capability_version,
 			       e.capability_contract_sha256,e.resource_ref,
 		       p.action_hash,p.binding_digest,p.audience,p.policy_version,p.issued_by,
-		       p.issued_at,p.expires_at
+		       p.issued_at,p.expires_at,p.revoked_at
 			FROM guard_permits p
 			JOIN guard_permit_authority_evidence e
 			  ON e.tenant_id=p.tenant_id AND e.operation_id=p.operation_id
@@ -173,7 +174,7 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 			&decisionID, &planID, &planHash, &stepID, &capabilityID, &capabilityVersion,
 			&capabilityContractSHA256, &resourceRef,
 			&actionHash, &bindingDigest, &audience, &policyVersion, &issuedBy,
-			&issuedAt, &expiresAt,
+			&issuedAt, &expiresAt, &revokedAt,
 		)
 		if errors.Is(err, sql.ErrNoRows) {
 			return zero, issuer.ErrConflict
@@ -185,6 +186,11 @@ func (l *PermitIssuerLedger) PersistIssuedPermit(
 			!capabilityID.Valid || !capabilityVersion.Valid ||
 			!capabilityContractSHA256.Valid || !resourceRef.Valid {
 			return zero, issuer.ErrConflict
+		}
+		// A one-time Permit cannot be resurrected by an idempotent issuer
+		// retry after an operator or policy revocation.
+		if revokedAt.Valid {
+			return zero, issuer.ErrDenied
 		}
 		persistedValues = issuer.PermitDraftValues{
 			TenantID:                 values.TenantID,
