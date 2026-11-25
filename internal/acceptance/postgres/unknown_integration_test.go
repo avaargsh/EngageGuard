@@ -193,6 +193,9 @@ func TestUnknownRemainsInspectableAfterPermitRevocation(t *testing.T) {
 		observed.PermitID != permitID || observed.AttemptID != intent.AttemptID {
 		t.Fatalf("revocation hid or rewrote the uncertain attempt: state=%+v err=%v", observed, err)
 	}
+	if err := store.InspectPreEffectLedger(ctx, permitID, intent.AttemptID, resolved); !errors.Is(err, ErrPreEffectBlocked) {
+		t.Fatalf("revoked UNKNOWN attempt passed the necessary pre-effect ledger check: %v", err)
+	}
 
 	replayed, err := store.MarkDispatchUnknown(
 		ctx, resolved.TenantID, resolved.OperationID, intent.AttemptID, "ACK_LOST",
