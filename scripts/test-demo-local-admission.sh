@@ -12,9 +12,9 @@ done
 cat > "$tmp/bin/go" <<'STUB'
 #!/usr/bin/env bash
 set -eu
-for name in TestHTTPAdmissionUsesPostgresOperationReplayAndConflict TestPermitIssuerPostCommitCancellationPreservesReplayEvidence TestExecutorNecessaryGateAgainstRealPostgresClaimRevokeAndUnknown; do
+for name in TestHTTPAdmissionUsesPostgresOperationReplayAndConflict TestPermitIssuerPostCommitCancellationPreservesReplayEvidence TestExecutorNecessaryGateAgainstRealPostgresClaimRevokeAndUnknown TestUnknownRecoveryAcrossIndependentStorePools; do
   if [[ "$*" == *"$name"* ]]; then
-    if [[ "$name" == TestPermitIssuerPostCommitCancellationPreservesReplayEvidence ]]; then
+    if [[ "$name" == "$DEMO_TEST_TARGET" ]]; then
       case "$DEMO_TEST_MODE" in
         skip) printf '%s\n' "--- SKIP: $name (0.00s)"; continue ;;
         missing) continue ;;
@@ -28,21 +28,23 @@ printf 'PASS\n'
 STUB
 chmod +x "$tmp/bin/"*
 
-for mode in pass skip missing fail; do
-  if PATH="$tmp/bin:$PATH" DEMO_TEST_MODE="$mode" bash "$root/scripts/demo-local-admission.sh" >"$tmp/output" 2>&1; then
-    actual=0
-  else
-    actual=$?
-  fi
-  if [[ "$mode" == pass ]]; then
-    expected=0
-  else
-    expected=1
-  fi
-  if (( actual != expected )); then
-    printf 'FAIL: %s: expected exit %s, got %s\n' "$mode" "$expected" "$actual" >&2
-    cat "$tmp/output" >&2
-    exit 1
-  fi
-  printf 'PASS: %s\n' "$mode"
+for target in TestPermitIssuerPostCommitCancellationPreservesReplayEvidence TestUnknownRecoveryAcrossIndependentStorePools; do
+  for mode in pass skip missing fail; do
+    if PATH="$tmp/bin:$PATH" DEMO_TEST_TARGET="$target" DEMO_TEST_MODE="$mode" bash "$root/scripts/demo-local-admission.sh" >"$tmp/output" 2>&1; then
+      actual=0
+    else
+      actual=$?
+    fi
+    if [[ "$mode" == pass ]]; then
+      expected=0
+    else
+      expected=1
+    fi
+    if (( actual != expected )); then
+      printf 'FAIL: %s/%s: expected exit %s, got %s\n' "$target" "$mode" "$expected" "$actual" >&2
+      cat "$tmp/output" >&2
+      exit 1
+    fi
+    printf 'PASS: %s/%s\n' "$target" "$mode"
+  done
 done

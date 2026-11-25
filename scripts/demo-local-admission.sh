@@ -64,3 +64,5 @@ run_demo_test() {
 run_demo_test ./internal/admission TestHTTPAdmissionUsesPostgresOperationReplayAndConflict
 run_demo_test ./internal/acceptance/postgres TestPermitIssuerPostCommitCancellationPreservesReplayEvidence
 run_demo_test ./internal/acceptance/postgres TestExecutorNecessaryGateAgainstRealPostgresClaimRevokeAndUnknown
+
+run_demo_test ./internal/acceptance/postgres TestUnknownRecoveryAcrossIndependentStorePools
