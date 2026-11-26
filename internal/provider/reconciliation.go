@@ -192,6 +192,12 @@ func validateAttempt(attempt Attempt) error {
 
 const maxProviderEvidenceBytes = 256 * 1024
 
+// ValidateObservation checks structural binding and raw evidence integrity.
+// It does not authenticate provider signatures; callers still need a verifier.
+func ValidateObservation(attempt Attempt, observation Observation) error {
+	return validateObservation(attempt, observation)
+}
+
 func validateObservation(attempt Attempt, observation Observation) error {
 	if observation.ProviderID != attempt.ProviderID ||
 		!validToken(observation.ProviderID, 256) ||
