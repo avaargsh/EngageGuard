@@ -259,3 +259,33 @@ func TestProviderObservationLedgerRejectsMutationAndCrossAttemptRead(t *testing.
 		}
 	}
 }
+
+func TestProviderObservationLedgerDetectsRawEvidenceTamperingOnRead(t *testing.T) {
+	store, attempt := prepareUnknownProviderAttempt(t)
+	ctx := context.Background()
+	observation := providerObservationFor(attempt, provider.OutcomeAbsentUncertain, "provider lookup evidence")
+	if _, err := store.ReconcileProvider(ctx, attempt,
+		providerInspectorFunc(func(context.Context, provider.Attempt) (provider.Observation, error) {
+			return observation, nil
+		}),
+		providerVerifier{id: "test-receipt-verifier/v1"},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx,
+		"ALTER TABLE guard_provider_observations DISABLE TRIGGER guard_provider_observation_immutable_row"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx,
+		"UPDATE guard_provider_observations SET evidence_bytes=$1 WHERE tenant_id=$2 AND attempt_id=$3::uuid",
+		[]byte("tampered provider evidence"), attempt.TenantID, attempt.AttemptID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx,
+		"ALTER TABLE guard_provider_observations ENABLE ALWAYS TRIGGER guard_provider_observation_immutable_row"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ListProviderObservations(ctx, attempt.TenantID, attempt.OperationID, attempt.AttemptID); !errors.Is(err, ErrProviderObservationCorrupt) {
+		t.Fatalf("tampered raw evidence passed durable read: %v", err)
+	}
+}
