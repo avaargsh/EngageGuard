@@ -1,6 +1,6 @@
 # Guard Submission v1 and Resolved Action — Contract Gate
 
-Status: **Draft / not ratified**. This branch contains pure validation helpers, not a running PEP, PostgreSQL journal, Permit service, or trusted executor.
+Status: **Draft / not ratified**. This branch contains the generic ActionRequest contract, non-production trusted Issuer and PostgreSQL v16/v17 evidence/claim primitives. It still has no production authority adapters, signed bearer Permit, public issuer endpoint, effect-time PEP or trusted executor.
 
 ## Authority split
 
@@ -10,6 +10,18 @@ Status: **Draft / not ratified**. This branch contains pure validation helpers, 
 4. After allocation and trusted resolution, **EngageGuard** builds its internal `ActionRequest` containing `operation_id` and all trusted binding fields. The existing `action-request.v1.schema.json` and Go `ActionRequest` are **internal resolved-action contracts, NOT the Runtime request wire contract**. The resolved record includes actor and workload identity.
 5. Guard performs policy/risk/approval and issues an action-bound Permit only after required checks. Trusted Executor validates and atomically claims it before the side effect. OperationJournal persists Intent **before** dispatch, and owns UNKNOWN reconciliation after uncertain outcomes. Runtime owns Run/Step progress, not Guard's external-effect retry.
 
+## Current issuer/claim implementation boundary (non-production)
+
+The current branch implements a generic `action.ActionRequest` v1 issuer contract, not the legacy fixed-shape `WorkspaceWrite` v0.1 contract:
+
+- `issuer.Service.Issue` computes the normative RFC 8785 `ActionHash` over the complete resolved ActionRequest and requires the fresh authority result to match tenant, Run, Decision, Plan ID/hash, Step, Capability ID/version/contract digest, ToolBinding, policy, audience and expiry.
+- The opaque `PermitDraft` carries the resolved identity plus current Runtime Attempt, Decision Turn, Approval reference and Risk revision.
+- PostgreSQL v16 stores immutable source-bound Permit evidence. v17 adds Decision/Plan/Step/Capability/Resource fields. Existing v16 rows retain NULL v17 fields; no missing source evidence is fabricated.
+- `ClaimResolvedActionIntent` re-hashes the supplied ActionRequest, compares it to the Permit and all immutable v17 evidence, and atomically creates one DispatchIntent/Attempt/Audit. The legacy WorkspaceWrite claim path cannot claim an ActionRequest v1 Permit.
+- The returned ScopedPermit is an internal database result, not a signed bearer token. A committed DispatchIntent is not permission to call a provider.
+
+This slice has no live Run/Decision/ACP/Policy/Approval/Risk adapters. Fake authorities exist only in tests. No provider side effect is enabled.
+
 ## Caller wire contract
 
 - `docs/contracts/action-submission.v1.schema.json` has `additionalProperties: false`; capability is only an untrusted `id/version` selector. It deliberately excludes capability contract digests, `operation_id`, tenant, subject, actor, workload, policy, ToolBinding digest, audience, executor endpoint and supplied ActionHash.
@@ -17,6 +29,10 @@ Status: **Draft / not ratified**. This branch contains pure validation helpers, 
 - `ValidateSubmissionKey` validates a bounded ASCII idempotency key; enforcement and authenticated tenant binding must happen in the future server handler.
 - `SubmissionDigest` hashes **the exact accepted request bytes** with `engageguard/submission-bytes/v1\\0` domain separation. This digest is only an idempotency replay fingerprint. Byte-different submissions using the same key must conflict, even when semantically equal JSON, until a separately reviewed canonical replay format is accepted.
 - **Never use SubmissionDigest for approval, Permit or ActionHash.** It has different domain, purpose, and trust assumptions.
+
+## Identifier encoding
+
+All identity, capability, resource-reference, policy-version and audience fields in both ActionSubmission v1 and resolved ActionRequest v1 are restricted to visible ASCII bytes (0x21-0x7e). This rejects bidi controls, zero-width format characters, non-ASCII whitespace and Unicode lookalikes consistently across Go validation, JSON Schema and immutable Permit evidence. The restriction applies only to protocol identifiers and bindings; valid UTF-8 business values inside `arguments` remain supported.
 
 ## Replay identity and resolved ActionHash
 
@@ -29,14 +45,16 @@ The standard-library JCS implementation in `internal/action/jcs.go` rejects dupl
 
 For `workspace.write`, the resolved arguments contain exactly `path` and `content_sha256`. Lexical validation rejects traversal, absolute paths, empty segments, backslashes, NUL and Windows drive-relative/absolute prefixes. This is **not** filesystem confinement. A Trusted Executor must still use root-relative, symlink-safe and TOCTOU-resistant OS operations.
 
-Go verification covers the generic numeric and resolved-action vectors. The separate Go/Python/TypeScript vectors in PR #6 exercise only the fixed all-string `WorkspaceWrite` compatibility shape; they do not prove full generic ActionRequest interoperability. Python and TypeScript parity for the generic resolved-action fixture remains a contract gate.
+CI verifies the shared generic resolved-ActionRequest hash and numeric vectors in Go, Python and TypeScript. A separate compatibility check covers the historical fixed all-string `WorkspaceWrite` v0.1 subset; that compatibility fixture is not a substitute for the generic ActionRequest vector.
 
 ## Acceptance still required
 
 - Authenticated Guard HTTP endpoint, PostgreSQL operation allocation and `(tenant,key,digest)` conflict/replay atomicity
 - Cross-tenant conflict isolation, concurrent claims, restart/replay, and lost-ACK operation lookup
-- Trust-source resolution and policy, approval, Permit claim, revocation/fencing
-- Intent-before-side-effect journal, trusted executor, external UNKNOWN reconciliation
+- Production mTLS adapters for current Runtime Run/Attempt, Decision Plan/Step, ACP Capability/ToolBinding, Policy, Approval and Risk sources
+- Signed bearer Permit/JTI issuance, revocation and policy revalidation at claim and effect time
+- ActionRequest v1-aware pre-effect ledger and independently deployed Trusted Executor PEP
+- Intent-before-side-effect journal, provider idempotency/receipt inspection, external UNKNOWN reconciliation and crash recovery
 - Cross-repo ACP/Runtime/Decision/Compute consumers, schema generation, Go/Python/TS hash fixtures
 
 Related blockers: [EngageGuard #3](https://github.com/avaargsh/EngageGuard/issues/3) and [agent-control-panel #3](https://github.com/avaargsh/agent-control-panel/issues/3).

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"sync"
 	"testing"
@@ -157,5 +158,74 @@ func TestMarkDispatchUnknownRejectsClaimedAttemptMissingImmutableAudit(t *testin
 		"SELECT count(*) FROM guard_operation_unknown_events WHERE tenant_id=$1 AND attempt_id=$2::uuid",
 		resolved.TenantID, intent.AttemptID).Scan(&events); err != nil || events != 0 {
 		t.Fatalf("rejected UNKNOWN forged a durable event: events=%d err=%v", events, err)
+	}
+}
+
+// Revoking a Permit after dispatch has become uncertain must not erase or
+// hide the already committed attempt. Revocation blocks new effects; it does
+// not prove that an in-flight external effect did not happen.
+func TestUnknownRemainsInspectableAfterPermitRevocation(t *testing.T) {
+	store, resolved, permitID := seededWorkspacePermit(t)
+	ctx := context.Background()
+
+	intent, err := store.ClaimAuthorizedIntent(ctx, permitID, resolved)
+	if err != nil {
+		t.Fatalf("claim Permit: %v", err)
+	}
+	unknown, err := store.MarkDispatchUnknown(
+		ctx, resolved.TenantID, resolved.OperationID, intent.AttemptID, "ACK_LOST",
+	)
+	if err != nil || unknown.State != "UNKNOWN" {
+		t.Fatalf("record lost ACK: state=%+v err=%v", unknown, err)
+	}
+
+	revoked, err := store.RevokeScopedPermit(
+		ctx, resolved.TenantID, permitID, "incident-unknown-1", "SECURITY_RESPONSE",
+	)
+	if err != nil || !revoked {
+		t.Fatalf("revoke Permit after UNKNOWN: revoked=%t err=%v", revoked, err)
+	}
+
+	observed, err := newPinnedStoreCopy(t, store).GetDispatchState(
+		ctx, resolved.TenantID, resolved.OperationID, intent.AttemptID,
+	)
+	if err != nil || observed.State != "UNKNOWN" || observed.Reason != "ACK_LOST" ||
+		observed.PermitID != permitID || observed.AttemptID != intent.AttemptID {
+		t.Fatalf("revocation hid or rewrote the uncertain attempt: state=%+v err=%v", observed, err)
+	}
+	if err := store.InspectPreEffectLedger(ctx, permitID, intent.AttemptID, resolved); !errors.Is(err, ErrPreEffectBlocked) {
+		t.Fatalf("revoked UNKNOWN attempt passed the necessary pre-effect ledger check: %v", err)
+	}
+
+	replayed, err := store.MarkDispatchUnknown(
+		ctx, resolved.TenantID, resolved.OperationID, intent.AttemptID, "ACK_LOST",
+	)
+	if err != nil || replayed.State != "UNKNOWN" || replayed.Reason != "ACK_LOST" {
+		t.Fatalf("same-reason UNKNOWN replay changed after revocation: state=%+v err=%v", replayed, err)
+	}
+	if _, err := store.MarkDispatchUnknown(
+		ctx, resolved.TenantID, resolved.OperationID, intent.AttemptID, "PROVIDER_TIMEOUT",
+	); !errors.Is(err, ErrUnknownConflict) {
+		t.Fatalf("revocation allowed rewriting UNKNOWN reason: %v", err)
+	}
+	if _, err := store.ClaimAuthorizedIntent(ctx, permitID, resolved); !errors.Is(err, ErrPermitAlreadyClaimed) {
+		t.Fatalf("revoked UNKNOWN Permit became claimable again: %v", err)
+	}
+
+	var state string
+	var revokedAt sql.NullTime
+	var events int
+	if err := store.db.QueryRowContext(ctx, `
+		SELECT p.state, p.revoked_at,
+		       (SELECT count(*) FROM guard_operation_unknown_events e
+		        WHERE e.tenant_id=p.tenant_id AND e.operation_id=p.operation_id
+		          AND e.attempt_id=$3::uuid)
+		FROM guard_permits p
+		WHERE p.tenant_id=$1 AND p.permit_id=$2::uuid
+	`, resolved.TenantID, permitID, intent.AttemptID).Scan(&state, &revokedAt, &events); err != nil {
+		t.Fatal(err)
+	}
+	if state != "CLAIMED" || !revokedAt.Valid || events != 1 {
+		t.Fatalf("revocation/UNKNOWN journal invariant drifted: state=%q revoked=%v events=%d", state, revokedAt.Valid, events)
 	}
 }

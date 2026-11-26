@@ -7,6 +7,8 @@ import (
 	"fmt"
 )
 
+var ErrLedgerContextRequired = errors.New("Guard ledger context required")
+
 // beginLedgerTx checks authority on the same physical session used for the
 // ensuing ledger operation. Startup Migrate cannot attest later pool sessions.
 // Explicitly provisioned schema identity is mandatory for Permit-ledger
@@ -14,6 +16,12 @@ import (
 func (s *Store) beginLedgerTx(ctx context.Context, permit bool) (*sql.Tx, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("Guard database unavailable")
+	}
+	if ctx == nil {
+		return nil, ErrLedgerContextRequired
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrLedgerContextRequired, err)
 	}
 	if permit && s.trustedSchema == "" {
 		return nil, fmt.Errorf("%w: Permit ledger access requires NewWithTrustedSchema", ErrSchemaDrift)

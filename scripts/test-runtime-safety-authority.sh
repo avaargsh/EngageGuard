@@ -4,7 +4,12 @@ set -euo pipefail
 : "${GUARD_RUNTIME_TEST_FIXTURE_DSN:?isolated test database required}"
 root="$(mktemp -d)"
 pid=""
+execution_pid=""
 cleanup() {
+  if [[ -n "$execution_pid" ]]; then
+    kill "$execution_pid" 2>/dev/null || true
+    wait "$execution_pid" 2>/dev/null || true
+  fi
   if [[ -n "$pid" ]]; then
     kill "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
@@ -96,7 +101,56 @@ print(receipt["run_id"])
 PY
 )"
 export GUARD_RUNTIME_CA="$root/ca.crt" GUARD_RUNTIME_CERT="$root/guard.crt" GUARD_RUNTIME_KEY="$root/guard.key"
+# The dedicated Runtime execution reader uses a different server identity
+# and a SELECT-only PostgreSQL role, not the ACP API's writer credential.
+if [[ -n "${RUNTIME_EXECUTION_AUTHORITY_BIN:-}" ]]; then
+  : "${GUARD_RUNTIME_EXECUTION_TEST_DSN:?isolated read-only role DSN required}"
+  psql "$GUARD_RUNTIME_TEST_FIXTURE_DSN" -v ON_ERROR_STOP=1 <<'SQL'
+CREATE ROLE guard_execution_reader LOGIN PASSWORD 'isolated-reader-only' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+GRANT USAGE ON SCHEMA public TO guard_execution_reader;
+GRANT SELECT ON TABLE public.runs, public.runtime_run_principal_snapshots,
+  public.runtime_run_attempts, public.runtime_current_attempts,
+  public.runtime_decision_turns, public.runtime_circuit_breakers TO guard_execution_reader;
+SQL
+  # No write privilege even with an ordinary read-write transaction.
+  if psql "$GUARD_RUNTIME_EXECUTION_TEST_DSN" -v ON_ERROR_STOP=1 -c 'UPDATE public.runs SET status=status WHERE false' >"$root/reader-write.log" 2>&1; then
+    echo 'execution reader has unexpected UPDATE privilege'
+    exit 1
+  fi
+  grep -Fq 'permission denied for table runs' "$root/reader-write.log"
+  export GUARD_RUNTIME_EXECUTION_SPIFFE="spiffe://platform.example/ns/runtime/sa/guard-authority"
+  export GUARD_RUNTIME_EXECUTION_ORIGIN="https://127.0.0.1:18446"
+  issue execution "$GUARD_RUNTIME_EXECUTION_SPIFFE" serverAuth 'IP:127.0.0.1,'
+  env -i PATH="$PATH" HOME="$HOME" \
+    RUNTIME_GUARD_AUTHORITY_DATABASE_URL="$GUARD_RUNTIME_EXECUTION_TEST_DSN" \
+    RUNTIME_GUARD_AUTHORITY_TLS_CERT="$root/execution.crt" \
+    RUNTIME_GUARD_AUTHORITY_TLS_KEY="$root/execution.key" \
+    RUNTIME_GUARD_AUTHORITY_CLIENT_CA="$root/ca.crt" \
+    RUNTIME_GUARD_AUTHORITY_PEER_SPIFFE_ID="$guard" \
+    RUNTIME_GUARD_AUTHORITY_TENANT="$GUARD_RUNTIME_TENANT" \
+    RUNTIME_GUARD_AUTHORITY_LISTEN_ADDR=127.0.0.1:18446 \
+    "$RUNTIME_EXECUTION_AUTHORITY_BIN" >"$root/execution.log" 2>&1 &
+  execution_pid=$!
+  ready=0
+  for _ in $(seq 1 60); do
+    if ! kill -0 "$execution_pid" 2>/dev/null; then
+      echo 'isolated Runtime execution authority startup failed'
+      cat "$root/execution.log"
+      exit 1
+    fi
+    if code="$(curl --silent --show-error --cacert "$root/ca.crt" --cert "$root/guard.crt" --key "$root/guard.key" --max-time 3 -o /dev/null -w '%{http_code}' "$GUARD_RUNTIME_EXECUTION_ORIGIN/health-probe" 2>/dev/null)" && [[ "$code" == 400 ]]; then
+      ready=1
+      break
+    fi
+    sleep 1
+  done
+  [[ "$ready" == 1 ]]
+  export GUARD_LIVE_RUNTIME_EXECUTION=1
+fi
 export GUARD_LIVE_RUNTIME_SAFETY=1
 go test -race -count=1 -v -run '^TestLiveRuntimeRunSafetyAuthority$' ./internal/admission | tee "$root/acceptance.log"
 grep -Fq '=== RUN   TestLiveRuntimeRunSafetyAuthority' "$root/acceptance.log"
 grep -Fq -- '--- PASS: TestLiveRuntimeRunSafetyAuthority ' "$root/acceptance.log"
+if [[ "${GUARD_LIVE_RUNTIME_EXECUTION:-}" == 1 ]]; then
+  grep -Fq 'actual pinned Runtime execution authority verified current Attempt/Turn and denied superseded Turn' "$root/acceptance.log"
+fi

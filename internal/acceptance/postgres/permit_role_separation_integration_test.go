@@ -45,9 +45,11 @@ func TestPermitIssuerAndClaimerRoleSeparation(t *testing.T) {
 	for _, grant := range []string{
 		"GRANT USAGE ON SCHEMA " + schema + " TO " + issuer + ", " + claimer,
 		"GRANT SELECT, INSERT ON guard_permits TO " + issuer,
+		"GRANT SELECT, INSERT ON guard_permit_authority_evidence TO " + issuer,
 		"GRANT SELECT ON guard_action_operations TO " + issuer,
 		"GRANT SELECT ON guard_accepted_submission_snapshots TO " + issuer,
 		"GRANT SELECT ON guard_permits TO " + claimer,
+		"GRANT SELECT ON guard_permit_authority_evidence TO " + claimer,
 		"GRANT UPDATE (state, claimed_at) ON guard_permits TO " + claimer,
 		"GRANT SELECT, INSERT ON guard_operation_intents TO " + claimer,
 		"GRANT SELECT, INSERT ON guard_execution_audit TO " + claimer,
@@ -58,6 +60,30 @@ func TestPermitIssuerAndClaimerRoleSeparation(t *testing.T) {
 	}
 	if err := VerifyPermitRoleSeparation(ctx, db, schema, issuer, claimer); err != nil {
 		t.Fatalf("correctly segregated roles failed admission: %v", err)
+	}
+
+	// Authority evidence is part of the issuer/claimer boundary. Missing a
+	// required read/write grant must fail closed before either worker starts.
+	if _, err := db.ExecContext(ctx, "REVOKE INSERT ON guard_permit_authority_evidence FROM "+issuer); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyPermitRoleSeparation(ctx, db, schema, issuer, claimer); !errors.Is(err, ErrPermitRoleUnsafe) {
+		t.Fatalf("issuer missing authority-evidence INSERT was accepted: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, "GRANT INSERT ON guard_permit_authority_evidence TO "+issuer); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, "REVOKE SELECT ON guard_permit_authority_evidence FROM "+claimer); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyPermitRoleSeparation(ctx, db, schema, issuer, claimer); !errors.Is(err, ErrPermitRoleUnsafe) {
+		t.Fatalf("claimer missing authority-evidence SELECT was accepted: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, "GRANT SELECT ON guard_permit_authority_evidence TO "+claimer); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyPermitRoleSeparation(ctx, db, schema, issuer, claimer); err != nil {
+		t.Fatalf("restored authority-evidence grants still rejected: %v", err)
 	}
 
 	// The issuer's accepted-source access is read-only, not FOR SHARE /
@@ -125,6 +151,18 @@ func TestPermitIssuerAndClaimerRoleSeparation(t *testing.T) {
 		{"issuer gained CLAIMED-state UPDATE",
 			"GRANT UPDATE (state) ON guard_permits TO " + issuer,
 			"REVOKE UPDATE (state) ON guard_permits FROM " + issuer},
+		{"issuer gained Permit expiry column UPDATE",
+			"GRANT UPDATE (expires_at) ON guard_permits TO " + issuer,
+			"REVOKE UPDATE (expires_at) ON guard_permits FROM " + issuer},
+		{"claimer gained Permit column INSERT",
+			"GRANT INSERT (state) ON guard_permits TO " + claimer,
+			"REVOKE INSERT (state) ON guard_permits FROM " + claimer},
+		{"issuer gained authority-evidence UPDATE",
+			"GRANT UPDATE (risk_revision) ON guard_permit_authority_evidence TO " + issuer,
+			"REVOKE UPDATE (risk_revision) ON guard_permit_authority_evidence FROM " + issuer},
+		{"claimer gained authority-evidence INSERT",
+			"GRANT INSERT ON guard_permit_authority_evidence TO " + claimer,
+			"REVOKE INSERT ON guard_permit_authority_evidence FROM " + claimer},
 		{"issuer gained audit INSERT",
 			"GRANT INSERT ON guard_execution_audit TO " + issuer,
 			"REVOKE INSERT ON guard_execution_audit FROM " + issuer},

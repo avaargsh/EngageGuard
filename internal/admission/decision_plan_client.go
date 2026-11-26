@@ -18,6 +18,9 @@ import (
 const decisionPlanSchema = "decision.guard-plan-step.v1"
 const decisionPlanPath = "/internal/v1/guard-plan-steps:verify"
 
+const decisionPlanReadOnlyCapabilityID = "sre.metrics.read"
+const decisionPlanReadOnlyCapabilityVersion = "1.0.0"
+
 type guardStepRequest struct {
 	SchemaVersion     string          `json:"schema_version"`
 	RunID             string          `json:"run_id"`
@@ -39,6 +42,8 @@ type guardStepRequest struct {
 type guardStepReceipt struct {
 	SchemaVersion  string `json:"schema_version"`
 	RunID          string `json:"run_id"`
+	RunAttemptID   string `json:"run_attempt_id"`
+	TurnID         string `json:"turn_id"`
 	DecisionID     string `json:"decision_id"`
 	PlanHash       string `json:"plan_hash"`
 	StepID         string `json:"step_id"`
@@ -119,13 +124,39 @@ func (c *DecisionPlanClient) CloseIdleConnections() {
 func (c *DecisionPlanClient) VerifyDecisionPlanStep(
 	ctx context.Context, principal Principal, snapshot RunSafetySnapshot, submission action.ActionSubmission,
 ) error {
-	if c == nil || c.http == nil {
+	return c.verifyDecisionPlanStep(ctx, principal, snapshot, submission, nil)
+}
+
+// VerifyDecisionPlanStepReceipt returns only the canonical Runtime Attempt/Turn
+// selectors from Decision's verified read-only receipt. They are not authority;
+// ComposedRunVerifier must resolve the exact pair again from Runtime.
+func (c *DecisionPlanClient) VerifyDecisionPlanStepReceipt(
+	ctx context.Context, principal Principal, snapshot RunSafetySnapshot, submission action.ActionSubmission,
+) (DecisionPlanReceipt, error) {
+	var receipt DecisionPlanReceipt
+	err := c.verifyDecisionPlanStep(ctx, principal, snapshot, submission, &receipt)
+	return receipt, err
+}
+
+func (c *DecisionPlanClient) verifyDecisionPlanStep(
+	ctx context.Context, principal Principal, snapshot RunSafetySnapshot, submission action.ActionSubmission,
+	result *DecisionPlanReceipt,
+) error {
+	if c == nil || c.http == nil || ctx == nil {
+		return ErrAuthorityUnavailable
+	}
+	if ctx.Err() != nil {
 		return ErrAuthorityUnavailable
 	}
 	if principal.TenantID != c.tenant || snapshot.TenantID != c.tenant ||
 		principal.ServiceID != "agent-runtime" || snapshot.RunID != submission.RunID ||
+		!canonicalSafetyRunID.MatchString(snapshot.RunID) ||
+		!validRuntimeIdentity(snapshot.AgentID) ||
+		!validRuntimeIdentity(snapshot.AgentReleaseID) ||
+		!validRuntimeIdentity(snapshot.SessionID) ||
 		snapshot.Status != "RUNNING" || snapshot.BreakerState != "CLOSED" ||
-		snapshot.BreakerEpoch == 0 || snapshot.BreakerVersion == 0 {
+		snapshot.BreakerEpoch == 0 || snapshot.BreakerVersion == 0 ||
+		submission.Validate() != nil {
 		return ErrForbidden
 	}
 	// This first compatible version only verifies read-only SRE observations.
@@ -135,7 +166,8 @@ func (c *DecisionPlanClient) VerifyDecisionPlanStep(
 	// explicitly reviewed read-only observation capability. Any expansion
 	// requires a trusted capability catalog and its own negative test.
 	if !bytes.Equal(submission.Arguments, []byte("{}")) ||
-		submission.Capability.ID != "sre.metrics.read" {
+		submission.Capability.ID != decisionPlanReadOnlyCapabilityID ||
+		submission.Capability.Version != decisionPlanReadOnlyCapabilityVersion {
 		return ErrForbidden
 	}
 	const maxUint = uint64(^uint64(0) >> 1)
@@ -201,6 +233,8 @@ func (c *DecisionPlanClient) VerifyDecisionPlanStep(
 		receipt.DecisionID != submission.DecisionID ||
 		receipt.PlanHash != submission.PlanHash ||
 		receipt.StepID != submission.StepID ||
+		!canonicalSafetyRunID.MatchString(receipt.RunAttemptID) ||
+		!canonicalSafetyRunID.MatchString(receipt.TurnID) ||
 		receipt.BreakerEpoch != int64(snapshot.BreakerEpoch) ||
 		receipt.BreakerVersion != int64(snapshot.BreakerVersion) ||
 		!canonicalSHA256(receipt.RecordSHA256) {
@@ -209,6 +243,14 @@ func (c *DecisionPlanClient) VerifyDecisionPlanStep(
 	canonical, err := json.Marshal(receipt)
 	if err != nil || !bytes.Equal(canonical, bytes.TrimSpace(body)) {
 		return ErrAuthorityUnavailable
+	}
+	if ctx.Err() != nil {
+		return ErrAuthorityUnavailable
+	}
+	if result != nil {
+		*result = DecisionPlanReceipt{
+			RunID: receipt.RunID, RunAttemptID: receipt.RunAttemptID, TurnID: receipt.TurnID,
+		}
 	}
 	return nil
 }

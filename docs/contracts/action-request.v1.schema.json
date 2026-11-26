@@ -31,32 +31,38 @@
     "tenant_id": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 512
+      "maxLength": 512,
+      "pattern": "^[!-~]{1,512}$"
     },
     "subject_id": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 512
+      "maxLength": 512,
+      "pattern": "^[!-~]{1,512}$"
     },
     "agent_id": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 512
+      "maxLength": 512,
+      "pattern": "^[!-~]{1,512}$"
     },
     "run_id": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 512
+      "maxLength": 512,
+      "pattern": "^[!-~]{1,512}$"
     },
     "decision_id": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 512
+      "maxLength": 512,
+      "pattern": "^[!-~]{1,512}$"
     },
     "plan_id": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 512
+      "maxLength": 512,
+      "pattern": "^[!-~]{1,512}$"
     },
     "plan_hash": {
       "$ref": "#/$defs/sha256"
@@ -64,12 +70,14 @@
     "step_id": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 512
+      "maxLength": 512,
+      "pattern": "^[!-~]{1,512}$"
     },
     "operation_id": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 512
+      "maxLength": 512,
+      "pattern": "^[!-~]{1,512}$"
     },
     "capability": {
       "$ref": "#/$defs/capability"
@@ -77,7 +85,8 @@
     "resource_ref": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 512
+      "maxLength": 512,
+      "pattern": "^[!-~]{1,512}$"
     },
     "arguments": {
       "type": "object"
@@ -88,22 +97,26 @@
     "policy_version": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 512
+      "maxLength": 512,
+      "pattern": "^[!-~]{1,512}$"
     },
     "audience": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 512
+      "maxLength": 512,
+      "pattern": "^[!-~]{1,512}$"
     },
     "actor_id": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 512
+      "maxLength": 512,
+      "pattern": "^[!-~]{1,512}$"
     },
     "workload_id": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 512
+      "maxLength": 512,
+      "pattern": "^[!-~]{1,512}$"
     }
   },
   "$defs": {
@@ -123,12 +136,14 @@
         "id": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 512
+          "maxLength": 512,
+          "pattern": "^[!-~]{1,512}$"
         },
         "version": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 128
+          "maxLength": 128,
+          "pattern": "^[!-~]{1,128}$"
         },
         "contract_sha256": {
           "$ref": "#/$defs/sha256"
@@ -136,5 +151,5 @@
       }
     }
   },
-  "description": "Guard-resolved internal action with server-generated operation_id, authenticated tenant/subject/actor/workload, trusted capability and ToolBinding, and current policy/audience. Runtime callers MUST use action-submission.v1. Approval and Permit bind the RFC 8785 ActionHash of this exact object; this schema does not authorize execution."
+  "description": "Guard-resolved internal action with server-generated operation_id, authenticated tenant/subject/actor/workload, trusted capability and ToolBinding, and current policy/audience. Runtime callers MUST use action-submission.v1. Approval and Permit bind the RFC 8785 ActionHash of this exact object; this schema does not authorize execution. Identifier and binding-reference strings are restricted to visible ASCII (0x21-0x7e); arbitrary UTF-8 remains valid inside arguments."
 }

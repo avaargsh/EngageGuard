@@ -159,3 +159,41 @@ func quoteJSON(value string) string {
 	encoded, _ := json.Marshal(value)
 	return string(encoded)
 }
+
+func TestActionRequestRejectsNonASCIIIdentifiers(t *testing.T) {
+	mutations := map[string]func(*ActionRequest){
+		"tenant":             func(a *ActionRequest) { a.TenantID = "tenant-\u200b-a" },
+		"subject":            func(a *ActionRequest) { a.SubjectID = "subject-\u202e-a" },
+		"actor":              func(a *ActionRequest) { a.ActorID = "actor-\u00a0-a" },
+		"workload":           func(a *ActionRequest) { a.WorkloadID = "workload-é" },
+		"agent":              func(a *ActionRequest) { a.AgentID = "agent-\u200b-a" },
+		"run":                func(a *ActionRequest) { a.RunID = "run-\u202e-a" },
+		"decision":           func(a *ActionRequest) { a.DecisionID = "decision-\u200b-a" },
+		"plan":               func(a *ActionRequest) { a.PlanID = "plan-\u202e-a" },
+		"step":               func(a *ActionRequest) { a.StepID = "step-\u200b-a" },
+		"operation":          func(a *ActionRequest) { a.OperationID = "operation-\u202e-a" },
+		"capability id":      func(a *ActionRequest) { a.Capability.ID = "workspace.\u200bwrite" },
+		"capability version": func(a *ActionRequest) { a.Capability.Version = "1.0.é" },
+		"resource":           func(a *ActionRequest) { a.ResourceRef = "workspace-\u200b-a" },
+		"policy":             func(a *ActionRequest) { a.PolicyVersion = "policy-\u202e-a" },
+		"audience":           func(a *ActionRequest) { a.Audience = "executor-\u200b-a" },
+	}
+	for name, mutate := range mutations {
+		t.Run(name, func(t *testing.T) {
+			a := validActionRequest()
+			mutate(&a)
+			if err := a.Validate(); err == nil {
+				t.Fatal("accepted non-ASCII or invisible authorization identifier")
+			}
+		})
+	}
+}
+
+func TestActionRequestStillAllowsUnicodeBusinessArguments(t *testing.T) {
+	a := validActionRequest()
+	a.Capability.ID = "custom.write"
+	a.Arguments = []byte(`{"label":"\u8bbe\u5907\u8bf4\u660e"}`)
+	if err := a.Validate(); err != nil {
+		t.Fatalf("valid Unicode business argument rejected: %v", err)
+	}
+}
