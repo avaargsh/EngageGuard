@@ -49,7 +49,7 @@ func TestPermitRoleSeparationRejectsOperatorSchemaMismatch(t *testing.T) {
 		"guard_outbox_events", "guard_schema_migrations", "guard_permits",
 		"guard_operation_intents", "guard_execution_audit",
 		"guard_operation_unknown_events", "guard_permit_revocations",
-		"guard_permit_authority_evidence",
+		"guard_permit_authority_evidence", "guard_provider_observations",
 	} {
 		var statement string
 		if err := db.QueryRowContext(ctx,
