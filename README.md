@@ -25,7 +25,7 @@ EngageGuard owns canonical action resolution, authorization decisions, risk eval
 - Non-production trusted Issuer service consumes only the generic resolved ActionRequest v1 and rejects Run/Decision/Plan/Step, capability-version, contract-digest, policy, audience or ActionHash drift.
 - PostgreSQL v16/v17 immutable Permit authority evidence and exact replay/conflict fencing; v17 records the resolved ActionRequest metadata while preserving old v16 rows as legacy-only.
 - `ClaimResolvedActionIntent` atomically verifies exact v1 authority evidence and claims one Permit with Intent/Audit; it does not dispatch.
-- Read-only provider receipt reconciliation contract in `internal/provider`: exact attempt binding, authenticated evidence-verifier boundary, and fail-closed FOUND / ABSENT_UNCERTAIN / FAILED_CONFIRMED outcomes. It cannot dispatch or mutate the Guard ledger. See [Provider reconciliation contract](docs/architecture/PROVIDER-RECONCILIATION-CONTRACT.md).
+- Read-only provider receipt reconciliation plus PostgreSQL v18 append-only evidence ledger: exact Tenant / Operation / Permit / Attempt / ActionHash binding, deterministic idempotency key, raw evidence digest, identified verifier, UNKNOWN-only insert fence, idempotent replay and restart reads. It never dispatches or changes UNKNOWN. See [Provider reconciliation contract](docs/architecture/PROVIDER-RECONCILIATION-CONTRACT.md).
 
 ## Run the local admission and Permit demo
 
@@ -68,6 +68,6 @@ The HTTP Admission, PostgreSQL acceptance, migration, SPIFFE identity, Permit-cl
 - Authenticated Guard HTTP endpoint and PostgreSQL operation allocation, restart/lost-ACK recovery and tenant isolation.
 - Signed bearer Permit/JTI issuance and independent revocation/policy checks at claim and effect time.
 - Independently deployed Trusted Executor PEP with root-constrained, symlink-safe and TOCTOU-resistant filesystem operations.
-- Durable Operation Journal, Provider idempotency/receipt inspection, UNKNOWN reconciliation and two-replica crash-window recovery.
+- Production provider adapter and signed receipt verifier/trust-root distribution, durable UNKNOWN state transition policy, independent effect-time PEP, and two-replica crash-window recovery. The v18 evidence ledger is necessary but does not authorize execution.
 
 **Protected side effects must remain disabled** until the full authorization, execution and recovery path is independently verified. A matching hash, an accepted submission, or a claimed Permit intent alone does not authorize execution.
