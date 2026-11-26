@@ -72,7 +72,7 @@ func (s *Store) ReconcileProvider(
 }
 
 func (s *Store) assertUnknownProviderAttempt(ctx context.Context, attempt provider.Attempt) error {
-	tx, err := s.beginLedgerTx(ctx, true)
+	tx, err := s.beginProviderObservationTx(ctx)
 	if err != nil {
 		return fmt.Errorf("%w: inspect provider Attempt: %w", ErrPreEffectUnavailable, err)
 	}
@@ -310,7 +310,45 @@ func sameProviderObservation(
 	if existing.Observation.Receipt == nil || observation.Receipt == nil {
 		return existing.Observation.Receipt == nil && observation.Receipt == nil
 	}
-	return *existing.Observation.Receipt == *observation.Receipt
+	left, right := existing.Observation.Receipt, observation.Receipt
+	return left.ProviderID == right.ProviderID &&
+		left.ReceiptID == right.ReceiptID &&
+		left.TenantID == right.TenantID &&
+		left.OperationID == right.OperationID &&
+		left.AttemptID == right.AttemptID &&
+		left.IdempotencyKey == right.IdempotencyKey &&
+		left.ActionHash == right.ActionHash &&
+		left.Effect == right.Effect &&
+		left.EvidenceDigest == right.EvidenceDigest &&
+		left.ObservedAt.Equal(right.ObservedAt)
+}
+
+func (s *Store) beginProviderObservationTx(ctx context.Context) (*sql.Tx, error) {
+	tx, err := s.beginLedgerTx(ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	var safe bool
+	err = tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM pg_catalog.pg_class c
+			JOIN pg_catalog.pg_class m
+			  ON m.oid=pg_catalog.to_regclass(
+			    pg_catalog.format('%I.%I', pg_catalog.current_schema(), 'guard_schema_migrations'))
+			WHERE c.oid=pg_catalog.to_regclass(
+			    pg_catalog.format('%I.%I', pg_catalog.current_schema(), 'guard_provider_observations'))
+			  AND c.relkind='r' AND c.relpersistence='p'
+			  AND c.relnamespace=pg_catalog.current_schema()::regnamespace
+			  AND c.relowner=m.relowner
+			  AND pg_catalog.to_regclass('guard_provider_observations') IS NOT DISTINCT FROM c.oid
+		)
+	`).Scan(&safe)
+	if err != nil || !safe {
+		_ = tx.Rollback()
+		return nil, fmt.Errorf("%w: provider observation relation identity: %v", ErrSchemaDrift, err)
+	}
+	return tx, nil
 }
 
 func cloneProviderObservation(observation provider.Observation) provider.Observation {
