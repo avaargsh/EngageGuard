@@ -160,6 +160,9 @@ func validSHA256(value string) bool {
 	return err == nil && len(decoded) == 32
 }
 
+// ValidateAttempt checks the immutable identity before any provider call.
+func ValidateAttempt(attempt Attempt) error { return validateAttempt(attempt) }
+
 func validateAttempt(attempt Attempt) error {
 	if !validToken(attempt.ProviderID, 256) ||
 		!validToken(attempt.TenantID, 128) ||
