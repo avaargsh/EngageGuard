@@ -1,0 +1,206 @@
+package provider
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+)
+
+type inspectorFunc func(context.Context, Attempt) (Observation, error)
+func (f inspectorFunc) Inspect(ctx context.Context, attempt Attempt) (Observation, error) {
+	return f(ctx, attempt)
+}
+
+type verifierFunc func(context.Context, Attempt, Observation) error
+func (f verifierFunc) Verify(ctx context.Context, attempt Attempt, observation Observation) error {
+	return f(ctx, attempt, observation)
+}
+
+func reconciliationAttempt() Attempt {
+	return Attempt{
+		ProviderID: "provider.workspace.v1",
+		TenantID: "tenant-a",
+		OperationID: "11111111-1111-4111-8111-111111111111",
+		AttemptID: "22222222-2222-4222-8222-222222222222",
+		IdempotencyKey: "engageguard/op-1/attempt-1",
+		ActionHash: strings.Repeat("a", 64),
+	}
+}
+
+func reconciliationObservation(attempt Attempt, outcome Outcome) Observation {
+	now := time.Date(2026, 11, 26, 3, 0, 0, 0, time.UTC)
+	observation := Observation{
+		Outcome: outcome,
+		ProviderID: attempt.ProviderID,
+		EvidenceDigest: strings.Repeat("b", 64),
+		ObservedAt: now,
+	}
+	if outcome != OutcomeAbsentUncertain {
+		observation.Receipt = &Receipt{
+			ProviderID: attempt.ProviderID,
+			ReceiptID: "receipt-123",
+			TenantID: attempt.TenantID,
+			OperationID: attempt.OperationID,
+			AttemptID: attempt.AttemptID,
+			IdempotencyKey: attempt.IdempotencyKey,
+			ActionHash: attempt.ActionHash,
+			EvidenceDigest: observation.EvidenceDigest,
+			ObservedAt: now,
+		}
+	}
+	return observation
+}
+
+func TestReconcileProviderOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		outcome Outcome
+		want Resolution
+	}{
+		{"effect found", OutcomeFound, ResolutionEffectObserved},
+		{"absence remains uncertain", OutcomeAbsentUncertain, ResolutionRemainUnknown},
+		{"failure confirmed without effect", OutcomeFailedConfirmed, ResolutionNoEffectConfirmed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			attempt := reconciliationAttempt()
+			observation := reconciliationObservation(attempt, tc.outcome)
+			inspected, verified := 0, 0
+			got, err := Reconcile(context.Background(), attempt,
+				inspectorFunc(func(_ context.Context, received Attempt) (Observation, error) {
+					inspected++
+					if received != attempt { t.Fatalf("inspector received changed attempt: %+v", received) }
+					return observation, nil
+				}),
+				verifierFunc(func(_ context.Context, received Attempt, got Observation) error {
+					verified++
+					if received != attempt || got.Outcome != tc.outcome { t.Fatalf("verifier received wrong evidence: %+v %+v", received, got) }
+					return nil
+				}),
+			)
+			if err != nil || got != tc.want { t.Fatalf("resolution=%q want=%q err=%v", got, tc.want, err) }
+			if inspected != 1 || verified != 1 { t.Fatalf("inspection/verification calls=%d/%d", inspected, verified) }
+		})
+	}
+}
+
+func TestReconcileRejectsMismatchedProviderReceipt(t *testing.T) {
+	attempt := reconciliationAttempt()
+	for _, mutate := range []struct {
+		name string
+		change func(*Receipt)
+	}{
+		{"provider", func(r *Receipt) { r.ProviderID = "provider.other" }},
+		{"tenant", func(r *Receipt) { r.TenantID = "tenant-b" }},
+		{"operation", func(r *Receipt) { r.OperationID = "33333333-3333-4333-8333-333333333333" }},
+		{"attempt", func(r *Receipt) { r.AttemptID = "44444444-4444-4444-8444-444444444444" }},
+		{"idempotency key", func(r *Receipt) { r.IdempotencyKey = "different-key" }},
+		{"action hash", func(r *Receipt) { r.ActionHash = strings.Repeat("c", 64) }},
+		{"evidence digest", func(r *Receipt) { r.EvidenceDigest = strings.Repeat("d", 64) }},
+		{"missing receipt id", func(r *Receipt) { r.ReceiptID = "" }},
+		{"missing observation time", func(r *Receipt) { r.ObservedAt = time.Time{} }},
+	} {
+		t.Run(mutate.name, func(t *testing.T) {
+			observation := reconciliationObservation(attempt, OutcomeFound)
+			mutate.change(observation.Receipt)
+			verified := 0
+			_, err := Reconcile(context.Background(), attempt,
+				inspectorFunc(func(context.Context, Attempt) (Observation, error) { return observation, nil }),
+				verifierFunc(func(context.Context, Attempt, Observation) error { verified++; return nil }),
+			)
+			if !errors.Is(err, ErrInvalidObservation) { t.Fatalf("mismatched receipt must fail closed: %v", err) }
+			if verified != 0 { t.Fatalf("unbound receipt reached evidence verifier: %d", verified) }
+		})
+	}
+}
+
+func TestReconcileRequiresShapeConsistentEvidence(t *testing.T) {
+	attempt := reconciliationAttempt()
+	cases := []struct {
+		name string
+		change func(*Observation)
+	}{
+		{"unknown outcome", func(o *Observation) { o.Outcome = Outcome("MAYBE") }},
+		{"missing provider", func(o *Observation) { o.ProviderID = "" }},
+		{"wrong provider", func(o *Observation) { o.ProviderID = "provider.other" }},
+		{"bad evidence digest", func(o *Observation) { o.EvidenceDigest = "not-a-sha256" }},
+		{"missing observed time", func(o *Observation) { o.ObservedAt = time.Time{} }},
+		{"found without receipt", func(o *Observation) { o.Receipt = nil }},
+		{"failed without receipt", func(o *Observation) { o.Outcome = OutcomeFailedConfirmed; o.Receipt = nil }},
+		{"absent with receipt", func(o *Observation) { o.Outcome = OutcomeAbsentUncertain }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			observation := reconciliationObservation(attempt, OutcomeFound)
+			tc.change(&observation)
+			_, err := Reconcile(context.Background(), attempt,
+				inspectorFunc(func(context.Context, Attempt) (Observation, error) { return observation, nil }),
+				verifierFunc(func(context.Context, Attempt, Observation) error { return nil }),
+			)
+			if !errors.Is(err, ErrInvalidObservation) { t.Fatalf("invalid evidence must fail closed: %v", err) }
+		})
+	}
+}
+
+func TestReconcileNeverPromotesUncertainAbsenceToRetry(t *testing.T) {
+	attempt := reconciliationAttempt()
+	observation := reconciliationObservation(attempt, OutcomeAbsentUncertain)
+	got, err := Reconcile(context.Background(), attempt,
+		inspectorFunc(func(context.Context, Attempt) (Observation, error) { return observation, nil }),
+		verifierFunc(func(context.Context, Attempt, Observation) error { return nil }),
+	)
+	if err != nil || got != ResolutionRemainUnknown {
+		t.Fatalf("absence without proof must remain UNKNOWN, got=%q err=%v", got, err)
+	}
+}
+
+func TestReconcileFailsClosedOnInspectionAndVerificationErrors(t *testing.T) {
+	attempt := reconciliationAttempt()
+	sourceErr := errors.New("provider inspection unavailable")
+	if _, err := Reconcile(context.Background(), attempt,
+		inspectorFunc(func(context.Context, Attempt) (Observation, error) { return Observation{}, sourceErr }),
+		verifierFunc(func(context.Context, Attempt, Observation) error { return nil }),
+	); !errors.Is(err, ErrUnavailable) || !errors.Is(err, sourceErr) {
+		t.Fatalf("inspection outage must remain unavailable: %v", err)
+	}
+	verifyErr := errors.New("provider signature invalid")
+	observation := reconciliationObservation(attempt, OutcomeFound)
+	if _, err := Reconcile(context.Background(), attempt,
+		inspectorFunc(func(context.Context, Attempt) (Observation, error) { return observation, nil }),
+		verifierFunc(func(context.Context, Attempt, Observation) error { return verifyErr }),
+	); !errors.Is(err, ErrEvidenceRejected) || !errors.Is(err, verifyErr) {
+		t.Fatalf("untrusted provider evidence must be rejected: %v", err)
+	}
+}
+
+func TestReconcileHonorsCancellationBetweenProviderAndVerification(t *testing.T) {
+	attempt := reconciliationAttempt()
+	ctx, cancel := context.WithCancel(context.Background())
+	observation := reconciliationObservation(attempt, OutcomeFound)
+	verified := 0
+	_, err := Reconcile(ctx, attempt,
+		inspectorFunc(func(context.Context, Attempt) (Observation, error) { cancel(); return observation, nil }),
+		verifierFunc(func(context.Context, Attempt, Observation) error { verified++; return nil }),
+	)
+	if !errors.Is(err, ErrUnavailable) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled reconciliation must be unavailable: %v", err)
+	}
+	if verified != 0 { t.Fatalf("verification started after cancellation: %d", verified) }
+}
+
+func TestReconcileRejectsInvalidAttemptAndMissingDependencies(t *testing.T) {
+	attempt := reconciliationAttempt()
+	inspector := inspectorFunc(func(context.Context, Attempt) (Observation, error) { return Observation{}, nil })
+	verifier := verifierFunc(func(context.Context, Attempt, Observation) error { return nil })
+	if _, err := Reconcile(context.Background(), attempt, nil, verifier); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("missing inspector: %v", err)
+	}
+	if _, err := Reconcile(context.Background(), attempt, inspector, nil); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("missing verifier: %v", err)
+	}
+	attempt.ActionHash = "bad"
+	if _, err := Reconcile(context.Background(), attempt, inspector, verifier); !errors.Is(err, ErrInvalidAttempt) {
+		t.Fatalf("invalid attempt must be rejected: %v", err)
+	}
+}
