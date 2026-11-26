@@ -20,6 +20,7 @@ func verifyProviderObservationCatalog(ctx context.Context, tx *sql.Tx) error {
 			  AND c.relkind='r' AND c.relpersistence='p'
 			  AND c.relnamespace=pg_catalog.current_schema()::regnamespace
 			  AND c.relowner=m.relowner
+			  AND pg_catalog.to_regclass('guard_provider_observations') IS NOT DISTINCT FROM c.oid
 		)
 	`).Scan(&relationSafe); err != nil || !relationSafe {
 		return fmt.Errorf("%w: v18 provider observation relation drift: %v", ErrSchemaDrift, err)
