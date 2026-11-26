@@ -25,6 +25,7 @@ EngageGuard owns canonical action resolution, authorization decisions, risk eval
 - Non-production trusted Issuer service consumes only the generic resolved ActionRequest v1 and rejects Run/Decision/Plan/Step, capability-version, contract-digest, policy, audience or ActionHash drift.
 - PostgreSQL v16/v17 immutable Permit authority evidence and exact replay/conflict fencing; v17 records the resolved ActionRequest metadata while preserving old v16 rows as legacy-only.
 - `ClaimResolvedActionIntent` atomically verifies exact v1 authority evidence and claims one Permit with Intent/Audit; it does not dispatch.
+- Read-only provider receipt reconciliation contract in `internal/provider`: exact attempt binding, authenticated evidence-verifier boundary, and fail-closed FOUND / ABSENT_UNCERTAIN / FAILED_CONFIRMED outcomes. It cannot dispatch or mutate the Guard ledger. See [Provider reconciliation contract](docs/architecture/PROVIDER-RECONCILIATION-CONTRACT.md).
 
 ## Run the local admission and Permit demo
 
