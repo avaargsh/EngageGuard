@@ -80,6 +80,26 @@ func verifyProviderObservationCatalog(ctx context.Context, tx *sql.Tx) error {
 		}
 	}
 
+	for _, column := range []struct {
+		name, expression string
+	}{
+		{"observation_id", "gen_random_uuid()"},
+		{"recorded_at", "clock_timestamp()"},
+	} {
+		var actual string
+		err := tx.QueryRowContext(ctx, `
+			SELECT pg_catalog.pg_get_expr(d.adbin,d.adrelid)
+			FROM pg_catalog.pg_attrdef d
+			JOIN pg_catalog.pg_attribute a
+			  ON a.attrelid=d.adrelid AND a.attnum=d.adnum
+			WHERE d.adrelid=pg_catalog.to_regclass('guard_provider_observations')
+			  AND a.attname=$1 AND NOT a.attisdropped
+		`, column.name).Scan(&actual)
+		if err != nil || actual != column.expression {
+			return fmt.Errorf("%w: v18 provider observation default %s drift: got %q err=%v", ErrSchemaDrift, column.name, actual, err)
+		}
+	}
+
 	for _, key := range []struct {
 		name, kind, columns string
 	}{
