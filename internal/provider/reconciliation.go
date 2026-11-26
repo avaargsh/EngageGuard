@@ -12,10 +12,10 @@ import (
 )
 
 var (
-	ErrInvalidAttempt      = errors.New("invalid provider reconciliation attempt")
-	ErrInvalidObservation  = errors.New("invalid provider inspection evidence")
-	ErrEvidenceRejected    = errors.New("provider inspection evidence rejected")
-	ErrUnavailable         = errors.New("provider inspection unavailable")
+	ErrInvalidAttempt     = errors.New("invalid provider reconciliation attempt")
+	ErrInvalidObservation = errors.New("invalid provider inspection evidence")
+	ErrEvidenceRejected   = errors.New("provider inspection evidence rejected")
+	ErrUnavailable        = errors.New("provider inspection unavailable")
 )
 
 type Outcome string
@@ -41,8 +41,8 @@ const (
 type Resolution string
 
 const (
-	ResolutionEffectObserved  Resolution = "EFFECT_OBSERVED"
-	ResolutionRemainUnknown   Resolution = "REMAIN_UNKNOWN"
+	ResolutionEffectObserved    Resolution = "EFFECT_OBSERVED"
+	ResolutionRemainUnknown     Resolution = "REMAIN_UNKNOWN"
 	ResolutionNoEffectConfirmed Resolution = "NO_EFFECT_CONFIRMED"
 )
 
