@@ -302,3 +302,17 @@ func TestProviderObservationLedgerDetectsRawEvidenceTamperingOnRead(t *testing.T
 		t.Fatalf("tampered raw evidence passed durable read: %v", err)
 	}
 }
+
+func TestProviderObservationMigrationRejectsWeakenedEvidenceBounds(t *testing.T) {
+	_, db := integrationStore(t)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, "ALTER TABLE guard_provider_observations DROP CONSTRAINT guard_provider_observations_evidence_bytes_check"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, "ALTER TABLE guard_provider_observations ADD CONSTRAINT guard_provider_observations_evidence_bytes_check CHECK (TRUE)"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); !errors.Is(err, ErrSchemaDrift) {
+		t.Fatalf("same-name CHECK TRUE bypassed v18 catalog verification: %v", err)
+	}
+}
