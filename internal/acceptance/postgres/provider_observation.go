@@ -138,7 +138,7 @@ func (s *Store) persistProviderObservation(
 	verifierID string,
 ) (ProviderObservationRecord, error) {
 	var zero ProviderObservationRecord
-	tx, err := s.beginLedgerTx(ctx, true)
+	tx, err := s.beginProviderObservationTx(ctx)
 	if err != nil {
 		return zero, fmt.Errorf("%w: begin provider observation append: %w", ErrPreEffectUnavailable, err)
 	}
@@ -380,7 +380,7 @@ func (s *Store) ListProviderObservations(
 		!validDispatchUUID(operationID) || !validDispatchUUID(attemptID) {
 		return nil, ErrProviderObservationAttemptNotFound
 	}
-	tx, err := s.beginLedgerTx(ctx, true)
+	tx, err := s.beginProviderObservationTx(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("%w: begin provider observation read: %w", ErrPreEffectUnavailable, err)
 	}
