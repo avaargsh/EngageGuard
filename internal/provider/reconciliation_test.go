@@ -11,23 +11,25 @@ import (
 )
 
 type inspectorFunc func(context.Context, Attempt) (Observation, error)
+
 func (f inspectorFunc) Inspect(ctx context.Context, attempt Attempt) (Observation, error) {
 	return f(ctx, attempt)
 }
 
 type verifierFunc func(context.Context, Attempt, Observation) error
+
 func (f verifierFunc) Verify(ctx context.Context, attempt Attempt, observation Observation) error {
 	return f(ctx, attempt, observation)
 }
 
 func reconciliationAttempt() Attempt {
 	return Attempt{
-		ProviderID: "provider.workspace.v1",
-		TenantID: "tenant-a",
-		OperationID: "11111111-1111-4111-8111-111111111111",
-		AttemptID: "22222222-2222-4222-8222-222222222222",
+		ProviderID:     "provider.workspace.v1",
+		TenantID:       "tenant-a",
+		OperationID:    "11111111-1111-4111-8111-111111111111",
+		AttemptID:      "22222222-2222-4222-8222-222222222222",
 		IdempotencyKey: "engageguard/op-1/attempt-1",
-		ActionHash: strings.Repeat("a", 64),
+		ActionHash:     strings.Repeat("a", 64),
 	}
 }
 
@@ -36,11 +38,11 @@ func reconciliationObservation(attempt Attempt, outcome Outcome) Observation {
 	evidence := []byte("signed provider observation")
 	digest := sha256.Sum256(evidence)
 	observation := Observation{
-		Outcome: outcome,
-		ProviderID: attempt.ProviderID,
-		Evidence: evidence,
+		Outcome:        outcome,
+		ProviderID:     attempt.ProviderID,
+		Evidence:       evidence,
 		EvidenceDigest: hex.EncodeToString(digest[:]),
-		ObservedAt: now,
+		ObservedAt:     now,
 	}
 	if outcome != OutcomeAbsentUncertain {
 		effect := EffectApplied
@@ -48,16 +50,16 @@ func reconciliationObservation(attempt Attempt, outcome Outcome) Observation {
 			effect = EffectNotApplied
 		}
 		observation.Receipt = &Receipt{
-			ProviderID: attempt.ProviderID,
-			ReceiptID: "receipt-123",
-			TenantID: attempt.TenantID,
-			OperationID: attempt.OperationID,
-			AttemptID: attempt.AttemptID,
+			ProviderID:     attempt.ProviderID,
+			ReceiptID:      "receipt-123",
+			TenantID:       attempt.TenantID,
+			OperationID:    attempt.OperationID,
+			AttemptID:      attempt.AttemptID,
 			IdempotencyKey: attempt.IdempotencyKey,
-			ActionHash: attempt.ActionHash,
-			Effect: effect,
+			ActionHash:     attempt.ActionHash,
+			Effect:         effect,
 			EvidenceDigest: observation.EvidenceDigest,
-			ObservedAt: now,
+			ObservedAt:     now,
 		}
 	}
 	return observation
@@ -65,9 +67,9 @@ func reconciliationObservation(attempt Attempt, outcome Outcome) Observation {
 
 func TestReconcileProviderOutcome(t *testing.T) {
 	for _, tc := range []struct {
-		name string
+		name    string
 		outcome Outcome
-		want Resolution
+		want    Resolution
 	}{
 		{"effect found", OutcomeFound, ResolutionEffectObserved},
 		{"absence remains uncertain", OutcomeAbsentUncertain, ResolutionRemainUnknown},
@@ -80,17 +82,25 @@ func TestReconcileProviderOutcome(t *testing.T) {
 			got, err := Reconcile(context.Background(), attempt,
 				inspectorFunc(func(_ context.Context, received Attempt) (Observation, error) {
 					inspected++
-					if received != attempt { t.Fatalf("inspector received changed attempt: %+v", received) }
+					if received != attempt {
+						t.Fatalf("inspector received changed attempt: %+v", received)
+					}
 					return observation, nil
 				}),
 				verifierFunc(func(_ context.Context, received Attempt, got Observation) error {
 					verified++
-					if received != attempt || got.Outcome != tc.outcome { t.Fatalf("verifier received wrong evidence: %+v %+v", received, got) }
+					if received != attempt || got.Outcome != tc.outcome {
+						t.Fatalf("verifier received wrong evidence: %+v %+v", received, got)
+					}
 					return nil
 				}),
 			)
-			if err != nil || got != tc.want { t.Fatalf("resolution=%q want=%q err=%v", got, tc.want, err) }
-			if inspected != 1 || verified != 1 { t.Fatalf("inspection/verification calls=%d/%d", inspected, verified) }
+			if err != nil || got != tc.want {
+				t.Fatalf("resolution=%q want=%q err=%v", got, tc.want, err)
+			}
+			if inspected != 1 || verified != 1 {
+				t.Fatalf("inspection/verification calls=%d/%d", inspected, verified)
+			}
 		})
 	}
 }
@@ -98,7 +108,7 @@ func TestReconcileProviderOutcome(t *testing.T) {
 func TestReconcileRejectsMismatchedProviderReceipt(t *testing.T) {
 	attempt := reconciliationAttempt()
 	for _, mutate := range []struct {
-		name string
+		name   string
 		change func(*Receipt)
 	}{
 		{"provider", func(r *Receipt) { r.ProviderID = "provider.other" }},
@@ -119,8 +129,12 @@ func TestReconcileRejectsMismatchedProviderReceipt(t *testing.T) {
 				inspectorFunc(func(context.Context, Attempt) (Observation, error) { return observation, nil }),
 				verifierFunc(func(context.Context, Attempt, Observation) error { verified++; return nil }),
 			)
-			if !errors.Is(err, ErrInvalidObservation) { t.Fatalf("mismatched receipt must fail closed: %v", err) }
-			if verified != 0 { t.Fatalf("unbound receipt reached evidence verifier: %d", verified) }
+			if !errors.Is(err, ErrInvalidObservation) {
+				t.Fatalf("mismatched receipt must fail closed: %v", err)
+			}
+			if verified != 0 {
+				t.Fatalf("unbound receipt reached evidence verifier: %d", verified)
+			}
 		})
 	}
 }
@@ -128,7 +142,7 @@ func TestReconcileRejectsMismatchedProviderReceipt(t *testing.T) {
 func TestReconcileRequiresShapeConsistentEvidence(t *testing.T) {
 	attempt := reconciliationAttempt()
 	cases := []struct {
-		name string
+		name   string
 		change func(*Observation)
 	}{
 		{"unknown outcome", func(o *Observation) { o.Outcome = Outcome("MAYBE") }},
@@ -152,7 +166,9 @@ func TestReconcileRequiresShapeConsistentEvidence(t *testing.T) {
 				inspectorFunc(func(context.Context, Attempt) (Observation, error) { return observation, nil }),
 				verifierFunc(func(context.Context, Attempt, Observation) error { return nil }),
 			)
-			if !errors.Is(err, ErrInvalidObservation) { t.Fatalf("invalid evidence must fail closed: %v", err) }
+			if !errors.Is(err, ErrInvalidObservation) {
+				t.Fatalf("invalid evidence must fail closed: %v", err)
+			}
 		})
 	}
 }
@@ -200,7 +216,9 @@ func TestReconcileHonorsCancellationBetweenProviderAndVerification(t *testing.T)
 	if !errors.Is(err, ErrUnavailable) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled reconciliation must be unavailable: %v", err)
 	}
-	if verified != 0 { t.Fatalf("verification started after cancellation: %d", verified) }
+	if verified != 0 {
+		t.Fatalf("verification started after cancellation: %d", verified)
+	}
 }
 
 func TestReconcileRejectsInvalidAttemptAndMissingDependencies(t *testing.T) {
