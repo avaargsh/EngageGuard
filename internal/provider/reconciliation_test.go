@@ -2,6 +2,8 @@ package provider
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"testing"
@@ -31,10 +33,13 @@ func reconciliationAttempt() Attempt {
 
 func reconciliationObservation(attempt Attempt, outcome Outcome) Observation {
 	now := time.Date(2026, 11, 26, 3, 0, 0, 0, time.UTC)
+	evidence := []byte("signed provider observation")
+	digest := sha256.Sum256(evidence)
 	observation := Observation{
 		Outcome: outcome,
 		ProviderID: attempt.ProviderID,
-		EvidenceDigest: strings.Repeat("b", 64),
+		Evidence: evidence,
+		EvidenceDigest: hex.EncodeToString(digest[:]),
 		ObservedAt: now,
 	}
 	if outcome != OutcomeAbsentUncertain {
@@ -131,6 +136,10 @@ func TestReconcileRequiresShapeConsistentEvidence(t *testing.T) {
 		{"wrong provider", func(o *Observation) { o.ProviderID = "provider.other" }},
 		{"bad evidence digest", func(o *Observation) { o.EvidenceDigest = "not-a-sha256" }},
 		{"missing observed time", func(o *Observation) { o.ObservedAt = time.Time{} }},
+		{"missing raw evidence", func(o *Observation) { o.Evidence = nil }},
+		{"evidence digest mismatch", func(o *Observation) { o.EvidenceDigest = strings.Repeat("d", 64) }},
+		{"found receipt says no effect", func(o *Observation) { o.Receipt.Effect = EffectNotApplied }},
+		{"failed receipt says effect applied", func(o *Observation) { o.Outcome = OutcomeFailedConfirmed; o.Receipt.Effect = EffectApplied }},
 		{"found without receipt", func(o *Observation) { o.Receipt = nil }},
 		{"failed without receipt", func(o *Observation) { o.Outcome = OutcomeFailedConfirmed; o.Receipt = nil }},
 		{"absent with receipt", func(o *Observation) { o.Outcome = OutcomeAbsentUncertain }},
@@ -207,5 +216,24 @@ func TestReconcileRejectsInvalidAttemptAndMissingDependencies(t *testing.T) {
 	attempt.ActionHash = "bad"
 	if _, err := Reconcile(context.Background(), attempt, inspector, verifier); !errors.Is(err, ErrInvalidAttempt) {
 		t.Fatalf("invalid attempt must be rejected: %v", err)
+	}
+}
+
+func TestReconcileHonorsCancellationDuringEvidenceVerification(t *testing.T) {
+	attempt := reconciliationAttempt()
+	ctx, cancel := context.WithCancel(context.Background())
+	observation := reconciliationObservation(attempt, OutcomeFound)
+	_, err := Reconcile(ctx, attempt,
+		inspectorFunc(func(context.Context, Attempt) (Observation, error) { return observation, nil }),
+		verifierFunc(func(context.Context, Attempt, Observation) error {
+			cancel()
+			return context.Canceled
+		}),
+	)
+	if !errors.Is(err, ErrUnavailable) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled evidence verification must be unavailable, not rejected: %v", err)
+	}
+	if errors.Is(err, ErrEvidenceRejected) {
+		t.Fatalf("context cancellation was misclassified as invalid evidence: %v", err)
 	}
 }
