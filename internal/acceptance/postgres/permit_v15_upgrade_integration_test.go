@@ -152,7 +152,7 @@ func TestCanonicalV15UpgradesAuthenticV14Unknown(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantChecksum := fmt.Sprintf("%x", sha256.Sum256([]byte(permitUnknownCausalSchema)))
-	if versions != 17 || checksum != wantChecksum || !installed {
+	if versions != 18 || checksum != wantChecksum || !installed {
 		t.Fatalf("v15 migration evidence invalid: versions=%d checksum=%s installed=%t",
 			versions, checksum, installed)
 	}
