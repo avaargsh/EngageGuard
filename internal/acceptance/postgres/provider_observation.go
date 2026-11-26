@@ -15,22 +15,22 @@ import (
 
 var (
 	ErrProviderObservationAttemptNotFound = errors.New("Guard provider observation Attempt not found")
-	ErrProviderObservationNotUnknown       = errors.New("Guard provider observation requires durable UNKNOWN")
+	ErrProviderObservationNotUnknown      = errors.New("Guard provider observation requires durable UNKNOWN")
 	ErrProviderObservationConflict        = errors.New("conflicting provider observation for Guard Attempt")
 	ErrProviderObservationCorrupt         = errors.New("durable provider observation evidence is corrupt")
-	ErrProviderVerifierIdentity            = errors.New("identified provider evidence verifier required")
+	ErrProviderVerifierIdentity           = errors.New("identified provider evidence verifier required")
 )
 
 // ProviderObservationRecord is immutable evidence already authenticated by
 // VerifierID. Persisting it does not transition UNKNOWN or grant a retry.
 type ProviderObservationRecord struct {
-	ObservationID string
-	Attempt       provider.Attempt
-	Resolution    provider.Resolution
-	Observation   provider.Observation
+	ObservationID  string
+	Attempt        provider.Attempt
+	Resolution     provider.Resolution
+	Observation    provider.Observation
 	EvidenceDigest string
-	VerifierID    string
-	RecordedAt    time.Time
+	VerifierID     string
+	RecordedAt     time.Time
 }
 
 // ReconcileProvider checks the exact durable UNKNOWN Attempt before contacting
@@ -213,13 +213,13 @@ func (s *Store) persistProviderObservation(
 	}
 
 	record := ProviderObservationRecord{
-		ObservationID: observationID,
-		Attempt: attempt,
-		Resolution: verified.Resolution,
-		Observation: cloneProviderObservation(observation),
+		ObservationID:  observationID,
+		Attempt:        attempt,
+		Resolution:     verified.Resolution,
+		Observation:    cloneProviderObservation(observation),
 		EvidenceDigest: observation.EvidenceDigest,
-		VerifierID: verifierID,
-		RecordedAt: recordedAt,
+		VerifierID:     verifierID,
+		RecordedAt:     recordedAt,
 	}
 	if err := tx.Commit(); err != nil {
 		return zero, fmt.Errorf("%w: commit verified provider observation: %w", ErrPreEffectUnavailable, err)
@@ -260,16 +260,16 @@ func readProviderObservationByDigest(
 			return ProviderObservationRecord{}, ErrProviderObservationCorrupt
 		}
 		record.Observation.Receipt = &provider.Receipt{
-			ProviderID: record.Attempt.ProviderID,
-			ReceiptID: receiptID.String,
-			TenantID: tenantID,
-			OperationID: record.Attempt.OperationID,
-			AttemptID: record.Attempt.AttemptID,
+			ProviderID:     record.Attempt.ProviderID,
+			ReceiptID:      receiptID.String,
+			TenantID:       tenantID,
+			OperationID:    record.Attempt.OperationID,
+			AttemptID:      record.Attempt.AttemptID,
 			IdempotencyKey: record.Attempt.IdempotencyKey,
-			ActionHash: record.Attempt.ActionHash,
-			Effect: provider.Effect(effect.String),
+			ActionHash:     record.Attempt.ActionHash,
+			Effect:         provider.Effect(effect.String),
 			EvidenceDigest: record.Observation.EvidenceDigest,
-			ObservedAt: record.Observation.ObservedAt,
+			ObservedAt:     record.Observation.ObservedAt,
 		}
 	} else if effect.Valid {
 		return ProviderObservationRecord{}, ErrProviderObservationCorrupt
@@ -418,9 +418,9 @@ func (s *Store) ListProviderObservations(
 				ProviderID: record.Attempt.ProviderID, ReceiptID: receiptID.String,
 				TenantID: tenantID, OperationID: operationID, AttemptID: attemptID,
 				IdempotencyKey: record.Attempt.IdempotencyKey, ActionHash: record.Attempt.ActionHash,
-				Effect: provider.Effect(effect.String),
+				Effect:         provider.Effect(effect.String),
 				EvidenceDigest: record.Observation.EvidenceDigest,
-				ObservedAt: record.Observation.ObservedAt,
+				ObservedAt:     record.Observation.ObservedAt,
 			}
 		} else if effect.Valid {
 			return nil, ErrProviderObservationCorrupt
