@@ -244,7 +244,7 @@ func readProviderObservationByDigest(
 		&record.ObservationID, &record.Attempt.OperationID, &record.Attempt.PermitID,
 		&record.Attempt.AttemptID, &record.Attempt.ProviderID, &record.Attempt.IdempotencyKey,
 		&record.Attempt.ActionHash, &outcome, &receiptID, &effect,
-		&record.Observation.EvidenceDigest, &evidence, &record.VerifierID,
+		&record.EvidenceDigest, &evidence, &record.VerifierID,
 		&record.Observation.ObservedAt, &record.RecordedAt,
 	)
 	if err != nil {
@@ -362,7 +362,7 @@ func (s *Store) ListProviderObservations(
 			&record.ObservationID, &record.Attempt.OperationID, &record.Attempt.PermitID,
 			&record.Attempt.AttemptID, &record.Attempt.ProviderID, &record.Attempt.IdempotencyKey,
 			&record.Attempt.ActionHash, &outcome, &receiptID, &effect,
-			&record.Observation.EvidenceDigest, &evidence, &record.VerifierID,
+			&record.EvidenceDigest, &evidence, &record.VerifierID,
 			&record.Observation.ObservedAt, &record.RecordedAt,
 		); err != nil {
 			return nil, fmt.Errorf("%w: scan provider observation: %w", ErrPreEffectUnavailable, err)
