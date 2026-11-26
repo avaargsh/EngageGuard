@@ -52,6 +52,7 @@ type Attempt struct {
 	ProviderID     string
 	TenantID       string
 	OperationID    string
+	PermitID       string
 	AttemptID      string
 	IdempotencyKey string
 	ActionHash     string
@@ -83,6 +84,13 @@ type Observation struct {
 	Receipt        *Receipt
 }
 
+// VerifiedResult is returned only after structural validation and the
+// configured EvidenceVerifier both accept the exact provider evidence.
+type VerifiedResult struct {
+	Resolution  Resolution
+	Observation Observation
+}
+
 // Inspector is deliberately read-only. This package exposes no dispatch method.
 type Inspector interface {
 	Inspect(context.Context, Attempt) (Observation, error)
@@ -93,6 +101,14 @@ type Inspector interface {
 // by independently configured provider trust, not caller-supplied assertions.
 type EvidenceVerifier interface {
 	Verify(context.Context, Attempt, Observation) error
+}
+
+// IdentifiedEvidenceVerifier supplies the stable trust-policy identifier
+// recorded alongside durable evidence. Production IDs should include the
+// provider, verifier version, and pinned trust-set revision.
+type IdentifiedEvidenceVerifier interface {
+	EvidenceVerifier
+	VerifierID() string
 }
 
 func missingDependency(value any) bool {
@@ -148,6 +164,7 @@ func validateAttempt(attempt Attempt) error {
 	if !validToken(attempt.ProviderID, 256) ||
 		!validToken(attempt.TenantID, 128) ||
 		!validUUID(attempt.OperationID) ||
+		!validUUID(attempt.PermitID) ||
 		!validUUID(attempt.AttemptID) ||
 		!validToken(attempt.IdempotencyKey, 256) ||
 		!validSHA256(attempt.ActionHash) {
@@ -206,61 +223,84 @@ func validateObservation(attempt Attempt, observation Observation) error {
 
 // Reconcile performs read-only provider inspection and evidence verification.
 // It never dispatches, retries, claims a Permit, or mutates the Guard ledger.
-// Callers must persist the returned resolution through a separately reviewed
-// reconciliation workflow. Any absence without provider proof remains UNKNOWN.
+// Any absence without provider proof remains UNKNOWN.
 func Reconcile(
 	ctx context.Context,
 	attempt Attempt,
 	inspector Inspector,
 	verifier EvidenceVerifier,
 ) (Resolution, error) {
+	result, err := ReconcileVerified(ctx, attempt, inspector, verifier)
+	if err != nil {
+		return "", err
+	}
+	return result.Resolution, nil
+}
+
+// ReconcileVerified returns a detached copy of the exact bytes and receipt
+// fields that passed verification. The returned observation does not share
+// mutable slices or pointers with the provider adapter or verifier.
+func ReconcileVerified(
+	ctx context.Context,
+	attempt Attempt,
+	inspector Inspector,
+	verifier EvidenceVerifier,
+) (VerifiedResult, error) {
 	if ctx == nil || missingDependency(inspector) || missingDependency(verifier) {
-		return "", ErrUnavailable
+		return VerifiedResult{}, ErrUnavailable
 	}
 	if err := ctx.Err(); err != nil {
-		return "", fmt.Errorf("%w: context: %w", ErrUnavailable, err)
+		return VerifiedResult{}, fmt.Errorf("%w: context: %w", ErrUnavailable, err)
 	}
 	if err := validateAttempt(attempt); err != nil {
-		return "", err
+		return VerifiedResult{}, err
 	}
 
 	observation, err := inspector.Inspect(ctx, attempt)
 	if err != nil {
-		return "", fmt.Errorf("%w: inspect provider attempt: %w", ErrUnavailable, err)
+		return VerifiedResult{}, fmt.Errorf("%w: inspect provider attempt: %w", ErrUnavailable, err)
 	}
 	if err := ctx.Err(); err != nil {
-		return "", fmt.Errorf("%w: context after provider inspection: %w", ErrUnavailable, err)
+		return VerifiedResult{}, fmt.Errorf("%w: context after provider inspection: %w", ErrUnavailable, err)
 	}
+	// Freeze provider-owned mutable data before validating or sharing it.
+	observation = cloneObservation(observation)
 	if err := validateObservation(attempt, observation); err != nil {
-		return "", err
+		return VerifiedResult{}, err
 	}
-	// Isolate the verifier from any backing arrays or pointers retained by the
-	// provider adapter. Verification always receives the exact bytes whose
-	// digest was checked above.
+	// The verifier receives a second detached copy. Its implementation cannot
+	// mutate the exact observation that will be returned for persistence.
+	verifyObservation := cloneObservation(observation)
+	if err := verifier.Verify(ctx, attempt, verifyObservation); err != nil {
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) ||
+			errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrUnavailable) {
+			return VerifiedResult{}, fmt.Errorf("%w: evidence verification: %w", ErrUnavailable, err)
+		}
+		return VerifiedResult{}, fmt.Errorf("%w: %w", ErrEvidenceRejected, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return VerifiedResult{}, fmt.Errorf("%w: context after evidence verification: %w", ErrUnavailable, err)
+	}
+
+	var resolution Resolution
+	switch observation.Outcome {
+	case OutcomeFound:
+		resolution = ResolutionEffectObserved
+	case OutcomeAbsentUncertain:
+		resolution = ResolutionRemainUnknown
+	case OutcomeFailedConfirmed:
+		resolution = ResolutionNoEffectConfirmed
+	default:
+		return VerifiedResult{}, ErrInvalidObservation
+	}
+	return VerifiedResult{Resolution: resolution, Observation: observation}, nil
+}
+
+func cloneObservation(observation Observation) Observation {
 	observation.Evidence = append([]byte(nil), observation.Evidence...)
 	if observation.Receipt != nil {
 		receipt := *observation.Receipt
 		observation.Receipt = &receipt
 	}
-	if err := verifier.Verify(ctx, attempt, observation); err != nil {
-		if ctx.Err() != nil || errors.Is(err, context.Canceled) ||
-			errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrUnavailable) {
-			return "", fmt.Errorf("%w: evidence verification: %w", ErrUnavailable, err)
-		}
-		return "", fmt.Errorf("%w: %w", ErrEvidenceRejected, err)
-	}
-	if err := ctx.Err(); err != nil {
-		return "", fmt.Errorf("%w: context after evidence verification: %w", ErrUnavailable, err)
-	}
-
-	switch observation.Outcome {
-	case OutcomeFound:
-		return ResolutionEffectObserved, nil
-	case OutcomeAbsentUncertain:
-		return ResolutionRemainUnknown, nil
-	case OutcomeFailedConfirmed:
-		return ResolutionNoEffectConfirmed, nil
-	default:
-		return "", ErrInvalidObservation
-	}
+	return observation
 }
