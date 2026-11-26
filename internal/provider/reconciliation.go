@@ -168,10 +168,10 @@ func ValidateAttempt(attempt Attempt) error { return validateAttempt(attempt) }
 // providers, tenants, Permits, Operations, Attempts, or ActionHashes.
 func ExpectedIdempotencyKey(attempt Attempt) string {
 	sum := sha256.Sum256([]byte(
-		"engageguard/provider-idempotency/v1\\x00" +
-			attempt.ProviderID + "\\x00" + attempt.TenantID + "\\x00" +
-			attempt.OperationID + "\\x00" + attempt.PermitID + "\\x00" +
-			attempt.AttemptID + "\\x00" + attempt.ActionHash,
+		"engageguard/provider-idempotency/v1\x00" +
+			attempt.ProviderID + "\x00" + attempt.TenantID + "\x00" +
+			attempt.OperationID + "\x00" + attempt.PermitID + "\x00" +
+			attempt.AttemptID + "\x00" + attempt.ActionHash,
 	))
 	return "eg1_" + hex.EncodeToString(sum[:])
 }
