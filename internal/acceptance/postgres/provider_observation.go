@@ -275,7 +275,9 @@ func readProviderObservationByDigest(
 		return ProviderObservationRecord{}, ErrProviderObservationCorrupt
 	}
 	digestBytes := sha256.Sum256(record.Observation.Evidence)
-	if hex.EncodeToString(digestBytes[:]) != record.Observation.EvidenceDigest {
+	if hex.EncodeToString(digestBytes[:]) != record.Observation.EvidenceDigest ||
+		provider.ValidateAttempt(record.Attempt) != nil ||
+		provider.ValidateObservation(record.Attempt, record.Observation) != nil {
 		return ProviderObservationRecord{}, ErrProviderObservationCorrupt
 	}
 	switch record.Observation.Outcome {
@@ -426,7 +428,9 @@ func (s *Store) ListProviderObservations(
 			return nil, ErrProviderObservationCorrupt
 		}
 		sum := sha256.Sum256(record.Observation.Evidence)
-		if hex.EncodeToString(sum[:]) != record.Observation.EvidenceDigest {
+		if hex.EncodeToString(sum[:]) != record.Observation.EvidenceDigest ||
+			provider.ValidateAttempt(record.Attempt) != nil ||
+			provider.ValidateObservation(record.Attempt, record.Observation) != nil {
 			return nil, ErrProviderObservationCorrupt
 		}
 		switch record.Observation.Outcome {
