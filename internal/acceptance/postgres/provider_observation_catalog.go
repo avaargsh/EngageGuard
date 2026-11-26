@@ -38,8 +38,6 @@ func verifyProviderObservationCatalog(ctx context.Context, tx *sql.Tx) error {
 		{"idempotency_key", "text"},
 		{"action_hash", "text"},
 		{"outcome", "text"},
-		{"receipt_id", "text"},
-		{"effect", "text"},
 		{"evidence_digest", "text"},
 		{"evidence_bytes", "bytea"},
 		{"verifier_id", "text"},
@@ -58,6 +56,27 @@ func verifyProviderObservationCatalog(ctx context.Context, tx *sql.Tx) error {
 			)
 		`, column.name, column.typ).Scan(&intact); err != nil || !intact {
 			return fmt.Errorf("%w: v18 provider observation column %s drift: %v", ErrSchemaDrift, column.name, err)
+		}
+	}
+
+	for _, column := range []struct {
+		name string
+		typ  string
+	}{
+		{"receipt_id", "text"},
+		{"effect", "text"},
+	} {
+		var intact bool
+		if err := tx.QueryRowContext(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_catalog.pg_attribute a
+				WHERE a.attrelid=pg_catalog.to_regclass('guard_provider_observations')
+				  AND a.attname=$1
+				  AND a.atttypid=pg_catalog.to_regtype($2)
+				  AND NOT a.attnotnull AND NOT a.attisdropped
+			)
+		`, column.name, column.typ).Scan(&intact); err != nil || !intact {
+			return fmt.Errorf("%w: v18 nullable provider observation column %s drift: %v", ErrSchemaDrift, column.name, err)
 		}
 	}
 
