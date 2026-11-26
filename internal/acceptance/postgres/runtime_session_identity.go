@@ -54,7 +54,8 @@ func (s *Store) beginLedgerTx(ctx context.Context, permit bool) (*sql.Tx, error)
 				('guard_operation_intents',true),
 				('guard_execution_audit',true),
 				('guard_operation_unknown_events',true),
-				('guard_permit_revocations',true)
+				('guard_permit_revocations',true),
+				('guard_provider_observations',true)
 			) AS r(name,permit_only)
 			LEFT JOIN pg_catalog.pg_class c ON c.oid=pg_catalog.to_regclass(
 				pg_catalog.format('%I.%I',pg_catalog.current_schema(),r.name))
