@@ -140,6 +140,19 @@ func TestReconcileProviderRequiresCommittedUnknownBeforeProviderCall(t *testing.
 		AttemptID: intent.AttemptID, ActionHash: intent.ActionHash,
 	}
 	attempt.IdempotencyKey = provider.ExpectedIdempotencyKey(attempt)
+	absent := providerObservationFor(attempt, provider.OutcomeAbsentUncertain, "premature provider lookup")
+	if _, insertErr := store.db.ExecContext(context.Background(), `
+		INSERT INTO guard_provider_observations
+		    (tenant_id,operation_id,permit_id,attempt_id,provider_id,idempotency_key,
+		     action_hash,outcome,receipt_id,effect,evidence_digest,evidence_bytes,
+		     verifier_id,observed_at)
+		VALUES ($1,$2::uuid,$3::uuid,$4::uuid,$5,$6,$7,$8,NULL,NULL,$9,$10,$11,$12)
+	`, attempt.TenantID, attempt.OperationID, attempt.PermitID, attempt.AttemptID,
+		attempt.ProviderID, attempt.IdempotencyKey, attempt.ActionHash,
+		string(absent.Outcome), absent.EvidenceDigest, absent.Evidence,
+		"test-receipt-verifier/v1", absent.ObservedAt); insertErr == nil {
+		t.Fatal("database trigger accepted provider evidence before a committed UNKNOWN journal")
+	}
 	calls := 0
 	_, err = store.ReconcileProvider(context.Background(), attempt,
 		providerInspectorFunc(func(context.Context, provider.Attempt) (provider.Observation, error) {
