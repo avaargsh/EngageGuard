@@ -28,6 +28,7 @@ type ProviderObservationRecord struct {
 	Attempt       provider.Attempt
 	Resolution    provider.Resolution
 	Observation   provider.Observation
+	EvidenceDigest string
 	VerifierID    string
 	RecordedAt    time.Time
 }
@@ -216,6 +217,7 @@ func (s *Store) persistProviderObservation(
 		Attempt: attempt,
 		Resolution: verified.Resolution,
 		Observation: cloneProviderObservation(observation),
+		EvidenceDigest: observation.EvidenceDigest,
 		VerifierID: verifierID,
 		RecordedAt: recordedAt,
 	}
@@ -249,6 +251,7 @@ func readProviderObservationByDigest(
 		return ProviderObservationRecord{}, err
 	}
 	record.Attempt.TenantID = tenantID
+	record.Observation.EvidenceDigest = record.EvidenceDigest
 	record.Observation.Outcome = provider.Outcome(outcome)
 	record.Observation.ProviderID = record.Attempt.ProviderID
 	record.Observation.Evidence = append([]byte(nil), evidence...)
@@ -365,6 +368,7 @@ func (s *Store) ListProviderObservations(
 			return nil, fmt.Errorf("%w: scan provider observation: %w", ErrPreEffectUnavailable, err)
 		}
 		record.Attempt.TenantID = tenantID
+		record.Observation.EvidenceDigest = record.EvidenceDigest
 		record.Observation.Outcome = provider.Outcome(outcome)
 		record.Observation.ProviderID = record.Attempt.ProviderID
 		record.Observation.Evidence = append([]byte(nil), evidence...)
