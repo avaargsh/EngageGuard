@@ -156,17 +156,18 @@ func verifyProviderObservationCatalog(ctx context.Context, tx *sql.Tx) error {
 		name       string
 		expression string
 	}{
-		{"guard_provider_observations_provider_id_check", "((length(provider_id) >= 1) AND (length(provider_id) <= 256) AND ((provider_id COLLATE \"C\") ~ '^[!-~]+
-		{"guard_provider_observations_idempotency_key_check", "((length(idempotency_key) >= 1) AND (length(idempotency_key) <= 256) AND ((idempotency_key COLLATE \"C\") ~ '^[!-~]+
+		{"guard_provider_observations_provider_id_check", "((length(provider_id) >= 1) AND (length(provider_id) <= 256) AND ((provider_id COLLATE \"C\") ~ '^[!-~]+$'::text))"},
+		{"guard_provider_observations_idempotency_key_check", "((length(idempotency_key) >= 1) AND (length(idempotency_key) <= 256) AND ((idempotency_key COLLATE \"C\") ~ '^[!-~]+$'::text))"},
 		{"guard_provider_observations_action_hash_check", "(action_hash ~ '^[0-9a-f]{64}$'::text)"},
 		{"guard_provider_observations_outcome_check", "(outcome = ANY (ARRAY['FOUND'::text, 'ABSENT_UNCERTAIN'::text, 'FAILED_CONFIRMED'::text]))"},
 		{"guard_provider_observations_evidence_digest_check", "(evidence_digest ~ '^[0-9a-f]{64}$'::text)"},
 		{"guard_provider_observations_evidence_bytes_check", "((octet_length(evidence_bytes) >= 1) AND (octet_length(evidence_bytes) <= 262144))"},
-		{"guard_provider_observations_verifier_id_check", "((length(verifier_id) >= 1) AND (length(verifier_id) <= 512) AND ((verifier_id COLLATE \"C\") ~ '^[!-~]+
+		{"guard_provider_observations_verifier_id_check", "((length(verifier_id) >= 1) AND (length(verifier_id) <= 512) AND ((verifier_id COLLATE \"C\") ~ '^[!-~]+$'::text))"},
 		{"guard_provider_observations_observed_at_check", "((observed_at > '-infinity'::timestamp with time zone) AND (observed_at < 'infinity'::timestamp with time zone))"},
-		{"guard_provider_observation_receipt_id_check", "((receipt_id IS NULL) OR (((length(receipt_id) >= 1) AND (length(receipt_id) <= 256)) AND ((receipt_id COLLATE \"C\") ~ '^[!-~]+
+		{"guard_provider_observation_receipt_id_check", "((receipt_id IS NULL) OR (((length(receipt_id) >= 1) AND (length(receipt_id) <= 256)) AND ((receipt_id COLLATE \"C\") ~ '^[!-~]+$'::text)))"},
 		{"guard_provider_observation_outcome_shape_check", "(((outcome = 'FOUND'::text) AND (receipt_id IS NOT NULL) AND (effect = 'APPLIED'::text)) OR ((outcome = 'FAILED_CONFIRMED'::text) AND (receipt_id IS NOT NULL) AND (effect = 'NOT_APPLIED'::text)) OR ((outcome = 'ABSENT_UNCERTAIN'::text) AND (receipt_id IS NULL) AND (effect IS NULL)))"},
 	}
+
 	for _, check := range checks {
 		var expression string
 		err := tx.QueryRowContext(ctx, `
