@@ -50,10 +50,9 @@ func (s *Store) ReconcileProvider(
 		return zero, err
 	}
 	identified, ok := verifier.(provider.IdentifiedEvidenceVerifier)
-	if !ok || !validPermitEvidence(identified.VerifierID()) {
+	if !ok {
 		return zero, ErrProviderVerifierIdentity
 	}
-	verifierID := identified.VerifierID()
 
 	// Do not make a provider call for a fabricated, foreign, or not-yet-UNKNOWN
 	// Attempt. The network call happens outside a DB transaction.
@@ -64,6 +63,12 @@ func (s *Store) ReconcileProvider(
 	verified, err := provider.ReconcileVerified(ctx, attempt, inspector, verifier)
 	if err != nil {
 		return zero, err
+	}
+	// Read the verifier identity only after ReconcileVerified has rejected nil
+	// typed dependencies and completed verification.
+	verifierID := identified.VerifierID()
+	if !validPermitEvidence(verifierID) {
+		return zero, ErrProviderVerifierIdentity
 	}
 	if err := ctx.Err(); err != nil {
 		return zero, fmt.Errorf("%w: context before durable provider evidence: %w", ErrPreEffectUnavailable, err)
