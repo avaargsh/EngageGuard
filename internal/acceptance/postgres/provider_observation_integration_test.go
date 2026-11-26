@@ -69,15 +69,16 @@ func prepareUnknownProviderAttempt(t *testing.T) (*Store, provider.Attempt) {
 	if _, err := store.MarkDispatchUnknown(ctx, resolved.TenantID, resolved.OperationID, intent.AttemptID, "ACK_LOST"); err != nil {
 		t.Fatal(err)
 	}
-	return store, provider.Attempt{
-		ProviderID:     "provider.test.v1",
-		TenantID:       resolved.TenantID,
-		OperationID:    resolved.OperationID,
-		PermitID:       permitID,
-		AttemptID:      intent.AttemptID,
-		IdempotencyKey: "engageguard/" + resolved.OperationID + "/" + intent.AttemptID,
-		ActionHash:     intent.ActionHash,
+	attempt := provider.Attempt{
+		ProviderID:  "provider.test.v1",
+		TenantID:    resolved.TenantID,
+		OperationID: resolved.OperationID,
+		PermitID:    permitID,
+		AttemptID:   intent.AttemptID,
+		ActionHash:  intent.ActionHash,
 	}
+	attempt.IdempotencyKey = provider.ExpectedIdempotencyKey(attempt)
+	return store, attempt
 }
 
 func TestReconcileProviderPersistsVerifiedObservationAcrossStoreRecreation(t *testing.T) {
@@ -136,8 +137,9 @@ func TestReconcileProviderRequiresCommittedUnknownBeforeProviderCall(t *testing.
 	attempt := provider.Attempt{
 		ProviderID: "provider.test.v1", TenantID: resolved.TenantID,
 		OperationID: resolved.OperationID, PermitID: permitID,
-		AttemptID: intent.AttemptID, IdempotencyKey: "key-1", ActionHash: intent.ActionHash,
+		AttemptID: intent.AttemptID, ActionHash: intent.ActionHash,
 	}
+	attempt.IdempotencyKey = provider.ExpectedIdempotencyKey(attempt)
 	calls := 0
 	_, err = store.ReconcileProvider(context.Background(), attempt,
 		providerInspectorFunc(func(context.Context, provider.Attempt) (provider.Observation, error) {
