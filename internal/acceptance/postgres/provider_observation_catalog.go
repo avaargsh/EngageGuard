@@ -273,8 +273,13 @@ func verifyProviderObservationCatalog(ctx context.Context, tx *sql.Tx) error {
 			  ON u.tenant_id=i.tenant_id AND u.operation_id=i.operation_id
 			 AND u.permit_id=i.permit_id AND u.attempt_id=i.attempt_id
 			 AND u.action_hash=i.action_hash
+			LEFT JOIN guard_execution_audit a
+			  ON a.tenant_id=i.tenant_id AND a.operation_id=i.operation_id
+			 AND a.permit_id=i.permit_id AND a.attempt_id=i.attempt_id
+			 AND a.action_hash=i.action_hash
+			 AND a.event_type='guard.operation.dispatching.v1'
 			WHERE i.attempt_id IS NULL OR i.state <> 'UNKNOWN'
-			   OR p.state <> 'CLAIMED' OR u.attempt_id IS NULL
+			   OR p.state <> 'CLAIMED' OR u.attempt_id IS NULL OR a.attempt_id IS NULL
 		)
 	`).Scan(&dataConsistent); err != nil || !dataConsistent {
 		return fmt.Errorf("%w: v18 provider observation rows are not bound to durable UNKNOWN attempts: %v", ErrSchemaDrift, err)
