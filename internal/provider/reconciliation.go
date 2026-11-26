@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -76,6 +77,7 @@ type Receipt struct {
 type Observation struct {
 	Outcome        Outcome
 	ProviderID     string
+	Evidence       []byte
 	EvidenceDigest string
 	ObservedAt     time.Time
 	Receipt        *Receipt
@@ -154,11 +156,18 @@ func validateAttempt(attempt Attempt) error {
 	return nil
 }
 
+const maxProviderEvidenceBytes = 256 * 1024
+
 func validateObservation(attempt Attempt, observation Observation) error {
 	if observation.ProviderID != attempt.ProviderID ||
 		!validToken(observation.ProviderID, 256) ||
+		len(observation.Evidence) == 0 || len(observation.Evidence) > maxProviderEvidenceBytes ||
 		!validSHA256(observation.EvidenceDigest) ||
 		observation.ObservedAt.IsZero() {
+		return ErrInvalidObservation
+	}
+	digest := sha256.Sum256(observation.Evidence)
+	if hex.EncodeToString(digest[:]) != observation.EvidenceDigest {
 		return ErrInvalidObservation
 	}
 
@@ -225,7 +234,19 @@ func Reconcile(
 	if err := validateObservation(attempt, observation); err != nil {
 		return "", err
 	}
+	// Isolate the verifier from any backing arrays or pointers retained by the
+	// provider adapter. Verification always receives the exact bytes whose
+	// digest was checked above.
+	observation.Evidence = append([]byte(nil), observation.Evidence...)
+	if observation.Receipt != nil {
+		receipt := *observation.Receipt
+		observation.Receipt = &receipt
+	}
 	if err := verifier.Verify(ctx, attempt, observation); err != nil {
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) ||
+			errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrUnavailable) {
+			return "", fmt.Errorf("%w: evidence verification: %w", ErrUnavailable, err)
+		}
 		return "", fmt.Errorf("%w: %w", ErrEvidenceRejected, err)
 	}
 	if err := ctx.Err(); err != nil {
