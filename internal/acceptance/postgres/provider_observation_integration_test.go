@@ -70,11 +70,13 @@ func prepareUnknownProviderAttempt(t *testing.T) (*Store, provider.Attempt) {
 		t.Fatal(err)
 	}
 	return store, provider.Attempt{
-		ProviderID: "provider.test.v1", TenantID: resolved.TenantID,
-		OperationID: resolved.OperationID, PermitID: permitID,
-		AttemptID: intent.AttemptID,
+		ProviderID:     "provider.test.v1",
+		TenantID:       resolved.TenantID,
+		OperationID:    resolved.OperationID,
+		PermitID:       permitID,
+		AttemptID:      intent.AttemptID,
 		IdempotencyKey: "engageguard/" + resolved.OperationID + "/" + intent.AttemptID,
-		ActionHash: intent.ActionHash,
+		ActionHash:     intent.ActionHash,
 	}
 }
 
