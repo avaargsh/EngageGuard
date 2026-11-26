@@ -27,6 +27,7 @@ func reconciliationAttempt() Attempt {
 		ProviderID:     "provider.workspace.v1",
 		TenantID:       "tenant-a",
 		OperationID:    "11111111-1111-4111-8111-111111111111",
+		PermitID:       "33333333-3333-4333-8333-333333333333",
 		AttemptID:      "22222222-2222-4222-8222-222222222222",
 		IdempotencyKey: "engageguard/op-1/attempt-1",
 		ActionHash:     strings.Repeat("a", 64),
@@ -253,5 +254,29 @@ func TestReconcileHonorsCancellationDuringEvidenceVerification(t *testing.T) {
 	}
 	if errors.Is(err, ErrEvidenceRejected) {
 		t.Fatalf("context cancellation was misclassified as invalid evidence: %v", err)
+	}
+}
+
+func TestReconcileVerifiedReturnsDetachedEvidenceAfterVerifier(t *testing.T) {
+	attempt := reconciliationAttempt()
+	original := reconciliationObservation(attempt, OutcomeFound)
+	result, err := ReconcileVerified(context.Background(), attempt,
+		inspectorFunc(func(context.Context, Attempt) (Observation, error) { return original, nil }),
+		verifierFunc(func(_ context.Context, _ Attempt, observation Observation) error {
+			observation.Evidence[0] = 'X'
+			observation.Receipt.ReceiptID = "mutated-by-verifier"
+			return nil
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(result.Observation.Evidence) != string(original.Evidence) ||
+		result.Observation.Receipt.ReceiptID != "receipt-123" {
+		t.Fatalf("verifier mutated returned persistence evidence: %+v", result.Observation)
+	}
+	result.Observation.Evidence[0] = 'Y'
+	if string(original.Evidence) == string(result.Observation.Evidence) {
+		t.Fatal("verified result shares mutable evidence with provider adapter")
 	}
 }
