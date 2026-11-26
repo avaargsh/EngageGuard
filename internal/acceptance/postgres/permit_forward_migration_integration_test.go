@@ -16,7 +16,7 @@ func TestForwardPermitLedgerPreservesAdmissionMigrationHistory(t *testing.T) {
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	for version, source := range []string{initialSchema, snapshotSchema, snapshotReplicaSchema, permitClaimSchema, permitIdentitySchema, permitUnknownSchema, permitRevocationSchema, permitEvidenceFenceSchema, permitIdentityFenceSchema, permitCausalCommitSchema, permitCausalPinnedSchema, permitExpiryFenceSchema, permitInitialStateSchema, permitRevocationCausalSchema, permitUnknownCausalSchema, permitAuthorityEvidenceSchema, permitActionRequestEvidenceSchema} {
+	for version, source := range []string{initialSchema, snapshotSchema, snapshotReplicaSchema, permitClaimSchema, permitIdentitySchema, permitUnknownSchema, permitRevocationSchema, permitEvidenceFenceSchema, permitIdentityFenceSchema, permitCausalCommitSchema, permitCausalPinnedSchema, permitExpiryFenceSchema, permitInitialStateSchema, permitRevocationCausalSchema, permitUnknownCausalSchema, permitAuthorityEvidenceSchema, permitActionRequestEvidenceSchema, providerObservationSchema} {
 		var actual string
 		if err := db.QueryRowContext(ctx, "SELECT checksum FROM guard_schema_migrations WHERE version=$1", version+1).Scan(&actual); err != nil {
 			t.Fatal(err)
@@ -26,14 +26,14 @@ func TestForwardPermitLedgerPreservesAdmissionMigrationHistory(t *testing.T) {
 		}
 	}
 	var versions int
-	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM guard_schema_migrations").Scan(&versions); err != nil || versions != 17 {
-		t.Fatalf("Permit migration must append v4-v17: count=%d %v", versions, err)
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM guard_schema_migrations").Scan(&versions); err != nil || versions != 18 {
+		t.Fatalf("Provider observation migration must append v18: count=%d %v", versions, err)
 	}
 	for _, table := range []string{
 		"guard_accepted_submission_snapshots",
 		"guard_permits", "guard_operation_intents", "guard_execution_audit",
 		"guard_operation_unknown_events", "guard_permit_revocations",
-		"guard_permit_authority_evidence",
+		"guard_permit_authority_evidence", "guard_provider_observations",
 	} {
 		var exists bool
 		if err := db.QueryRowContext(ctx, "SELECT to_regclass($1) IS NOT NULL", table).Scan(&exists); err != nil || !exists {
