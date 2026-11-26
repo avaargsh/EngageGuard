@@ -70,6 +70,13 @@ BEGIN
      AND u.permit_id=i.permit_id
      AND u.attempt_id=i.attempt_id
      AND u.action_hash=i.action_hash
+    JOIN guard_execution_audit a
+      ON a.tenant_id=i.tenant_id
+     AND a.operation_id=i.operation_id
+     AND a.permit_id=i.permit_id
+     AND a.attempt_id=i.attempt_id
+     AND a.action_hash=i.action_hash
+     AND a.event_type='guard.operation.dispatching.v1'
     WHERE i.tenant_id=NEW.tenant_id
       AND i.operation_id=NEW.operation_id
       AND i.permit_id=NEW.permit_id
