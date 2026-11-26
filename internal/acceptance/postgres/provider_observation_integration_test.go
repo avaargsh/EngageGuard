@@ -2,8 +2,9 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
-	"strings"
 	"sync"
 	"testing"
 	"time"
