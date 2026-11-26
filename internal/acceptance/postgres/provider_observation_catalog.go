@@ -157,7 +157,31 @@ func verifyProviderObservationCatalog(ctx context.Context, tx *sql.Tx) error {
 	}{
 		{"guard_provider_observations_provider_id_check", ""},
 		{"guard_provider_observations_idempotency_key_check", ""},
-		{"guard_provider_observations_action_hash_check", "(action_hash ~ '^[0-9a-f]{64}
+		{"guard_provider_observations_action_hash_check", "(action_hash ~ '^[0-9a-f]{64}$'::text)"},
+		{"guard_provider_observations_outcome_check", "(outcome = ANY (ARRAY['FOUND'::text, 'ABSENT_UNCERTAIN'::text, 'FAILED_CONFIRMED'::text]))"},
+		{"guard_provider_observations_evidence_digest_check", "(evidence_digest ~ '^[0-9a-f]{64}$'::text)"},
+		{"guard_provider_observations_evidence_bytes_check", "((octet_length(evidence_bytes) >= 1) AND (octet_length(evidence_bytes) <= 262144))"},
+		{"guard_provider_observations_verifier_id_check", ""},
+		{"guard_provider_observations_observed_at_check", ""},
+		{"guard_provider_observation_receipt_id_check", ""},
+		{"guard_provider_observation_outcome_shape_check", "(((outcome = 'FOUND'::text) AND (receipt_id IS NOT NULL) AND (effect = 'APPLIED'::text)) OR ((outcome = 'FAILED_CONFIRMED'::text) AND (receipt_id IS NOT NULL) AND (effect = 'NOT_APPLIED'::text)) OR ((outcome = 'ABSENT_UNCERTAIN'::text) AND (receipt_id IS NULL) AND (effect IS NULL)))"},
+	}
+	for _, check := range checks {
+		var expression string
+		err := tx.QueryRowContext(ctx, `
+			SELECT pg_catalog.pg_get_expr(c.conbin,c.conrelid)
+			FROM pg_catalog.pg_constraint c
+			WHERE c.conrelid=pg_catalog.to_regclass('guard_provider_observations')
+			  AND c.conname=$1 AND c.contype='c'
+			  AND c.convalidated AND NOT c.condeferrable AND NOT c.condeferred
+		`, check.name).Scan(&expression)
+		if err != nil {
+			return fmt.Errorf("%w: v18 provider observation check %s missing or invalid: %v", ErrSchemaDrift, check.name, err)
+		}
+		if check.expression != "" && expression != check.expression {
+			return fmt.Errorf("%w: v18 provider observation check %s expression drift: got %q", ErrSchemaDrift, check.name, expression)
+		}
+	}
 
 	var terminalIndex bool
 	if err := tx.QueryRowContext(ctx, `
