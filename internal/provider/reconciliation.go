@@ -163,6 +163,19 @@ func validSHA256(value string) bool {
 // ValidateAttempt checks the immutable identity before any provider call.
 func ValidateAttempt(attempt Attempt) error { return validateAttempt(attempt) }
 
+// ExpectedIdempotencyKey derives a provider key from the immutable attempt
+// identity. It is stable for retries of one Attempt and changes across
+// providers, tenants, Permits, Operations, Attempts, or ActionHashes.
+func ExpectedIdempotencyKey(attempt Attempt) string {
+	sum := sha256.Sum256([]byte(
+		"engageguard/provider-idempotency/v1\\x00" +
+			attempt.ProviderID + "\\x00" + attempt.TenantID + "\\x00" +
+			attempt.OperationID + "\\x00" + attempt.PermitID + "\\x00" +
+			attempt.AttemptID + "\\x00" + attempt.ActionHash,
+	))
+	return "eg1_" + hex.EncodeToString(sum[:])
+}
+
 func validateAttempt(attempt Attempt) error {
 	if !validToken(attempt.ProviderID, 256) ||
 		!validToken(attempt.TenantID, 128) ||
@@ -170,7 +183,8 @@ func validateAttempt(attempt Attempt) error {
 		!validUUID(attempt.PermitID) ||
 		!validUUID(attempt.AttemptID) ||
 		!validToken(attempt.IdempotencyKey, 256) ||
-		!validSHA256(attempt.ActionHash) {
+		!validSHA256(attempt.ActionHash) ||
+		attempt.IdempotencyKey != ExpectedIdempotencyKey(attempt) {
 		return ErrInvalidAttempt
 	}
 	return nil
