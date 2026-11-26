@@ -38,6 +38,10 @@ func reconciliationObservation(attempt Attempt, outcome Outcome) Observation {
 		ObservedAt: now,
 	}
 	if outcome != OutcomeAbsentUncertain {
+		effect := EffectApplied
+		if outcome == OutcomeFailedConfirmed {
+			effect = EffectNotApplied
+		}
 		observation.Receipt = &Receipt{
 			ProviderID: attempt.ProviderID,
 			ReceiptID: "receipt-123",
@@ -46,6 +50,7 @@ func reconciliationObservation(attempt Attempt, outcome Outcome) Observation {
 			AttemptID: attempt.AttemptID,
 			IdempotencyKey: attempt.IdempotencyKey,
 			ActionHash: attempt.ActionHash,
+			Effect: effect,
 			EvidenceDigest: observation.EvidenceDigest,
 			ObservedAt: now,
 		}
