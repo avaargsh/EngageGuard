@@ -29,14 +29,14 @@ func TestMigrationRejectsPermanentChecksumDriftBehindTempLedgerShadow(t *testing
 		t.Fatal(err)
 	}
 	var fakeRows int
-	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM pg_temp.guard_schema_migrations").Scan(&fakeRows); err != nil || fakeRows != 17 {
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM pg_temp.guard_schema_migrations").Scan(&fakeRows); err != nil || fakeRows != 18 {
 		t.Fatalf("temporary migration ledger fixture not populated: rows=%d err=%v", fakeRows, err)
 	}
 
 	var sqlDamage string
 	if err := db.QueryRowContext(ctx, `
 		SELECT pg_catalog.format(
-			'UPDATE %I.guard_schema_migrations SET checksum=$1 WHERE version=17',
+			'UPDATE %I.guard_schema_migrations SET checksum=$1 WHERE version=18',
 			current_schema()
 		)
 	`).Scan(&sqlDamage); err != nil {
@@ -67,7 +67,7 @@ func TestMigrationRejectsSessionTemporaryProtectedLedgerShadows(t *testing.T) {
 	for _, name := range []string{
 		"guard_permits", "guard_operation_intents", "guard_execution_audit",
 		"guard_operation_unknown_events", "guard_permit_revocations",
-		"guard_permit_authority_evidence",
+		"guard_permit_authority_evidence", "guard_provider_observations",
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, db := integrationStore(t)
