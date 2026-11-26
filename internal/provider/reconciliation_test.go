@@ -281,3 +281,27 @@ func TestReconcileVerifiedReturnsDetachedEvidenceAfterVerifier(t *testing.T) {
 		t.Fatal("verified result shares mutable evidence with provider adapter")
 	}
 }
+
+func TestExpectedIdempotencyKeyIsStableAndAttemptBound(t *testing.T) {
+	attempt := reconciliationAttempt()
+	key := attempt.IdempotencyKey
+	if key == "" || key != ExpectedIdempotencyKey(attempt) {
+		t.Fatalf("idempotency key is not deterministic: %q", key)
+	}
+	for _, mutate := range []func(*Attempt){
+		func(a *Attempt) { a.ProviderID = "provider.other.v1" },
+		func(a *Attempt) { a.TenantID = "tenant-b" },
+		func(a *Attempt) { a.PermitID = "44444444-4444-4444-8444-444444444444" },
+		func(a *Attempt) { a.AttemptID = "55555555-5555-4555-8555-555555555555" },
+		func(a *Attempt) { a.ActionHash = strings.Repeat("c", 64) },
+	} {
+		changed := attempt
+		mutate(&changed)
+		if ExpectedIdempotencyKey(changed) == key {
+			t.Fatal("idempotency key did not change with immutable Attempt identity")
+		}
+		if err := ValidateAttempt(changed); !errors.Is(err, ErrInvalidAttempt) {
+			t.Fatalf("changed Attempt reused old idempotency key: %v", err)
+		}
+	}
+}
