@@ -198,6 +198,7 @@ func VerifyPermitRoleSeparation(
 			"guard_schema_migrations",
 			"guard_operation_unknown_events",
 			"guard_permit_revocations",
+			"guard_provider_observations",
 		} {
 			sourceRead := role == issuerRole &&
 				(table == "guard_action_operations" || table == "guard_accepted_submission_snapshots")
