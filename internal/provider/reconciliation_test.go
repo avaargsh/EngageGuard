@@ -23,15 +23,16 @@ func (f verifierFunc) Verify(ctx context.Context, attempt Attempt, observation O
 }
 
 func reconciliationAttempt() Attempt {
-	return Attempt{
-		ProviderID:     "provider.workspace.v1",
-		TenantID:       "tenant-a",
-		OperationID:    "11111111-1111-4111-8111-111111111111",
-		PermitID:       "33333333-3333-4333-8333-333333333333",
-		AttemptID:      "22222222-2222-4222-8222-222222222222",
-		IdempotencyKey: "engageguard/op-1/attempt-1",
-		ActionHash:     strings.Repeat("a", 64),
+	attempt := Attempt{
+		ProviderID:  "provider.workspace.v1",
+		TenantID:    "tenant-a",
+		OperationID: "11111111-1111-4111-8111-111111111111",
+		PermitID:    "33333333-3333-4333-8333-333333333333",
+		AttemptID:   "22222222-2222-4222-8222-222222222222",
+		ActionHash:  strings.Repeat("a", 64),
 	}
+	attempt.IdempotencyKey = ExpectedIdempotencyKey(attempt)
+	return attempt
 }
 
 func reconciliationObservation(attempt Attempt, outcome Outcome) Observation {
